@@ -6,7 +6,8 @@ function createClient() {
   if (!url) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local and fill it in.");
   }
-  return postgres(url, { max: 5, idle_timeout: 20 });
+  // prepare: false is required by Supabase's transaction-mode pooler (port 6543).
+  return postgres(url, { max: 5, idle_timeout: 20, prepare: false });
 }
 
 // Reuse one pool across hot reloads in dev.
