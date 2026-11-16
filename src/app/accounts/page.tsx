@@ -23,6 +23,7 @@ async function AccountsList() {
   try {
     owner = await getOwner();
   } catch (e) {
+    console.error("[db] failed to load owner:", e);
     return <SetupNotice error={e instanceof Error ? e.message : String(e)} />;
   }
   if (!owner) return <SetupNotice />;
