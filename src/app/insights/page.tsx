@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { RunAnalystButton } from "@/components/run-analyst";
 import { SetupNotice } from "@/components/setup-notice";
@@ -34,6 +35,7 @@ const DIM_LABEL: Record<string, string> = {
 };
 
 async function InsightsList() {
+  await connection(); // request time only: never query the database during the build
   let owner;
   try {
     owner = await getOwner();

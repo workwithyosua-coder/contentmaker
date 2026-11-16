@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PlatformDot } from "@/components/ui";
@@ -19,6 +20,7 @@ export default function AccountsPage() {
 }
 
 async function AccountsList() {
+  await connection(); // request time only: never query the database during the build
   let owner;
   try {
     owner = await getOwner();
