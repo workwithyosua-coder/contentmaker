@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f0f0f2;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --muted: #6b6b76;
+  --accent: #5b5bd6;
+  --accent-contrast: #ffffff;
+
+  --win: #15803d;
+  --win-bg: #dcfce7;
+  --good: #0f766e;
+  --good-bg: #ccfbf1;
+  --avg: #52525b;
+  --avg-bg: #ececef;
+  --weak: #b45309;
+  --weak-bg: #fef3c7;
+  --bad: #b91c1c;
+  --bad-bg: #fee2e2;
+  --early: #4338ca;
+  --early-bg: #e0e7ff;
+
+  --c-instagram: #c2410c;
+  --c-tiktok: #0e7490;
+  --c-youtube: #6d28d9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0c0e;
+    --surface: #17171a;
+    --surface-2: #202024;
+    --border: #2c2c31;
+    --text: #ededf0;
+    --muted: #9a9aa5;
+    --accent: #8b8bf0;
+    --accent-contrast: #0c0c0e;
+
+    --win: #4ade80;
+    --win-bg: #12301d;
+    --good: #2dd4bf;
+    --good-bg: #0f2e2b;
+    --avg: #b4b4bd;
+    --avg-bg: #26262b;
+    --weak: #fbbf24;
+    --weak-bg: #33270d;
+    --bad: #f87171;
+    --bad-bg: #3a1616;
+    --early: #a5b4fc;
+    --early-bg: #1e1f3d;
+
+    --c-instagram: #fb923c;
+    --c-tiktok: #22d3ee;
+    --c-youtube: #a78bfa;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Respect iPhone notch / home bar when installed as an app */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
