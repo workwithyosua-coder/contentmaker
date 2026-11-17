@@ -30,6 +30,15 @@ export async function GET(request: Request) {
         secretLength: process.env.TIKTOK_CLIENT_SECRET?.length ?? 0,
         secretHasWhitespace: /\s/.test(process.env.TIKTOK_CLIENT_SECRET ?? ""),
       },
+      google: {
+        clientIdLooksValid: /^[\w-]+\.apps\.googleusercontent\.com$/.test(process.env.GOOGLE_CLIENT_ID ?? ""),
+        secretLength: process.env.GOOGLE_CLIENT_SECRET?.length ?? 0,
+        secretHasWhitespace: /\s/.test(process.env.GOOGLE_CLIENT_SECRET ?? ""),
+      },
+      meta: {
+        appIdLooksValid: /^\d+$/.test(process.env.META_APP_ID ?? ""),
+        configIdLooksValid: /^\d+$/.test(process.env.META_LOGIN_CONFIG_ID ?? ""),
+      },
     });
   } catch (err) {
     const e = err as { message?: string; code?: string };
