@@ -120,7 +120,7 @@ const I = COLORS.ink;
 const W = COLORS.white;
 const sw = 7;
 
-function Icon({ kind, frame }: { kind: PropKind; frame: number }) {
+export function Icon({ kind, frame }: { kind: PropKind; frame: number }) {
   switch (kind) {
     case "cup":
       return (

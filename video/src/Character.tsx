@@ -250,7 +250,14 @@ export function Character({
           {props && (angry || expression === "worried") && <SweatDrops frame={frame} side={isOcu ? 1 : -1} />}
         </g>
 
-        {isOcu && drink && gesture !== "none" && <Drink color={drink} frame={frame} breathe={breathe} sip={gesture === "sip" ? sipAmount(gt, glen) : 0} />}
+        {isOcu && drink && gesture !== "none" && (
+          <Drink
+            color={drink}
+            frame={frame}
+            breathe={breathe}
+            sip={gesture === "sip" ? sipAmount(gt, glen) : gesture === "lift" ? liftAmount(gt, glen) : gesture === "sipHold" ? Math.min(1, gt / 9) : 0}
+          />
+        )}
         <Arms who={who} gesture={gesture} gt={gt} glen={glen} mouth={talking ? mouth : 0} frame={frame} shrug={shrug} />
       </g>
     </svg>
@@ -384,7 +391,7 @@ function SweatDrops({ frame, side }: { frame: number; side: number }) {
   );
 }
 
-export type Gesture = "none" | "hold" | "point" | "fist" | "slap" | "receipt" | "shrug" | "chin" | "offer" | "wave" | "sip" | "rub";
+export type Gesture = "none" | "hold" | "point" | "fist" | "slap" | "receipt" | "shrug" | "chin" | "offer" | "wave" | "sip" | "rub" | "phone" | "cross" | "present" | "lift" | "sipHold";
 
 /** 0..1 how far Ocu's cup is raised: up over 20% → 35% of the line, held, down by 75%. */
 export function sipAmount(gt: number, glen: number) {
@@ -396,6 +403,9 @@ export function sipAmount(gt: number, glen: number) {
   if (p < 0.75) return 1 - ease((p - 0.6) / 0.15);
   return 0;
 }
+
+/** Ocu slowly lifting his cup to chest height over the line, linear and unbothered. */
+export const liftAmount = (gt: number, glen: number) => Math.min(0.55, (gt / Math.max(1, glen)) * 0.9);
 
 /** When Uco's slap lands (frame within the line): the chart flies off at the same moment. */
 export const slapAt = (glen: number) => Math.floor(glen * 0.45);
@@ -485,6 +495,38 @@ function Arms({ who, gesture, gt, glen, mouth, frame, shrug }: { who: Speaker; g
     }
     case "wave": // talking with his hand, timed to the voice
       return arm(R, -40 - mouth * 30 + Math.sin(frame / 5) * 8, 220, "open");
+    case "phone": {
+      // scrolling a glowing phone furiously at chest height
+      const tap = Math.sin(frame * 2.6) > 0.3 ? 6 : 0;
+      return (
+        <g>
+          <g transform="translate(300 700) rotate(-8)">
+            <rect x={-70} y={-120} width={140} height={240} rx={22} fill={INK} />
+            <rect x={-58} y={-104} width={116} height={204} rx={10} fill="#BFF4FF" />
+            <rect x={-58} y={-104} width={116} height={204} rx={10} fill="#FFFFFF" opacity={0.35 + 0.25 * Math.sin(frame / 3)} />
+            {[0, 1, 2, 3].map((k) => {
+              const y = -96 + ((k * 52 + frame * 9) % 208);
+              return <rect key={k} x={-48} y={y} width={96} height={38} rx={6} fill={k % 2 ? COLORS.uco : COLORS.ocu} opacity={0.8} />;
+            })}
+          </g>
+          {arm(L, 52, 140, "fist")}
+          <Arm x={R.x} y={R.y} angle={150 - tap * 0.4} len={150 + tap} sleeve={sleeve} skin={c.skin} hand="point" />
+          <circle cx={300} cy={640} r={180} fill="#BFF4FF" opacity={0.12 + 0.06 * Math.sin(frame / 2)} />
+        </g>
+      );
+    }
+    case "cross": // arms folded, stubborn
+      return (
+        <g strokeLinejoin="round">
+          <path d="M 110 770 C 170 700 360 700 490 760 L 494 850 C 360 800 190 800 114 860 Z" fill={sleeve} stroke={INK} strokeWidth={8} />
+          <path d="M 500 790 C 440 740 260 744 120 800 L 114 890 C 250 836 420 836 496 890 Z" fill={sleeve} stroke={INK} strokeWidth={8} />
+          <path d="M 120 800 l 0 0" />
+          <circle cx={470} cy={784} r={30} fill={c.skin} stroke={INK} strokeWidth={6} />
+          <circle cx={132} cy={846} r={30} fill={c.skin} stroke={INK} strokeWidth={6} />
+        </g>
+      );
+    case "present": // calm open palm toward the evidence
+      return arm(R, -24 + Math.sin(frame / 30) * 3, 230, "open");
     case "rub": {
       // rubbing his eye under the glasses
       const wob = Math.sin(frame / 3) * 6;
