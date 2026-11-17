@@ -1,11 +1,13 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
 import { SetupNotice } from "@/components/setup-notice";
-import { Card, PlatformDot } from "@/components/ui";
+import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
+import { tiktokConfigured } from "@/lib/platforms/tiktok";
 import { getOwner } from "@/lib/queries";
 
-export default function AccountsPage() {
+export default function AccountsPage(props: PageProps<"/accounts">) {
   return (
     <>
       <header className="mb-4">
@@ -13,14 +15,38 @@ export default function AccountsPage() {
         <p className="text-sm text-muted">Social accounts and creative tools connected to your studio.</p>
       </header>
       <Suspense fallback={<div className="h-48 animate-pulse rounded-2xl bg-surface-2" />}>
-        <AccountsList />
+        <AccountsList searchParams={props.searchParams} />
       </Suspense>
     </>
   );
 }
 
-async function AccountsList() {
+const MESSAGES: Record<string, string> = {
+  tiktok_not_configured: "TikTok keys are missing: add TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET in Vercel, then redeploy.",
+  tiktok_denied: "TikTok connection was cancelled.",
+  tiktok_state: "The TikTok login expired or didn't match. Please try again.",
+  tiktok_connect: "TikTok connection failed. Check that your account is a sandbox target user and try again.",
+  tiktok_sync: "TikTok connected, but importing your videos failed. See the error under the account.",
+  no_owner: "No user found in the database.",
+};
+
+const PLATFORMS = ["tiktok", "instagram", "facebook", "youtube"] as const;
+
+type AccountRow = {
+  id: string;
+  platform: string;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  external_account_id: string;
+  last_synced_at: Date | null;
+  last_sync_error: string | null;
+  posts: number;
+};
+
+async function AccountsList({ searchParams }: { searchParams: PageProps<"/accounts">["searchParams"] }) {
   await connection(); // request time only: never query the database during the build
+  const sp = await searchParams;
   let owner;
   try {
     owner = await getOwner();
@@ -29,34 +55,81 @@ async function AccountsList() {
     return <SetupNotice error={e instanceof Error ? e.message : String(e)} />;
   }
   if (!owner) return <SetupNotice />;
-  const accounts = await db()<{ id: string; platform: string; handle: string; external_account_id: string; last_synced_at: Date | null }[]>`
-    SELECT id, platform, handle, external_account_id, last_synced_at FROM social_accounts
-    WHERE user_id = ${owner.id} ORDER BY platform`;
+
+  const accounts = await db()<AccountRow[]>`
+    SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.avatar_url, sa.external_account_id,
+           sa.last_synced_at, sa.last_sync_error, (SELECT count(*)::int FROM posts p WHERE p.social_account_id = sa.id) AS posts
+    FROM social_accounts sa WHERE sa.user_id = ${owner.id} ORDER BY sa.platform, sa.created_at`;
+  const real = accounts.filter((a) => !a.external_account_id.startsWith("demo-"));
+  const demo = accounts.filter((a) => a.external_account_id.startsWith("demo-"));
+  const configured: Record<string, boolean> = { tiktok: tiktokConfigured() };
+
+  const connectedMsg =
+    typeof sp.connected === "string"
+      ? `${PLATFORM_LABEL[sp.connected] ?? sp.connected} connected${typeof sp.videos === "string" ? `: imported ${sp.videos} videos` : ""}.`
+      : null;
+  const errorMsg = typeof sp.error === "string" ? (MESSAGES[sp.error] ?? "Something went wrong.") : null;
 
   return (
     <div className="space-y-4">
-      <Card title="Social accounts">
+      {connectedMsg && <Banner ok>{connectedMsg}</Banner>}
+      {errorMsg && <Banner>{errorMsg}</Banner>}
+
+      <Card title="Your accounts" action={real.length ? <SyncNowButton /> : null}>
         <ul className="divide-y divide-border">
-          {accounts.map((a) => (
-            <li key={a.id} className="flex items-center justify-between gap-3 py-3">
-              <div>
-                <PlatformDot platform={a.platform} />
-                <div className="text-sm font-medium">{a.handle}</div>
-              </div>
-              {a.external_account_id.startsWith("demo-") ? (
-                <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ color: "var(--early)", background: "var(--early-bg)" }}>
-                  Demo data
-                </span>
-              ) : (
-                <span className="text-xs text-muted">
-                  Synced {a.last_synced_at ? new Date(a.last_synced_at).toLocaleString() : "never"}
-                </span>
-              )}
-            </li>
-          ))}
+          {PLATFORMS.map((p) => {
+            const linked = real.filter((a) => a.platform === p);
+            return (
+              <li key={p} className="py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <PlatformDot platform={p} />
+                  {configured[p] ? (
+                    <a
+                      href={`/api/connect/${p}`}
+                      className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast"
+                    >
+                      {linked.length ? "Reconnect" : `Connect ${PLATFORM_LABEL[p]}`}
+                    </a>
+                  ) : (
+                    <span className="text-xs text-muted">Waiting for setup</span>
+                  )}
+                </div>
+                {linked.map((a) => (
+                  <div key={a.id} className="mt-2 flex items-center gap-3 rounded-xl bg-surface-2 p-3">
+                    {a.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={a.avatar_url} alt="" className="h-9 w-9 rounded-full" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="h-9 w-9 rounded-full bg-border" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{a.display_name ?? a.handle}</div>
+                      <div className="text-[11px] text-muted">
+                        {a.posts} posts · synced {a.last_synced_at ? new Date(a.last_synced_at).toLocaleString() : "never"}
+                      </div>
+                      {a.last_sync_error && (
+                        <div className="mt-1 text-[11px]" style={{ color: "var(--bad)" }}>Last sync failed: {a.last_sync_error}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </li>
+            );
+          })}
         </ul>
-        <p className="mt-3 text-xs text-muted">Connecting real accounts comes in the next step (via an aggregator like Ayrshare or the platform APIs).</p>
+        <p className="mt-3 text-xs text-muted">Stats refresh automatically once a day. Use “Sync now” for an immediate update.</p>
       </Card>
+
+      {demo.length > 0 && (
+        <Card title="Demo data">
+          <p className="mb-3 text-sm text-muted">
+            {demo.length} demo accounts with example posts are still in your dashboard. Remove them once your real
+            accounts are connected so the numbers and the Analyst only use your real content.
+          </p>
+          <RemoveDemoButton />
+        </Card>
+      )}
+
       <Card title="Creative tools">
         <ul className="divide-y divide-border text-sm">
           {[
@@ -69,11 +142,22 @@ async function AccountsList() {
                 <div className="font-medium">{name}</div>
                 <div className="text-xs text-muted">{desc}</div>
               </div>
-              <span className="text-xs text-muted">Not connected</span>
+              <span className="text-xs text-muted">Later phase</span>
             </li>
           ))}
         </ul>
       </Card>
+    </div>
+  );
+}
+
+function Banner({ ok = false, children }: { ok?: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className="rounded-2xl px-4 py-3 text-sm font-medium"
+      style={{ color: ok ? "var(--win)" : "var(--bad)", background: ok ? "var(--win-bg)" : "var(--bad-bg)" }}
+    >
+      {children}
     </div>
   );
 }

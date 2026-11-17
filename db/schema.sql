@@ -56,6 +56,10 @@ CREATE TABLE social_accounts (
   scopes                text[],
   is_active             boolean NOT NULL DEFAULT true,
   last_synced_at        timestamptz,
+  refresh_expires_at    timestamptz,
+  display_name          text,
+  avatar_url            text,
+  last_sync_error       text,
   created_at            timestamptz NOT NULL DEFAULT now(),
   UNIQUE (platform, external_account_id)
 );
@@ -346,6 +350,7 @@ CREATE TABLE posts (
   format             content_format_t,
   external_post_id   text,
   permalink          text,
+  thumbnail_url      text,
   caption_text       text,          -- exactly what went live
   duration_s         numeric(8,3),
   status             post_status_t NOT NULL DEFAULT 'scheduled',
