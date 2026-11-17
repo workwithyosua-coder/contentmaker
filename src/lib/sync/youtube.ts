@@ -61,7 +61,12 @@ export async function syncYouTubeChannel(accountId: string) {
     // Analytics can lag or be unavailable for brand-new channels; public stats still import without it.
     let analytics = new Map<string, YtAnalyticsRow>();
     try {
-      analytics = await videoAnalytics(token);
+      const oldest = videos.reduce((min, v) => Math.min(min, new Date(v.publishedAt).getTime()), Date.now());
+      analytics = await videoAnalytics(
+        token,
+        videos.map((v) => v.id),
+        new Date(oldest - 86_400_000),
+      );
     } catch (err) {
       console.warn("[sync:youtube] analytics unavailable:", err instanceof Error ? err.message : err);
     }

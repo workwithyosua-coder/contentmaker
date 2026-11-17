@@ -165,26 +165,48 @@ export type YtAnalyticsRow = {
   subscribersGained?: number;
 };
 
-/** Per-video lifetime analytics for the channel's top videos (by views). Missing metrics are simply absent. */
-export async function videoAnalytics(token: string): Promise<Map<string, YtAnalyticsRow>> {
-  const today = new Date().toISOString().slice(0, 10);
-  const u = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
-  u.searchParams.set("ids", "channel==MINE");
-  u.searchParams.set("startDate", "2005-01-01");
-  u.searchParams.set("endDate", today);
-  u.searchParams.set("dimensions", "video");
-  u.searchParams.set("metrics", "views,averageViewDuration,averageViewPercentage,shares,subscribersGained");
-  u.searchParams.set("sort", "-views");
-  u.searchParams.set("maxResults", "200");
-  const data = await gapi<{ columnHeaders?: { name: string }[]; rows?: (string | number)[][] }>(u.toString(), token);
-  const headers = (data.columnHeaders ?? []).map((h) => h.name);
-  const out = new Map<string, YtAnalyticsRow>();
-  for (const row of data.rows ?? []) {
-    const rec: Record<string, number> = {};
-    headers.forEach((h, i) => {
-      if (h !== "video") rec[h] = Number(row[i]);
-    });
-    out.set(String(row[headers.indexOf("video")]), rec);
+const FULL_METRICS = "views,averageViewDuration,averageViewPercentage,shares,subscribersGained";
+const CORE_METRICS = "views,averageViewDuration,averageViewPercentage";
+
+/**
+ * Per-video lifetime analytics. YouTube Analytics is picky (and sometimes answers "Internal error"), so this tries a
+ * few equivalent report shapes, from the richest to the simplest, and returns the first that works.
+ * `since` should be the channel's oldest upload date (a range starting before the channel existed can fail).
+ */
+export async function videoAnalytics(token: string, videoIds: string[], since: Date): Promise<Map<string, YtAnalyticsRow>> {
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const end = fmt(new Date());
+  const start = fmt(since);
+  const ids = videoIds.slice(0, 200).join(",");
+  const attempts: Record<string, string>[] = [
+    { dimensions: "video", metrics: FULL_METRICS, sort: "-views", maxResults: "200" },
+    { dimensions: "video", metrics: FULL_METRICS, filters: `video==${ids}` },
+    { dimensions: "video", metrics: CORE_METRICS, sort: "-views", maxResults: "200" },
+    { dimensions: "video", metrics: CORE_METRICS, filters: `video==${ids}` },
+  ];
+  let lastError: unknown;
+  for (const params of attempts) {
+    if (params.filters && !ids) continue;
+    const u = new URL("https://youtubeanalytics.googleapis.com/v2/reports");
+    u.searchParams.set("ids", "channel==MINE");
+    u.searchParams.set("startDate", start);
+    u.searchParams.set("endDate", end);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+    try {
+      const data = await gapi<{ columnHeaders?: { name: string }[]; rows?: (string | number)[][] }>(u.toString(), token);
+      const headers = (data.columnHeaders ?? []).map((h) => h.name);
+      const out = new Map<string, YtAnalyticsRow>();
+      for (const row of data.rows ?? []) {
+        const rec: Record<string, number> = {};
+        headers.forEach((h, i) => {
+          if (h !== "video") rec[h] = Number(row[i]);
+        });
+        out.set(String(row[headers.indexOf("video")]), rec);
+      }
+      return out;
+    } catch (err) {
+      lastError = err;
+    }
   }
-  return out;
+  throw lastError;
 }
