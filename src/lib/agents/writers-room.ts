@@ -32,7 +32,20 @@ ${brand}
 </brand_kit>
 
 Language: dialogue in natural, casual spoken Indonesian (how educated young Indonesians actually talk; light slang is fine,
-no stiff textbook Indonesian). English is used only for subtitles and where explicitly asked.`;
+no stiff textbook Indonesian). English is used only for subtitles and where explicitly asked.
+
+Writing rules (antislop), for every text you produce: dialogue, subtitles, on-screen text, captions, titles:
+- Never use the em dash character. Use a comma, period, colon or parentheses instead.
+- No marketing buzzwords (revolutionary, next-generation, seamless, cutting-edge, ultimate, powerful, effortless,
+  "AI-powered"). Say the specific thing.
+- No number or statistic unless it comes from the fact sheet you were given. If there's no source, don't use a number.
+- No invented quotes, people, studies or testimonials.
+- Sound like a person talking, not like an ad.`;
+
+/** Safety net for the antislop rule: swap any em dash that slips through for a comma (or a period in captions). */
+export function stripEmDashes(text: string, replacement = ", ") {
+  return text.replace(/\s*—\s*/g, replacement).replace(/,\s*,/g, ",");
+}
 
 // ---------- 1. Ideas ----------
 const IdeasSchema = z.object({
@@ -57,7 +70,7 @@ export async function generateIdeas(p: { userId: string; projectId: string; dire
   const out = await structured({
     agent: "strategist",
     projectId: p.projectId,
-    promptVersion: "ideas-v1",
+    promptVersion: "ideas-v2",
     effort: "medium",
     system: systemFor("the Strategist", brand),
     schema: IdeasSchema,
@@ -78,7 +91,7 @@ Pitch ${p.count ?? 5} distinct episode ideas. Rules:
   for (const [i, idea] of out.ideas.entries()) {
     await sql`
       INSERT INTO concepts (project_id, title, hook, hook_type, outline, rationale, rank)
-      VALUES (${p.projectId}, ${idea.title}, ${idea.hook_line}, ${idea.pillar},
+      VALUES (${p.projectId}, ${stripEmDashes(idea.title)}, ${stripEmDashes(idea.hook_line)}, ${idea.pillar},
               ${sql.json({
                 topic: idea.topic,
                 hook_speaker: idea.hook_speaker,
@@ -155,10 +168,10 @@ export async function writeScript(p: {
   previous?: Script;
 }) {
   const brand = await brandGuide(p.userId);
-  return structured({
+  const script = await structured({
     agent: "strategist",
     projectId: p.projectId,
-    promptVersion: "script-v1",
+    promptVersion: "script-v2",
     effort: "high",
     system: systemFor("the head writer", brand),
     schema: ScriptSchema,
@@ -194,6 +207,17 @@ Rules:
 - Put key numbers/facts in on_screen_text so the video works with sound off.
 - sources: the URLs from the fact sheet that back the facts used.`,
   });
+  return {
+    ...script,
+    title: stripEmDashes(script.title),
+    lines: script.lines.map((l) => ({
+      ...l,
+      text: stripEmDashes(l.text),
+      subtitle: stripEmDashes(l.subtitle),
+      visual: stripEmDashes(l.visual),
+      on_screen_text: l.on_screen_text === null ? null : stripEmDashes(l.on_screen_text),
+    })),
+  };
 }
 
 // ---------- 4. Captions ----------
@@ -209,7 +233,7 @@ export async function writeCaptions(p: { userId: string; projectId: string; scri
   const c = await structured({
     agent: "copywriter",
     projectId: p.projectId,
-    promptVersion: "captions-v1",
+    promptVersion: "captions-v2",
     effort: "medium",
     system: systemFor("the Copywriter", brand),
     schema: CaptionsSchema,
@@ -239,6 +263,7 @@ Rules:
   for (const r of rows) {
     await sql`
       INSERT INTO caption_options (project_id, platform, caption, hashtags, title, is_selected, rank)
-      VALUES (${p.projectId}, ${r.platform}, ${r.caption}, ${r.hashtags.map((h) => h.replace(/^#/, ""))}, ${r.title}, true, 1)`;
+      VALUES (${p.projectId}, ${r.platform}, ${stripEmDashes(r.caption, ". ")}, ${r.hashtags.map((h) => h.replace(/^#/, ""))},
+              ${r.title === null ? null : stripEmDashes(r.title)}, true, 1)`;
   }
 }
