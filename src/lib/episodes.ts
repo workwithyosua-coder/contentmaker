@@ -25,8 +25,10 @@ export type CaptionRow = { platform: string; caption: string; hashtags: string[]
 
 export async function getEpisode(userId: string, id: string) {
   const sql = db();
-  const [project] = await sql<{ id: string; title: string | null; status: string; direction: string | null; created_at: Date }[]>`
-    SELECT p.id, p.title, p.status, d.prompt AS direction, p.created_at
+  const [project] = await sql<
+    { id: string; title: string | null; status: string; direction: string | null; created_at: Date; last_error: string | null }[]
+  >`
+    SELECT p.id, p.title, p.status, d.prompt AS direction, p.created_at, p.last_error
     FROM content_projects p LEFT JOIN content_directions d ON d.id = p.direction_id
     WHERE p.id = ${id} AND p.user_id = ${userId}`;
   if (!project) return null;

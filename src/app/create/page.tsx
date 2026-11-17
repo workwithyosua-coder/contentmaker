@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { NewEpisodeForm } from "@/components/episode-ui";
+import { AutoRefresh, NewEpisodeForm } from "@/components/episode-ui";
 import { SetupNotice } from "@/components/setup-notice";
-import { Card } from "@/components/ui";
+import { Card, EmptyState } from "@/components/ui";
 import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
 import { createEpisodeAction } from "./actions";
@@ -12,9 +12,11 @@ import { createEpisodeAction } from "./actions";
 export const maxDuration = 300;
 
 const STATUS_LABEL: Record<string, string> = {
+  draft: "Needs retry",
   ideating: "Brainstorming…",
   awaiting_concept: "Pick an idea",
   scripting: "Writing script…",
+  captioning: "Writing captions…",
   awaiting_script_approval: "Review script",
   awaiting_recording: "Ready to record",
   published: "Published",
@@ -53,9 +55,17 @@ async function Episodes() {
   }
   if (!owner) return <SetupNotice />;
   const episodes = await listEpisodes(owner.id);
-  if (!episodes.length) return null;
+  if (!episodes.length) {
+    return (
+      <EmptyState title="No episodes yet">
+        Type a topic above and the writers&apos; room pitches 5 ideas. Pick one and it fact-checks and writes the script.
+      </EmptyState>
+    );
+  }
+  const working = episodes.some((e) => ["ideating", "scripting", "captioning"].includes(e.status));
   return (
     <Card title="Episodes">
+      <AutoRefresh active={working} />
       <ul className="space-y-2">
         {episodes.map((e) => (
           <li key={e.id}>

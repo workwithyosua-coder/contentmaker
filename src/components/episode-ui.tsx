@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useState } from "react";
 import type { StepResult } from "@/app/create/actions";
 
 export function Status({ state }: { state: StepResult }) {
@@ -63,7 +64,7 @@ export function NewEpisodeForm({ action }: { action: (prev: StepResult, form: Fo
       />
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className={primary}>
-          {pending ? "The writers' room is brainstorming… (~30 s)" : "Pitch me 5 ideas"}
+          {pending ? "Starting…" : "Pitch me 5 ideas"}
         </button>
         <Status state={state} />
       </div>
@@ -87,7 +88,7 @@ export function ReviseForm({ action }: { action: (prev: StepResult, form: FormDa
       />
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className={secondary}>
-          {pending ? "Rewriting… (~40 s)" : "Revise script"}
+          {pending ? "Starting…" : "Revise script"}
         </button>
         <Status state={state} />
       </div>
@@ -110,4 +111,15 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
       {done ? "Copied ✓" : label}
     </button>
   );
+}
+
+/** While a background step runs, re-fetch the page every few seconds so results appear by themselves. */
+export function AutoRefresh({ active, everyMs = 4000 }: { active: boolean; everyMs?: number }) {
+  const router = useRouter();
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => router.refresh(), everyMs);
+    return () => clearInterval(t);
+  }, [active, everyMs, router]);
+  return null;
 }

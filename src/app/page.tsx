@@ -6,7 +6,7 @@ import { WeeklyViewsChart } from "@/components/charts";
 import { Filters } from "@/components/filters";
 import { PostList } from "@/components/post-list";
 import { SetupNotice } from "@/components/setup-notice";
-import { Card, Kpi, PlatformDot, fmtNum } from "@/components/ui";
+import { Card, EmptyState, Kpi, PlatformDot, fmtNum } from "@/components/ui";
 import { parseFilters } from "@/lib/params";
 import {
   getBreakdown,
@@ -60,7 +60,25 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/">["searc
 
   return (
     <div className="space-y-4">
-      <Filters basePath="/" platforms={platforms} platform={platform} days={days} />
+      {platforms.length === 0 ? (
+        <EmptyState title="No accounts connected yet">
+          Connect TikTok, Instagram, Facebook or YouTube to see what&apos;s working.{" "}
+          <Link href="/accounts" className="font-semibold text-link underline">Go to Accounts</Link>
+        </EmptyState>
+      ) : kpis.posts === 0 ? (
+        <EmptyState title={`No posts in the last ${days} days`}>
+          Your connected accounts have nothing published in this period yet. Make your next episode in{" "}
+          <Link href="/create" className="font-semibold text-link underline">Create</Link>; its stats appear here a day after it&apos;s posted.
+          {days < 90 && (
+            <>
+              {" "}Or look at a{" "}
+              <Link href={platform ? `/?platform=${platform}` : "/"} className="font-semibold text-link underline">longer period</Link>.
+            </>
+          )}
+        </EmptyState>
+      ) : null}
+
+      {platforms.length > 0 && <Filters basePath="/" platforms={platforms} platform={platform} days={days} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label={`Posts · ${days}d`} value={String(kpis.posts)} sub={`${kpis.winners} winners · ${kpis.underperformers} flops`} />
@@ -94,7 +112,11 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/">["searc
 
       {!platform && (
         <Card title="Weekly views by platform">
-          <WeeklyViewsChart data={weekly} platforms={platforms} />
+          {weekly.length ? (
+            <WeeklyViewsChart data={weekly} platforms={platforms} />
+          ) : (
+            <p className="text-sm text-muted">No views in the last 12 weeks yet. The chart fills in as your posts collect views.</p>
+          )}
         </Card>
       )}
 

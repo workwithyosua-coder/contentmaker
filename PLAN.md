@@ -46,9 +46,10 @@ Agents at launch: 3 (Analyst, Creative, Editor+QA). Models: Sonnet 5.5 / Haiku 5
 - [ ] ✅ 100% done
 
 ## Priority now: make the app run perfectly
-- [ ] First real end-to-end run of the Create flow (ideas, fact check, script, captions) with the real Claude API
-- [ ] Empty, loading and error states everywhere (antislop #11)
-- [ ] Automated tests kept in the repo
+- [x] First real end-to-end run of the Create flow (ideas, fact check, script, captions) with the real Claude API
+- [x] Empty, loading and error states everywhere (antislop #11)
+- [x] Long AI steps run in the background (safe to lock the phone), with retry on failure
+- [x] Automated tests kept in the repo (`tests/`)
 - [ ] Deploys from `main` automatically (merge the working branch)
 
 ## Backlog (lowest priority, cosmetic)

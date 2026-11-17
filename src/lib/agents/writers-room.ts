@@ -121,7 +121,7 @@ export async function factCheck(p: { userId: string; projectId: string; title: s
     agent: "strategist",
     projectId: p.projectId,
     promptVersion: "factcheck-v1",
-    maxSearches: 5,
+    maxSearches: 3,
     system: `You are the fact-checker for a comedy-education video. Be precise and skeptical. Prefer primary or reputable
 sources. Today's date matters for news: check the latest information.`,
     prompt: `Episode: ${p.title}

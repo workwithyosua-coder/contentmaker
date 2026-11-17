@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { CopyButton, ReviseForm, StepButton } from "@/components/episode-ui";
+import { AutoRefresh, CopyButton, ReviseForm, StepButton } from "@/components/episode-ui";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
@@ -14,6 +14,7 @@ import {
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
+  unpickIdeaAction,
 } from "../actions";
 
 export const maxDuration = 300;
@@ -60,20 +61,55 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
   if (!ep) notFound();
   const { project, concepts, latestScript, captions } = ep;
   const picked = concepts.find((c) => c.is_selected);
+  const working = ["ideating", "scripting", "captioning"].includes(project.status);
+  const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
 
   return (
     <div className="space-y-4">
+      <AutoRefresh active={working} />
       <header>
         <h1 className="text-2xl font-semibold">{project.title ?? "New episode"}</h1>
         {project.direction && <p className="text-sm text-muted">Direction: {project.direction}</p>}
       </header>
 
-      {/* Step 1 — ideas */}
-      {!latestScript && (
+      {working && (
+        <Progress
+          text={
+            project.status === "ideating"
+              ? "Brainstorming ideas (about 40 seconds)."
+              : project.status === "captioning"
+                ? "Writing captions for TikTok, Instagram, YouTube and Facebook (about 20 seconds)."
+              : latestScript
+                ? "Rewriting the script with your notes (about a minute)."
+                : "Fact-checking with web search, then writing the dialogue (about 1.5 minutes)."
+          }
+        />
+      )}
+
+      {project.last_error && !working && (
+        <div role="alert" className="rounded-card border p-4 text-sm" style={{ borderColor: "var(--bad)", background: "var(--bad-bg)" }}>
+          <p className="font-semibold" style={{ color: "var(--bad)" }}>The last step didn&apos;t finish.</p>
+          <p className="mt-1">{project.last_error}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {project.status === "draft" && (
+              <StepButton action={moreIdeasAction.bind(null, project.id)} label="Try again" pendingLabel="Starting…" />
+            )}
+            {scriptFailed && picked && (
+              <>
+                <StepButton action={pickIdeaAction.bind(null, project.id, picked.id)} label="Try writing again" pendingLabel="Starting…" />
+                <StepButton action={unpickIdeaAction.bind(null, project.id)} label="Choose another idea" pendingLabel="…" variant="secondary" />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Step 1: ideas */}
+      {!latestScript && concepts.length > 0 && (
         <Card
-          title={picked ? "Writing the script…" : "Pick an idea"}
+          title={picked ? `Writing: ${picked.title}` : "Pick an idea"}
           action={
-            !picked ? (
+            !picked && !working ? (
               <StepButton
                 action={moreIdeasAction.bind(null, project.id)}
                 label="5 new ideas"
@@ -83,9 +119,6 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
             ) : null
           }
         >
-          {project.status === "scripting" && (
-            <p className="mb-3 text-sm text-muted">Fact-checking with web search and writing the dialogue (about a minute)…</p>
-          )}
           <ul className="space-y-3">
             {concepts.map((c) => (
               <li key={c.id} className="ticket px-6 py-4">
@@ -102,12 +135,12 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
                   <p><span className="font-semibold" style={{ color: "var(--ocu)" }}>Ocu</span>: {c.outline.ocu_take}</p>
                 </div>
                 <p className="mt-2 text-xs text-muted">💡 {c.outline.enlightening_fact}</p>
-                {!picked && (
+                {!picked && !working && (
                   <div className="mt-3">
                     <StepButton
                       action={pickIdeaAction.bind(null, project.id, c.id)}
                       label="Write this one"
-                      pendingLabel="Fact-checking & writing… (~1 min)"
+                      pendingLabel="Starting…"
                     />
                   </div>
                 )}
@@ -117,23 +150,23 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
         </Card>
       )}
 
-      {/* Step 2 — script */}
+      {/* Step 2: script */}
       {latestScript && <ScriptView script={latestScript} versions={ep.scriptVersions} />}
 
-      {latestScript && !latestScript.approved_at && (
+      {latestScript && !latestScript.approved_at && !working && (
         <Card title="Happy with it?">
           <div className="space-y-4">
             <StepButton
               action={approveScriptAction.bind(null, project.id)}
               label="Approve script & write captions"
-              pendingLabel="Writing captions… (~20 s)"
+              pendingLabel="Starting…"
             />
             <ReviseForm action={reviseScriptAction.bind(null, project.id)} />
           </div>
         </Card>
       )}
 
-      {/* Step 3 — captions */}
+      {/* Step 3: captions */}
       {captions.length > 0 && (
         <Card title="Captions">
           <ul className="space-y-4">
@@ -171,6 +204,18 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
         variant="secondary"
         confirmText="Delete this episode, its ideas, scripts and captions?"
       />
+    </div>
+  );
+}
+
+function Progress({ text }: { text: string }) {
+  return (
+    <div role="status" className="flex items-center gap-3 rounded-card border border-border bg-surface p-4">
+      <span aria-hidden className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-accent" />
+      <div className="text-sm">
+        <p className="font-semibold">{text}</p>
+        <p className="text-muted">You can leave this page or lock your phone. It keeps working and this page updates by itself.</p>
+      </div>
     </div>
   );
 }

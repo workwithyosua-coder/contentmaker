@@ -18,6 +18,7 @@ CREATE TYPE project_status_t  AS ENUM (
   'awaiting_concept',   -- user picks a concept            (HUMAN GATE 1)
   'scripting',          -- Writers' room researching + writing the dialogue
   'awaiting_script_approval', -- user approves/edits the Uco & Ocu script
+  'captioning',         -- Copywriter writing platform captions
   'awaiting_recording', -- user records the voice lines
   'awaiting_footage',   -- user uploads raw clips (or AI b-roll)
   'analyzing',          -- transcribe / scene detect
@@ -137,6 +138,7 @@ CREATE TABLE content_projects (
   selected_style_id   uuid,
   selected_caption_id uuid,
   workflow_run_id     text,   -- id in Inngest / Trigger.dev / Temporal
+  last_error          text,   -- set when a background step (ideas, script) fails
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );

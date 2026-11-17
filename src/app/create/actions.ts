@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { claudeConfigured } from "@/lib/agents/claude";
 import { factCheck, generateIdeas, writeCaptions, writeScript, type ConceptOutline, type Script } from "@/lib/agents/writers-room";
 import { db } from "@/lib/db";
@@ -17,11 +18,30 @@ async function owner() {
   return o;
 }
 
-async function setStatus(projectId: string, status: string) {
-  await db()`UPDATE content_projects SET status = ${status}::project_status_t, updated_at = now() WHERE id = ${projectId}`;
+async function setStatus(projectId: string, status: string, error: string | null = null) {
+  await db()`UPDATE content_projects SET status = ${status}::project_status_t, last_error = ${error}, updated_at = now()
+             WHERE id = ${projectId}`;
 }
 
-/** New episode: save the direction, then the Strategist pitches 5 ideas. */
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/**
+ * Long agent steps (30–120 s) run in the background with `after()`: the action returns right away, the page shows
+ * progress and refreshes itself. Closing the app or locking the phone doesn't interrupt the work.
+ * On failure the episode goes back to `fallbackStatus` with the error saved for the page to show.
+ */
+function inBackground(projectId: string, fallbackStatus: string, work: () => Promise<void>) {
+  after(async () => {
+    try {
+      await work();
+    } catch (err) {
+      console.error("[create] background step failed:", projectId, message(err));
+      await setStatus(projectId, fallbackStatus, message(err)).catch(() => {});
+    }
+  });
+}
+
+/** New episode: save the direction, then the Strategist pitches 5 ideas (in the background). */
 export async function createEpisodeAction(_prev: StepResult, form: FormData): Promise<StepResult> {
   const direction = String(form.get("direction") ?? "").trim();
   if (direction.length < 3) return { ok: false, message: "Write a topic or direction first." };
@@ -39,25 +59,38 @@ export async function createEpisodeAction(_prev: StepResult, form: FormData): Pr
       VALUES (${o.id}, ${d.id}, ${direction.slice(0, 80)}, 'short_video', ${ALL_PLATFORMS}::platform_t[], 'ideating')
       RETURNING id`;
     projectId = p.id;
-    await generateIdeas({ userId: o.id, projectId, direction });
-    await setStatus(projectId, "awaiting_concept");
+    const userId = o.id;
+    inBackground(projectId, "draft", async () => {
+      await generateIdeas({ userId, projectId, direction });
+      await setStatus(projectId, "awaiting_concept");
+    });
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: message(err) };
   }
   revalidatePath("/create");
   redirect(`/create/${projectId}`);
 }
 
+/** Retry ideas after a failure, or ask for different ones. */
 export async function moreIdeasAction(projectId: string): Promise<StepResult> {
   try {
     const o = await owner();
     const [d] = await db()<{ prompt: string }[]>`
       SELECT d.prompt FROM content_projects p JOIN content_directions d ON d.id = p.direction_id WHERE p.id = ${projectId}`;
-    await generateIdeas({ userId: o.id, projectId, direction: `${d?.prompt ?? ""}\n(Give completely different ideas from before.)` });
+    const [{ n }] = await db()<{ n: number }[]>`SELECT count(*)::int AS n FROM concepts WHERE project_id = ${projectId}`;
+    await setStatus(projectId, "ideating");
+    inBackground(projectId, n ? "awaiting_concept" : "draft", async () => {
+      await generateIdeas({
+        userId: o.id,
+        projectId,
+        direction: n ? `${d?.prompt ?? ""}\n(Give completely different ideas from before.)` : (d?.prompt ?? ""),
+      });
+      await setStatus(projectId, "awaiting_concept");
+    });
     revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: "New ideas ready." };
+    return { ok: true, message: "Brainstorming…" };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: message(err) };
   }
 }
 
@@ -78,7 +111,7 @@ async function saveScript(projectId: string, conceptId: string, script: Script, 
   await sql`UPDATE content_projects SET title = ${script.title} WHERE id = ${projectId}`;
 }
 
-/** Pick an idea → fact check (web search) → first script draft. */
+/** Pick an idea → fact check (web search) → first script draft, in the background. */
 export async function pickIdeaAction(projectId: string, conceptId: string): Promise<StepResult> {
   try {
     const o = await owner();
@@ -86,58 +119,74 @@ export async function pickIdeaAction(projectId: string, conceptId: string): Prom
     await sql`UPDATE concepts SET is_selected = (id = ${conceptId}) WHERE project_id = ${projectId}`;
     await sql`UPDATE content_projects SET selected_concept_id = ${conceptId} WHERE id = ${projectId}`;
     await setStatus(projectId, "scripting");
-    const c = await loadConcept(projectId);
-    const facts = await factCheck({ userId: o.id, projectId, title: c.title, outline: c.outline });
-    const script = await writeScript({ userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: facts });
-    await saveScript(projectId, c.id, script, facts, null);
-    await setStatus(projectId, "awaiting_script_approval");
+    inBackground(projectId, "awaiting_concept", async () => {
+      const c = await loadConcept(projectId);
+      const facts = await factCheck({ userId: o.id, projectId, title: c.title, outline: c.outline });
+      const script = await writeScript({ userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: facts });
+      await saveScript(projectId, c.id, script, facts, null);
+      await setStatus(projectId, "awaiting_script_approval");
+    });
     revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: "Script ready." };
+    return { ok: true, message: "Writing started." };
   } catch (err) {
-    await setStatus(projectId, "awaiting_concept").catch(() => {});
-    revalidatePath(`/create/${projectId}`);
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: message(err) };
   }
 }
 
-/** Revise the script with the owner's notes (keeps the same fact sheet). */
+/** Choose a different idea after a failed or unwanted pick (only before any script exists). */
+export async function unpickIdeaAction(projectId: string): Promise<StepResult> {
+  await db()`UPDATE concepts SET is_selected = false WHERE project_id = ${projectId}`;
+  await db()`UPDATE content_projects SET selected_concept_id = NULL WHERE id = ${projectId}`;
+  await setStatus(projectId, "awaiting_concept");
+  revalidatePath(`/create/${projectId}`);
+  return { ok: true, message: "Pick another idea." };
+}
+
+/** Revise the script with the owner's notes (keeps the same fact sheet), in the background. */
 export async function reviseScriptAction(projectId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
   const feedback = String(form.get("feedback") ?? "").trim();
   if (!feedback) return { ok: false, message: "Write what you'd like changed." };
   try {
     const o = await owner();
-    const c = await loadConcept(projectId);
-    const [prev] = await db()<(Script & { fact_sheet: string })[]>`
-      SELECT title, target_duration_s, lines, sources, fact_sheet FROM scripts WHERE project_id = ${projectId}
-      ORDER BY version DESC LIMIT 1`;
-    const script = await writeScript({
-      userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: prev?.fact_sheet ?? "", feedback, previous: prev,
+    await setStatus(projectId, "scripting");
+    inBackground(projectId, "awaiting_script_approval", async () => {
+      const c = await loadConcept(projectId);
+      const [prev] = await db()<(Script & { fact_sheet: string })[]>`
+        SELECT title, target_duration_s, lines, sources, fact_sheet FROM scripts WHERE project_id = ${projectId}
+        ORDER BY version DESC LIMIT 1`;
+      const script = await writeScript({
+        userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: prev?.fact_sheet ?? "", feedback, previous: prev,
+      });
+      await saveScript(projectId, c.id, script, prev?.fact_sheet ?? "", feedback);
+      await setStatus(projectId, "awaiting_script_approval");
     });
-    await saveScript(projectId, c.id, script, prev?.fact_sheet ?? "", feedback);
-    await setStatus(projectId, "awaiting_script_approval");
     revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: "New version ready." };
+    return { ok: true, message: "Rewriting started." };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: message(err) };
   }
 }
 
-/** Approve the latest script → the Copywriter writes captions for all 4 platforms. */
+/** Approve the latest script → the Copywriter writes captions for all 4 platforms (about 20 s, in the background). */
 export async function approveScriptAction(projectId: string): Promise<StepResult> {
   try {
     const o = await owner();
-    const sql = db();
-    const [s] = await sql<(Script & { id: string })[]>`
-      SELECT id, title, target_duration_s, lines, sources FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
-    if (!s) throw new Error("No script yet.");
-    await sql`UPDATE scripts SET approved_at = now() WHERE id = ${s.id}`;
-    await writeCaptions({ userId: o.id, projectId, script: s });
-    await setStatus(projectId, "awaiting_recording");
+    await setStatus(projectId, "captioning");
+    inBackground(projectId, "awaiting_script_approval", async () => {
+      const sql = db();
+      const [s] = await sql<(Script & { id: string })[]>`
+        SELECT id, title, target_duration_s, lines, sources FROM scripts WHERE project_id = ${projectId}
+        ORDER BY version DESC LIMIT 1`;
+      if (!s) throw new Error("No script yet.");
+      await writeCaptions({ userId: o.id, projectId, script: s });
+      await sql`UPDATE scripts SET approved_at = now() WHERE id = ${s.id}`;
+      await setStatus(projectId, "awaiting_recording");
+    });
     revalidatePath(`/create/${projectId}`);
     revalidatePath("/create");
-    return { ok: true, message: "Approved. Captions ready." };
+    return { ok: true, message: "Writing captions…" };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: message(err) };
   }
 }
 

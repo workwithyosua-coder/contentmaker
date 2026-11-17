@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:setup": "tsx --env-file-if-exists=.env.local scripts/db-setup.mts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed-demo.mts",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:integration": "for f in tests/integration/*.test.mts; do echo \"== $f\"; tsx --conditions=react-server --tsconfig tsconfig.json \"$f\" || exit 1; done"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

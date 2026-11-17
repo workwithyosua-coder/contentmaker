@@ -56,9 +56,19 @@ async function logged<T>(
 }
 
 export function friendlyError(err: unknown) {
-  if (err instanceof Anthropic.AuthenticationError) return "Invalid Anthropic API key.";
-  if (err instanceof Anthropic.RateLimitError) return "Rate limited by the Claude API, try again in a minute.";
-  if (err instanceof Anthropic.APIError) return `Claude API error ${err.status}: ${err.message}`;
+  if (err instanceof Anthropic.AuthenticationError) return "The Claude API key in Vercel is invalid or was revoked.";
+  if (err instanceof Anthropic.PermissionDeniedError) return "The Claude API key isn't allowed to do this (check the Anthropic Console).";
+  if (err instanceof Anthropic.RateLimitError) return "Claude is rate-limiting requests. Wait a minute and try again.";
+  if (err instanceof Anthropic.APIConnectionError) return "Couldn't reach Claude (network problem). Try again.";
+  if (err instanceof Anthropic.APIError) {
+    // The SDK already retried temporary errors; show the API's own message, not the raw JSON.
+    const body = err.error as { error?: { type?: string; message?: string } } | undefined;
+    const detail = body?.error?.message ?? err.message;
+    if (err.status === 529 || body?.error?.type === "overloaded_error") return "Claude is overloaded right now. Try again in a few minutes.";
+    if (/credit balance|billing/i.test(detail)) return "Your Anthropic credit balance is too low. Add credit in the Anthropic Console.";
+    if ((err.status ?? 0) >= 500) return "Claude had a temporary problem. Try again.";
+    return `Claude couldn't do this: ${detail}`;
+  }
   return err instanceof Error ? err.message : String(err);
 }
 
