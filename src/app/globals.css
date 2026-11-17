@@ -1,0 +1,302 @@
+@import "tailwindcss";
+
+/* Dapur Konten design tokens. Direction and reasons: DESIGN.md.
+   App chrome uses navy + paper + one amber accent. IP colors (--uco, --ocu) are only for IP content. */
+:root {
+  --bg: #f6f4ee;
+  --surface: #ffffff;
+  --surface-2: #efece4;
+  --border: #e2ded3;
+  --text: #0e1a3a;
+  --muted: #5a6278;
+  --accent: #f2a93b;
+  --accent-hover: #e39a2a;
+  --accent-contrast: #0e1a3a;
+  --link: #1f3d99;
+  --focus: #1f3d99;
+
+  /* navy band: sidebar / bottom bar, the same in both themes */
+  --band: #0e1a3a;
+  --band-text: #eef1f8;
+  --band-muted: #a3adc8;
+
+  --r-card: 14px;
+  --r-control: 10px;
+  --r-label: 6px;
+
+  /* data colors (encode information, not brand) */
+  --win: #15803d;
+  --win-bg: #dcfce7;
+  --good: #0f766e;
+  --good-bg: #ccfbf1;
+  --avg: #52525b;
+  --avg-bg: #ececef;
+  --weak: #b45309;
+  --weak-bg: #fef3c7;
+  --bad: #b91c1c;
+  --bad-bg: #fee2e2;
+  --early: #4338ca;
+  --early-bg: #e0e7ff;
+  --c-instagram: #c2410c;
+  --c-tiktok: #0e7490;
+  --c-youtube: #6d28d9;
+  --c-facebook: #1d4ed8;
+
+  /* IP: Uco Ocu (content only) */
+  --uco: #b23c0c;
+  --uco-bg: #fff1e8;
+  --ocu: #0a6e66;
+  --ocu-bg: #e6f7f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1530;
+    --surface: #121e40;
+    --surface-2: #18264e;
+    --border: #24335e;
+    --text: #eef1f8;
+    --muted: #a3adc8;
+    --accent: #f5b544;
+    --accent-hover: #f8c467;
+    --accent-contrast: #0b1530;
+    --link: #f5b544;
+    --focus: #f5b544;
+    --band: #08112a;
+
+    --win: #4ade80;
+    --win-bg: #12301d;
+    --good: #2dd4bf;
+    --good-bg: #0f2e2b;
+    --avg: #c3c7d4;
+    --avg-bg: #232f55;
+    --weak: #fbbf24;
+    --weak-bg: #33270d;
+    --bad: #f87171;
+    --bad-bg: #3a1616;
+    --early: #a5b4fc;
+    --early-bg: #1e2550;
+    --c-instagram: #fb923c;
+    --c-tiktok: #22d3ee;
+    --c-youtube: #a78bfa;
+    --c-facebook: #60a5fa;
+
+    --uco: #ff8a5c;
+    --uco-bg: #2e1a12;
+    --ocu: #4fd1c5;
+    --ocu-bg: #10292a;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-link: var(--link);
+  --color-band: var(--band);
+  --color-band-text: var(--band-text);
+  --color-band-muted: var(--band-muted);
+  --font-sans: var(--font-app);
+  --radius-card: var(--r-card);
+  --radius-control: var(--r-control);
+  --radius-label: var(--r-label);
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--bg);
+    color: var(--text);
+  }
+  body {
+    font-family: var(--font-app), system-ui, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.01em;
+  }
+  /* every control says it can be used (Tailwind v4 resets buttons to the default cursor) */
+  a[href],
+  button,
+  summary,
+  select,
+  label[for],
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+  }
+  :disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+  /* one visible focus style for keyboards, everywhere */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-height: 44px;
+    padding: 0 1.1rem;
+    border-radius: var(--r-control);
+    border: 1px solid transparent;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 150ms ease;
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .btn:disabled {
+    opacity: 0.55;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-contrast);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .btn-secondary {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: var(--muted);
+  }
+  .btn-danger {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--bad);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--bad-bg);
+    border-color: var(--bad);
+  }
+  .btn-quiet {
+    background: transparent;
+    color: var(--muted);
+    padding: 0 0.75rem;
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.9rem;
+    border-radius: var(--r-control);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease;
+  }
+  .chip:hover {
+    color: var(--text);
+    border-color: var(--muted);
+  }
+  .chip[aria-current="true"] {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+  }
+
+  /* ticket stamp: rectangular, bordered status label (identity motif) */
+  .stamp {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.4rem;
+    border: 1.5px solid currentColor;
+    border-radius: var(--r-label);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .field {
+    width: 100%;
+    border-radius: var(--r-control);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 0.65rem 0.8rem;
+    font-size: 1rem; /* 16px: stops iOS from zooming into the field */
+    transition: border-color 150ms ease;
+  }
+  .field:hover {
+    border-color: var(--muted);
+  }
+  .field::placeholder {
+    color: var(--muted);
+  }
+  .label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+
+  /* order ticket: card with punched notches on both sides (identity motif) */
+  .ticket {
+    --notch: 9px;
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    -webkit-mask:
+      radial-gradient(circle var(--notch) at 0 50%, #0000 97%, #000) left / 51% 100% no-repeat,
+      radial-gradient(circle var(--notch) at 100% 50%, #0000 97%, #000) right / 51% 100% no-repeat;
+    mask:
+      radial-gradient(circle var(--notch) at 0 50%, #0000 97%, #000) left / 51% 100% no-repeat,
+      radial-gradient(circle var(--notch) at 100% 50%, #0000 97%, #000) right / 51% 100% no-repeat;
+  }
+}
+
+/* Respect iPhone notch / home bar when installed as an app */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}

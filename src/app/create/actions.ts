@@ -1,0 +1,199 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { after } from "next/server";
+import { claudeConfigured } from "@/lib/agents/claude";
+import { factCheck, generateIdeas, writeCaptions, writeScript, type ConceptOutline, type Script } from "@/lib/agents/writers-room";
+import { db } from "@/lib/db";
+import { getOwner } from "@/lib/queries";
+
+export type StepResult = { ok: boolean; message: string } | null;
+const ALL_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"];
+
+async function owner() {
+  const o = await getOwner();
+  if (!o) throw new Error("No user found.");
+  if (!claudeConfigured()) throw new Error("ANTHROPIC_API_KEY is not set in Vercel.");
+  return o;
+}
+
+async function setStatus(projectId: string, status: string, error: string | null = null) {
+  await db()`UPDATE content_projects SET status = ${status}::project_status_t, last_error = ${error}, updated_at = now()
+             WHERE id = ${projectId}`;
+}
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/**
+ * Long agent steps (30–120 s) run in the background with `after()`: the action returns right away, the page shows
+ * progress and refreshes itself. Closing the app or locking the phone doesn't interrupt the work.
+ * On failure the episode goes back to `fallbackStatus` with the error saved for the page to show.
+ */
+function inBackground(projectId: string, fallbackStatus: string, work: () => Promise<void>) {
+  after(async () => {
+    try {
+      await work();
+    } catch (err) {
+      console.error("[create] background step failed:", projectId, message(err));
+      await setStatus(projectId, fallbackStatus, message(err)).catch(() => {});
+    }
+  });
+}
+
+/** New episode: save the direction, then the Strategist pitches 5 ideas (in the background). */
+export async function createEpisodeAction(_prev: StepResult, form: FormData): Promise<StepResult> {
+  const direction = String(form.get("direction") ?? "").trim();
+  if (direction.length < 3) return { ok: false, message: "Write a topic or direction first." };
+  let projectId: string;
+  try {
+    const o = await owner();
+    const sql = db();
+    const [brand] = await sql<{ id: string }[]>`SELECT id FROM brand_kits WHERE user_id = ${o.id} ORDER BY is_default DESC LIMIT 1`;
+    const [d] = await sql<{ id: string }[]>`
+      INSERT INTO content_directions (user_id, brand_kit_id, title, prompt, platforms, formats)
+      VALUES (${o.id}, ${brand?.id ?? null}, ${direction.slice(0, 80)}, ${direction}, ${ALL_PLATFORMS}::platform_t[], '{short_video}')
+      RETURNING id`;
+    const [p] = await sql<{ id: string }[]>`
+      INSERT INTO content_projects (user_id, direction_id, title, format, target_platforms, status)
+      VALUES (${o.id}, ${d.id}, ${direction.slice(0, 80)}, 'short_video', ${ALL_PLATFORMS}::platform_t[], 'ideating')
+      RETURNING id`;
+    projectId = p.id;
+    const userId = o.id;
+    inBackground(projectId, "draft", async () => {
+      await generateIdeas({ userId, projectId, direction });
+      await setStatus(projectId, "awaiting_concept");
+    });
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+  revalidatePath("/create");
+  redirect(`/create/${projectId}`);
+}
+
+/** Retry ideas after a failure, or ask for different ones. */
+export async function moreIdeasAction(projectId: string): Promise<StepResult> {
+  try {
+    const o = await owner();
+    const [d] = await db()<{ prompt: string }[]>`
+      SELECT d.prompt FROM content_projects p JOIN content_directions d ON d.id = p.direction_id WHERE p.id = ${projectId}`;
+    const [{ n }] = await db()<{ n: number }[]>`SELECT count(*)::int AS n FROM concepts WHERE project_id = ${projectId}`;
+    await setStatus(projectId, "ideating");
+    inBackground(projectId, n ? "awaiting_concept" : "draft", async () => {
+      await generateIdeas({
+        userId: o.id,
+        projectId,
+        direction: n ? `${d?.prompt ?? ""}\n(Give completely different ideas from before.)` : (d?.prompt ?? ""),
+      });
+      await setStatus(projectId, "awaiting_concept");
+    });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Brainstorming…" };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+async function loadConcept(projectId: string) {
+  const [c] = await db()<{ id: string; title: string; outline: ConceptOutline }[]>`
+    SELECT id, title, outline FROM concepts WHERE project_id = ${projectId} AND is_selected LIMIT 1`;
+  if (!c) throw new Error("Pick an idea first.");
+  return c;
+}
+
+async function saveScript(projectId: string, conceptId: string, script: Script, factSheet: string, feedback: string | null) {
+  const sql = db();
+  const [{ v }] = await sql<{ v: number }[]>`SELECT COALESCE(max(version), 0) + 1 AS v FROM scripts WHERE project_id = ${projectId}`;
+  await sql`
+    INSERT INTO scripts (project_id, concept_id, version, title, target_duration_s, lines, fact_sheet, sources, feedback)
+    VALUES (${projectId}, ${conceptId}, ${v}, ${script.title}, ${script.target_duration_s}, ${sql.json(script.lines)},
+            ${factSheet}, ${sql.json(script.sources)}, ${feedback})`;
+  await sql`UPDATE content_projects SET title = ${script.title} WHERE id = ${projectId}`;
+}
+
+/** Pick an idea → fact check (web search) → first script draft, in the background. */
+export async function pickIdeaAction(projectId: string, conceptId: string): Promise<StepResult> {
+  try {
+    const o = await owner();
+    const sql = db();
+    await sql`UPDATE concepts SET is_selected = (id = ${conceptId}) WHERE project_id = ${projectId}`;
+    await sql`UPDATE content_projects SET selected_concept_id = ${conceptId} WHERE id = ${projectId}`;
+    await setStatus(projectId, "scripting");
+    inBackground(projectId, "awaiting_concept", async () => {
+      const c = await loadConcept(projectId);
+      const facts = await factCheck({ userId: o.id, projectId, title: c.title, outline: c.outline });
+      const script = await writeScript({ userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: facts });
+      await saveScript(projectId, c.id, script, facts, null);
+      await setStatus(projectId, "awaiting_script_approval");
+    });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Writing started." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Choose a different idea after a failed or unwanted pick (only before any script exists). */
+export async function unpickIdeaAction(projectId: string): Promise<StepResult> {
+  await db()`UPDATE concepts SET is_selected = false WHERE project_id = ${projectId}`;
+  await db()`UPDATE content_projects SET selected_concept_id = NULL WHERE id = ${projectId}`;
+  await setStatus(projectId, "awaiting_concept");
+  revalidatePath(`/create/${projectId}`);
+  return { ok: true, message: "Pick another idea." };
+}
+
+/** Revise the script with the owner's notes (keeps the same fact sheet), in the background. */
+export async function reviseScriptAction(projectId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
+  const feedback = String(form.get("feedback") ?? "").trim();
+  if (!feedback) return { ok: false, message: "Write what you'd like changed." };
+  try {
+    const o = await owner();
+    await setStatus(projectId, "scripting");
+    inBackground(projectId, "awaiting_script_approval", async () => {
+      const c = await loadConcept(projectId);
+      const [prev] = await db()<(Script & { fact_sheet: string })[]>`
+        SELECT title, target_duration_s, lines, sources, fact_sheet FROM scripts WHERE project_id = ${projectId}
+        ORDER BY version DESC LIMIT 1`;
+      const script = await writeScript({
+        userId: o.id, projectId, title: c.title, outline: c.outline, factSheet: prev?.fact_sheet ?? "", feedback, previous: prev,
+      });
+      await saveScript(projectId, c.id, script, prev?.fact_sheet ?? "", feedback);
+      await setStatus(projectId, "awaiting_script_approval");
+    });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Rewriting started." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Approve the latest script → the Copywriter writes captions for all 4 platforms (about 20 s, in the background). */
+export async function approveScriptAction(projectId: string): Promise<StepResult> {
+  try {
+    const o = await owner();
+    await setStatus(projectId, "captioning");
+    inBackground(projectId, "awaiting_script_approval", async () => {
+      const sql = db();
+      const [s] = await sql<(Script & { id: string })[]>`
+        SELECT id, title, target_duration_s, lines, sources FROM scripts WHERE project_id = ${projectId}
+        ORDER BY version DESC LIMIT 1`;
+      if (!s) throw new Error("No script yet.");
+      await writeCaptions({ userId: o.id, projectId, script: s });
+      await sql`UPDATE scripts SET approved_at = now() WHERE id = ${s.id}`;
+      await setStatus(projectId, "awaiting_recording");
+    });
+    revalidatePath(`/create/${projectId}`);
+    revalidatePath("/create");
+    return { ok: true, message: "Writing captions…" };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+export async function deleteEpisodeAction(projectId: string): Promise<StepResult> {
+  const o = await getOwner();
+  if (!o) return { ok: false, message: "No user found." };
+  await db()`DELETE FROM content_projects WHERE id = ${projectId} AND user_id = ${o.id}`;
+  revalidatePath("/create");
+  redirect("/create");
+}
