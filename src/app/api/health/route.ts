@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/auth";
+import { deleteObjects, putObject, signedUrl } from "@/lib/storage";
 
 // Diagnostic endpoint: GET /api/health with header `x-health-token: <HEALTH_TOKEN>`.
 // Excluded from the password proxy, protected by its own token instead. Fails closed if HEALTH_TOKEN is unset.
@@ -16,8 +17,24 @@ export async function GET(request: Request) {
         SELECT (SELECT count(*)::int FROM users) AS users, (SELECT count(*)::int FROM posts) AS posts, now()`,
       timeout,
     ]);
+    // ?storage=1: round-trip a tiny file through the private recordings bucket
+    let storage: unknown = undefined;
+    if (new URL(request.url).searchParams.get("storage") === "1") {
+      const path = `_healthcheck/${Date.now()}.webm`;
+      try {
+        await putObject(path, new Uint8Array([26, 69, 223, 163]).buffer, "audio/webm");
+        const url = await signedUrl(path, 60);
+        const res = await fetch(url);
+        storage = { ok: res.ok, status: res.status, bytes: (await res.arrayBuffer()).byteLength };
+      } catch (err) {
+        storage = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        await deleteObjects([path]).catch(() => {});
+      }
+    }
     return Response.json({
       db: "ok",
+      storage,
       ms: Date.now() - started,
       users: row.users,
       posts: row.posts,

@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
   captioning: "Writing captions…",
   awaiting_script_approval: "Review script",
   awaiting_recording: "Ready to record",
+  recorded: "Voices recorded",
   published: "Published",
 };
 
