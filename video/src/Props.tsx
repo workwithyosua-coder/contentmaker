@@ -51,10 +51,29 @@ const SLOTS = {
   ],
 };
 
-export function Prop({ kind, slot, line, frame }: { kind: PropKind; slot: number; line: EpisodeLine; frame: number }) {
+export function Prop({
+  kind,
+  slot,
+  line,
+  frame,
+  flyAt,
+  morph,
+}: {
+  kind: PropKind;
+  slot: number;
+  line: EpisodeLine;
+  frame: number;
+  /** frame at which the prop gets slapped off-screen */
+  flyAt?: number;
+  /** turn into another prop halfway through the line (e.g. house → matcha cup) */
+  morph?: PropKind;
+}) {
   const { fps } = useVideoConfig();
   const two = Boolean(line.thought_bubble) || line.beat === "concession" || line.beat === "button";
-  const pos = (two ? SLOTS.two : SLOTS[line.speaker])[slot];
+  // a prop that gets slapped sits where Uco's hand lands
+  const pos = flyAt != null ? { x: 850, y: 780 } : (two ? SLOTS.two : SLOTS[line.speaker])[slot];
+  const fly = flyAt != null ? Math.max(0, Math.min(1, (frame - flyAt) / 10)) : 0;
+  const morphP = morph ? Math.max(0, Math.min(1, (frame - line.frames * 0.5) / 12)) : 0;
   const delay = 6 + slot * 8;
   const uco = line.speaker === "uco";
   const t = uco
@@ -63,7 +82,7 @@ export function Prop({ kind, slot, line, frame }: { kind: PropKind; slot: number
   const bob = Math.sin((frame + slot * 20) / (uco ? 9 : 22)) * (uco ? 8 : 12);
   const rot = uco ? Math.sin((frame + slot * 10) / 6) * 6 : Math.sin(frame / 30 + slot) * 4;
   // "house drifts away into the distance" style gag: the house slowly shrinks on Ocu's lines
-  const shrink = kind === "house" && !uco ? interpolate(frame, [0, line.frames], [1, 0.55], { extrapolateRight: "clamp" }) : 1;
+  const shrink = kind === "house" && !uco ? interpolate(frame, [0, line.frames * 0.5], [1, 0.45], { extrapolateRight: "clamp" }) * (1 - morphP) + morphP * 1.1 : 1;
   return (
     <div
       style={{
@@ -73,13 +92,26 @@ export function Prop({ kind, slot, line, frame }: { kind: PropKind; slot: number
         width: 200,
         height: 200,
         opacity: uco ? 1 : t,
-        transform: `translateY(${bob + (1 - t) * (uco ? 0 : 40)}px) scale(${(uco ? t : 1) * shrink}) rotate(${rot}deg)`,
+        transform: `translate(${fly * 900}px, ${bob + (1 - t) * (uco ? 0 : 40) - fly * 300}px) scale(${(uco ? t : 1) * shrink}) rotate(${rot + fly * 140}deg)`,
         filter: `drop-shadow(8px 8px 0 ${COLORS.ink})`,
       }}
     >
-      <svg viewBox="0 0 200 200" width={200} height={200}>
+      <svg viewBox="0 0 200 200" width={200} height={200} style={{ position: "absolute", opacity: 1 - morphP }}>
         <Icon kind={kind} frame={frame} />
       </svg>
+      {morph && morphP > 0 && (
+        <svg viewBox="0 0 200 200" width={200} height={200} style={{ position: "absolute", opacity: morphP }}>
+          <circle cx={100} cy={100} r={96} fill={COLORS.yellow} opacity={0.35 * (1 - morphP) + 0.15} />
+          <Icon kind={morph} frame={frame} />
+        </svg>
+      )}
+      {fly > 0 && fly < 1 && (
+        <svg viewBox="0 0 200 200" width={260} height={260} style={{ position: "absolute", left: -150, top: -30 }}>
+          {Array.from({ length: 8 }, (_, i) => (
+            <line key={i} x1={100} y1={100} x2={100 + Math.cos(i * 0.8) * 95} y2={100 + Math.sin(i * 0.8) * 95} stroke={COLORS.yellow} strokeWidth={10} strokeLinecap="round" />
+          ))}
+        </svg>
+      )}
     </div>
   );
 }

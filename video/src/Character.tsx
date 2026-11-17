@@ -51,6 +51,9 @@ export function Character({
   look = 0,
   props = true,
   drink = "#8DB255",
+  gesture = "hold",
+  gt = 0,
+  glen = 90,
 }: {
   who: Speaker;
   expression: Expression;
@@ -64,6 +67,10 @@ export function Character({
   props?: boolean;
   /** Color of Ocu's iced drink; null = hands tucked away. */
   drink?: string | null;
+  /** Arm acting for this line, timed by gt (frame within the line) and glen (line length). */
+  gesture?: Gesture;
+  gt?: number;
+  glen?: number;
 }) {
   const f = faceFor(expression);
   const c = LOOK[who];
@@ -77,14 +84,17 @@ export function Character({
   const blinkAt = (frame + (isOcu ? 40 : 0)) % blinkCycle;
   const blink = blinkAt < 3 ? 1 : blinkAt < 5 ? 0.6 : 0;
   const lid = Math.min(1, Math.max(f.lid + (isOcu ? 0.18 : 0), blink));
-  const nod = talking ? mouth * (isOcu ? 2 : 10) : 0;
+  const shrug = gesture === "shrug" ? -Math.max(0, Math.sin((gt / 18) * Math.PI)) * 18 : 0;
+  const nod = (talking ? mouth * (isOcu ? 2 : 10) : 0) + shrug;
   const jitter = talking && f.shake ? (random(`${who}-x-${frame}`) - 0.5) * f.shake * 2 : 0;
   const jitterY = talking && f.shake ? (random(`${who}-y-${frame}`) - 0.5) * f.shake * 2 : 0;
   const tilt = f.tilt + (isOcu ? 4 : 0) + (talking && !isOcu ? Math.sin(frame / 6) * 2.5 : Math.sin(frame / 50) * 0.8);
 
   const eyeY = 300;
   const eyes = [246, 354];
-  const lookX = look * 8;
+  // eye-darts: when not looking at someone, the pupils jump to a new spot about once a second
+  const dart = look === 0 ? (random(`${who}-dart-${Math.floor((frame + (isOcu ? 13 : 0)) / 28)}`) - 0.5) * 1.4 : 0;
+  const lookX = (look + dart) * 8;
   const lookY = expression === "thinking" ? -9 : isOcu ? 2 : 0;
   const eyeR = isOcu ? { rx: 30, ry: 26 } : { rx: 34, ry: 36 };
 
@@ -240,7 +250,8 @@ export function Character({
           {props && (angry || expression === "worried") && <SweatDrops frame={frame} side={isOcu ? 1 : -1} />}
         </g>
 
-        {isOcu && drink && <Drink color={drink} frame={frame} breathe={breathe} />}
+        {isOcu && drink && gesture !== "none" && <Drink color={drink} frame={frame} breathe={breathe} sip={gesture === "sip" ? sipAmount(gt, glen) : 0} />}
+        <Arms who={who} gesture={gesture} gt={gt} glen={glen} mouth={talking ? mouth : 0} frame={frame} shrug={shrug} />
       </g>
     </svg>
   );
@@ -326,11 +337,13 @@ function OcuBody({ id }: { id: string }) {
   );
 }
 
-function Drink({ color, frame, breathe }: { color: string; frame: number; breathe: number }) {
-  // clear plastic iced cup with straw, held loosely low on the left
-  const y = 640 + breathe * 0.6 + Math.sin(frame / 45) * 3;
+function Drink({ color, frame, breathe, sip = 0 }: { color: string; frame: number; breathe: number; sip?: number }) {
+  // clear plastic iced cup with straw, held loosely low on the left; `sip` (0..1) raises it to the mouth
+  // raised, the straw tip lands at the mouth and the cup stays below the chin
+  const y = 640 + breathe * 0.6 + Math.sin(frame / 45) * 3 - sip * 150;
+  const x = 70 + sip * 100;
   return (
-    <g transform={`translate(70 ${y}) rotate(-4)`}>
+    <g transform={`translate(${x} ${y}) rotate(${-4 + sip * 18})`}>
       <path d="M 0 0 L 150 0 L 134 230 L 16 230 Z" fill="rgba(230,240,240,0.35)" stroke={INK} strokeWidth={7} />
       <path d="M 8 70 L 142 70 L 134 226 L 16 226 Z" fill={color} />
       <path d="M 8 70 L 142 70 L 138 120 L 12 120 Z" fill={`rgba(255,255,255,0.25)`} />
@@ -369,4 +382,120 @@ function SweatDrops({ frame, side }: { frame: number; side: number }) {
       })}
     </g>
   );
+}
+
+export type Gesture = "none" | "hold" | "point" | "fist" | "slap" | "receipt" | "shrug" | "chin" | "offer" | "wave" | "sip" | "rub";
+
+/** 0..1 how far Ocu's cup is raised: up over 20% → 35% of the line, held, down by 75%. */
+export function sipAmount(gt: number, glen: number) {
+  const p = gt / Math.max(1, glen);
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  if (p < 0.15) return 0;
+  if (p < 0.35) return ease((p - 0.15) / 0.2);
+  if (p < 0.6) return 1;
+  if (p < 0.75) return 1 - ease((p - 0.6) / 0.15);
+  return 0;
+}
+
+/** When Uco's slap lands (frame within the line): the chart flies off at the same moment. */
+export const slapAt = (glen: number) => Math.floor(glen * 0.45);
+
+const SLEEVE = { uco: COLORS.uco, ocu: "#5C6670" };
+
+function Arm({ x, y, angle, len, sleeve, skin, hand }: { x: number; y: number; angle: number; len: number; sleeve: string; skin: string; hand: "point" | "fist" | "open" }) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${angle})`}>
+      <line x1={0} y1={0} x2={len} y2={0} stroke={INK} strokeWidth={76} strokeLinecap="round" />
+      <line x1={0} y1={0} x2={len} y2={0} stroke={sleeve} strokeWidth={60} strokeLinecap="round" />
+      <line x1={len - 30} y1={-30} x2={len - 30} y2={30} stroke={INK} strokeWidth={5} />
+      <g transform={`translate(${len + 18} 0)`}>
+        {hand === "point" && <rect x={8} y={-10} width={70} height={22} rx={11} fill={skin} stroke={INK} strokeWidth={6} />}
+        {hand === "open" &&
+          [-24, -8, 8, 24].map((dy) => <rect key={dy} x={10} y={dy - 7} width={52} height={16} rx={8} fill={skin} stroke={INK} strokeWidth={5} />)}
+        <circle cx={0} cy={0} r={36} fill={skin} stroke={INK} strokeWidth={7} />
+        {hand === "fist" && <path d="M -6 -22 q 20 0 20 10 M -6 -2 q 20 0 20 10 M -6 18 q 18 0 18 8" stroke={INK} strokeWidth={4} fill="none" />}
+        {hand !== "fist" && <path d="M -10 -34 q -20 -10 -24 8" stroke={INK} strokeWidth={6} fill={skin} />}
+      </g>
+    </g>
+  );
+}
+
+function Arms({ who, gesture, gt, glen, mouth, frame, shrug }: { who: Speaker; gesture: Gesture; gt: number; glen: number; mouth: number; frame: number; shrug: number }) {
+  const c = LOOK[who];
+  const sleeve = SLEEVE[who];
+  const R = { x: 452, y: 640 + shrug * 0.5 }; // the character's left shoulder, on the viewer's right
+  const L = { x: 148, y: 640 + shrug * 0.5 };
+  const arm = (p: { x: number; y: number }, angle: number, len: number, hand: "point" | "fist" | "open") => (
+    <Arm x={p.x} y={p.y} angle={angle} len={len} sleeve={sleeve} skin={c.skin} hand={hand} />
+  );
+  switch (gesture) {
+    case "point": // jabbing across at the other guy
+      return arm(R, -32 + Math.sin(frame / 4) * 3, 250 + Math.max(0, Math.sin(frame / 3.2)) * 26 + mouth * 10, "point");
+    case "fist": // shaking fist raised
+      return arm(R, -104 + Math.sin(frame * 1.9) * 7, 230, "fist");
+    case "slap": {
+      // wind up, then one fast sweep at slapAt, follow through
+      const hit = slapAt(glen);
+      let a = -20;
+      if (gt < hit - 8) a = interpolateClamp(gt, 0, hit - 8, 10, -120);
+      else if (gt < hit) a = -120;
+      else a = interpolateClamp(gt, hit, hit + 4, -120, 25);
+      return arm(R, a, 250, "open");
+    }
+    case "receipt": {
+      // both hands hold the top of a receipt that unrolls to the floor
+      const len = interpolateClamp(gt, 0, glen * 0.4, 40, 620);
+      const zig = Array.from({ length: 12 }, (_, i) => `${i % 2 ? 208 : 222},${780 + (len / 12) * (i + 1)}`).join(" ");
+      return (
+        <g>
+          <path d={`M 200 760 L 400 760 L 400 ${780 + len} L ${zig.split(" ").reverse().join(" L ")} Z`} fill={COLORS.white} stroke={INK} strokeWidth={6} />
+          {Array.from({ length: Math.floor(len / 34) }, (_, i) => (
+            <g key={i}>
+              <line x1={226} x2={330} y1={800 + i * 34} y2={800 + i * 34} stroke={INK} strokeWidth={5} />
+              <line x1={346} x2={384} y1={800 + i * 34} y2={800 + i * 34} stroke={i % 3 === 1 ? "#E5383B" : INK} strokeWidth={5} />
+            </g>
+          ))}
+          {arm(L, 64, 150, "fist")}
+          {arm(R, 116, 150, "fist")}
+        </g>
+      );
+    }
+    case "shrug": // palms up at both sides
+      return (
+        <g>
+          {arm(L, 168 - shrug * 0.6, 170, "open")}
+          {arm(R, 12 + shrug * 0.6, 170, "open")}
+        </g>
+      );
+    case "chin": // hand to chin, thinking
+      return arm(R, -126, 196, "fist");
+    case "offer": {
+      // slides something across (a fresh cup) toward the other side
+      const reach = interpolateClamp(gt, 0, 14, 120, 250);
+      return (
+        <g>
+          {arm(R, -6, reach, "open")}
+          <g transform={`translate(${R.x + reach + 30} ${R.y - 150}) scale(0.9)`}>
+            <path d="M 0 0 L 110 0 L 98 160 L 12 160 Z" fill="rgba(230,240,240,0.4)" stroke={INK} strokeWidth={6} />
+            <path d="M 5 50 L 105 50 L 98 157 L 12 157 Z" fill="#8DB255" />
+            <path d="M 70 0 L 86 -70" stroke="#2D6A4F" strokeWidth={10} strokeLinecap="round" />
+          </g>
+        </g>
+      );
+    }
+    case "wave": // talking with his hand, timed to the voice
+      return arm(R, -40 - mouth * 30 + Math.sin(frame / 5) * 8, 220, "open");
+    case "rub": {
+      // rubbing his eye under the glasses
+      const wob = Math.sin(frame / 3) * 6;
+      return arm({ x: R.x + 10, y: R.y }, -97 + wob * 0.3, 300 + wob, "open"); // up the side of the face to the outer eye
+    }
+    default:
+      return null;
+  }
+}
+
+function interpolateClamp(v: number, a: number, b: number, from: number, to: number) {
+  const t = Math.min(1, Math.max(0, (v - a) / Math.max(1e-6, b - a)));
+  return from + (to - from) * t;
 }
