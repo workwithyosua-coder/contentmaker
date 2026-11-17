@@ -73,12 +73,12 @@ async function Booth({
           <Card title="AI voices">
             {!voices ? (
               <p className="text-sm text-muted">
-                Want the app to voice lines for you? Set up AI voices on the <Link href="/accounts" className="text-link underline">Accounts</Link> page.
+                Want the app to voice lines for you? Set up AI voices on the <Link href="/create" className="text-link underline">Create</Link> page.
               </p>
             ) : Object.keys(voices).length < 2 ? (
               <p className="text-sm text-muted">
                 Clone {"uco" in voices ? "Ocu's" : "ocu" in voices ? "Uco's" : "Uco's and Ocu's"} voice on the{" "}
-                <Link href="/accounts" className="text-link underline">Accounts</Link> page first.
+                <Link href="/create" className="text-link underline">Create</Link> page first.
               </p>
             ) : (
               <AiVoicePanel

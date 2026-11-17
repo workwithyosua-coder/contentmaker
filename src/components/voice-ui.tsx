@@ -21,7 +21,7 @@ function Msg({ state }: { state: ActionResult | AiResult }) {
   );
 }
 
-/** Accounts page: set up one character's AI voice. */
+/** Create page: set up one character's AI voice. */
 export type VoiceOption = { id: string; label: string; preview: string | null };
 
 export function VoiceSetup({

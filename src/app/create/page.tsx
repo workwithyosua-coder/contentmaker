@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { AutoRefresh, NewEpisodeForm } from "@/components/episode-ui";
 import { SetupNotice } from "@/components/setup-notice";
+import { VoicesCard } from "@/components/voices-card";
 import { Card, EmptyState } from "@/components/ui";
 import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
@@ -20,6 +21,7 @@ const STATUS_LABEL: Record<string, string> = {
   awaiting_script_approval: "Review script",
   awaiting_recording: "Ready to record",
   recorded: "Voices recorded",
+  awaiting_approval: "Video ready",
   published: "Published",
 };
 
@@ -31,14 +33,19 @@ export default function CreatePage() {
       <header className="mb-4">
         <h1 className="text-2xl font-semibold">Create</h1>
         <p className="text-sm text-muted">
-          Give a topic. Uco &amp; Ocu&apos;s writers&apos; room pitches ideas, fact-checks them and writes the banter.
+          Give a topic. Uco &amp; Ocu&apos;s writers&apos; room pitches ideas,
+          fact-checks them and writes the banter.
         </p>
       </header>
       <div className="space-y-4">
         <Card title="New episode">
           <NewEpisodeForm action={createEpisodeAction} />
         </Card>
-        <Suspense fallback={<div className="h-40 animate-pulse rounded-card bg-surface-2" />}>
+        <Suspense
+          fallback={
+            <div className="h-40 animate-pulse rounded-card bg-surface-2" />
+          }
+        >
           <Episodes />
         </Suspense>
       </div>
@@ -58,33 +65,46 @@ async function Episodes() {
   const episodes = await listEpisodes(owner.id);
   if (!episodes.length) {
     return (
-      <EmptyState title="No episodes yet">
-        Type a topic above and the writers&apos; room pitches 5 ideas. Pick one and it fact-checks and writes the script.
-      </EmptyState>
+      <>
+        <EmptyState title="No episodes yet">
+          Type a topic above and the writers&apos; room pitches 5 ideas. Pick
+          one and it fact-checks and writes the script.
+        </EmptyState>
+        <VoicesCard ownerId={owner.id} />
+      </>
     );
   }
-  const working = episodes.some((e) => ["ideating", "scripting", "captioning"].includes(e.status));
+  const working = episodes.some((e) =>
+    ["ideating", "scripting", "captioning"].includes(e.status),
+  );
   return (
-    <Card title="Episodes">
-      <AutoRefresh active={working} />
-      <ul className="space-y-2">
-        {episodes.map((e) => (
-          <li key={e.id}>
-            <Link
-              href={`/create/${e.id}`}
-              className="ticket flex min-h-14 items-center justify-between gap-3 px-6 py-3 transition-colors hover:border-muted"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">{e.title ?? e.direction ?? "Untitled"}</div>
-                <div className="text-[11px] text-muted">{new Date(e.created_at).toLocaleDateString()}</div>
-              </div>
-              <span className="stamp shrink-0 text-muted">
-                {STATUS_LABEL[e.status] ?? e.status}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <>
+      <Card title="Episodes">
+        <AutoRefresh active={working} />
+        <ul className="space-y-2">
+          {episodes.map((e) => (
+            <li key={e.id}>
+              <Link
+                href={`/create/${e.id}`}
+                className="ticket flex min-h-14 items-center justify-between gap-3 px-6 py-3 transition-colors hover:border-muted"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {e.title ?? e.direction ?? "Untitled"}
+                  </div>
+                  <div className="text-[11px] text-muted">
+                    {new Date(e.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <span className="stamp shrink-0 text-muted">
+                  {STATUS_LABEL[e.status] ?? e.status}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <VoicesCard ownerId={owner.id} />
+    </>
   );
 }

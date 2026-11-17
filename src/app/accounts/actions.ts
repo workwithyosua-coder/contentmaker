@@ -64,7 +64,7 @@ export async function cloneVoiceAction(speaker: "uco" | "ocu"): Promise<ActionRe
     if (!owner) return { ok: false, message: "No user found." };
     const { cloneFromTakes } = await import("@/lib/voice/profiles");
     const r = await cloneFromTakes(owner.id, speaker);
-    revalidatePath("/accounts");
+    revalidatePath("/create");
     return { ok: true, message: `${speaker === "uco" ? "Uco" : "Ocu"}'s voice cloned from ${r.samples} takes (${r.seconds} s).` };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
@@ -84,7 +84,7 @@ export async function setVoiceIdAction(speaker: "uco" | "ocu", _prev: ActionResu
     const { listVoices } = await import("@/lib/voice/elevenlabs");
     const known = (await listVoices().catch(() => [])).find((v) => v.voice_id === voiceId);
     await setVoiceProfile(owner.id, speaker, voiceId, known ? `${known.name} (ElevenLabs)` : `${speaker === "uco" ? "Uco" : "Ocu"} (voice ID)`);
-    revalidatePath("/accounts");
+    revalidatePath("/create");
     return { ok: true, message: "Voice saved." };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
