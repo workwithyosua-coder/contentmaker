@@ -44,3 +44,14 @@ Agents at launch: 3 (Analyst, Creative, Editor+QA). Models: Sonnet 5.5 / Haiku 5
 - [ ] ✋ Make 6–10 real videos with the platform
 - [ ] 🤖 Fix, tune prompts, speed up
 - [ ] ✅ 100% done
+
+## Priority now: make the app run perfectly
+- [ ] First real end-to-end run of the Create flow (ideas, fact check, script, captions) with the real Claude API
+- [ ] Empty, loading and error states everywhere (antislop #11)
+- [ ] Automated tests kept in the repo
+- [ ] Deploys from `main` automatically (merge the working branch)
+
+## Backlog (lowest priority, cosmetic)
+- [ ] Re-add the app to the phone home screen to get the new Dapur Konten icon
+- [ ] Rename "Studio Content" to "Dapur Konten" in the TikTok, Meta and Google developer sites, upload the new icon
+- [ ] antislop #14, #18, #19 (identical breakdown cards, theme toggle, Dashboard rhythm)
