@@ -190,11 +190,15 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
         </Card>
       )}
 
-      {(project.status === "awaiting_recording" || project.status === "recorded") && (
-        <Card title={project.status === "recorded" ? "Voices recorded" : "Next: record the voices"}>
+      {latestScript && !working && (
+        <Card title={project.status === "recorded" ? "Voices recorded" : "Record the voices"}>
           <p className="mb-3 text-sm text-muted">
             {progress.recorded} of {progress.lines} lines recorded.
-            {project.status === "recorded" ? " The animation step comes next." : " Record each line with your phone, one at a time."}
+            {project.status === "recorded"
+              ? " The animation step comes next."
+              : latestScript.approved_at
+                ? " Record each line with your phone, one at a time."
+                : " You can record now or approve the script first. If you revise the script later, the new version starts with no takes."}
           </p>
           <Link href={`/create/${project.id}/record`} className="btn btn-primary">
             {progress.recorded ? "Open the recording booth" : "Start recording"}
