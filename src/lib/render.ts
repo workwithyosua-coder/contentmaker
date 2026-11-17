@@ -31,8 +31,10 @@ export async function renderSource(projectId: string) {
 
 /** The newest rendered video of an episode, with a playback URL. */
 export async function latestVideo(projectId: string) {
-  const [v] = await db()<{ storage_path: string; duration_ms: number | null; created_at: Date; script_id: string }[]>`
-    SELECT storage_path, duration_ms, created_at, script_id FROM episode_videos
+  const [v] = await db()<
+    { id: string; storage_path: string; duration_ms: number | null; created_at: Date; script_id: string; drive_url: string | null; drive_error: string | null }[]
+  >`
+    SELECT id, storage_path, duration_ms, created_at, script_id, drive_url, drive_error FROM episode_videos
     WHERE project_id = ${projectId} ORDER BY created_at DESC LIMIT 1`;
   if (!v) return null;
   const { signedUrl } = await import("./storage");

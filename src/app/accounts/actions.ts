@@ -47,6 +47,16 @@ export async function removeAccountAction(accountId: string): Promise<ActionResu
   return { ok: true, message: "Account removed." };
 }
 
+/** Stops copying videos to Google Drive. Files already in Drive stay there. */
+export async function disconnectDriveAction(): Promise<ActionResult> {
+  const owner = await getOwner();
+  if (!owner) return { ok: false, message: "No user found." };
+  const { disconnectDrive } = await import("@/lib/drive");
+  await disconnectDrive(owner.id);
+  revalidatePath("/accounts");
+  return { ok: true, message: "Google Drive disconnected." };
+}
+
 /** Makes an ElevenLabs instant clone of one character's voice from the owner's recorded booth takes. */
 export async function cloneVoiceAction(speaker: "uco" | "ocu"): Promise<ActionResult> {
   try {

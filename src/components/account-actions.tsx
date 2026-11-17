@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { removeAccountAction, removeDemoDataAction, syncNowAction } from "@/app/accounts/actions";
+import { removeAccountAction, removeDemoDataAction, syncNowAction, disconnectDriveAction } from "@/app/accounts/actions";
 
 function Status({ state }: { state: { ok: boolean; message: string } | null }) {
   if (!state) return null;
@@ -50,6 +50,24 @@ export function RemoveAccountButton({ accountId, name }: { accountId: string; na
     >
       <button disabled={pending} className="btn btn-quiet" aria-label={`Remove ${name}`}>
         {pending ? "Removing…" : "Remove"}
+      </button>
+      {state && !state.ok && <p className="text-[11px]" style={{ color: "var(--bad)" }}>{state.message}</p>}
+    </form>
+  );
+}
+
+export function DisconnectDriveButton() {
+  const [state, action, pending] = useActionState(() => disconnectDriveAction(), null);
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!confirm("Stop copying new videos to Google Drive? Videos already in Drive stay there.")) e.preventDefault();
+      }}
+      className="flex shrink-0 flex-col items-end gap-1"
+    >
+      <button disabled={pending} className="btn btn-quiet">
+        {pending ? "Disconnecting…" : "Disconnect"}
       </button>
       {state && !state.ok && <p className="text-[11px]" style={{ color: "var(--bad)" }}>{state.message}</p>}
     </form>

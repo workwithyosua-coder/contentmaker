@@ -200,3 +200,17 @@ export async function deleteEpisodeAction(projectId: string): Promise<StepResult
   revalidatePath("/create");
   redirect("/create");
 }
+
+/** Copies an episode's video into the connected Google Drive folder (also retries a failed copy). */
+export async function saveVideoToDriveAction(projectId: string, videoId: string): Promise<StepResult> {
+  try {
+    await owner();
+    const { copyVideoToDrive } = await import("@/lib/drive");
+    const done = await copyVideoToDrive(videoId);
+    revalidatePath(`/create/${projectId}`);
+    return done ? { ok: true, message: "Saved to Google Drive." } : { ok: false, message: "Connect Google Drive on the Accounts page first." };
+  } catch (err) {
+    revalidatePath(`/create/${projectId}`);
+    return { ok: false, message: message(err) };
+  }
+}

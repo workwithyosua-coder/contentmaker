@@ -9,6 +9,7 @@ import { Card, PLATFORM_LABEL } from "@/components/ui";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
 import { recordingProgress } from "@/lib/recordings";
 import { latestVideo } from "@/lib/render";
+import { getDriveConnection } from "@/lib/drive";
 import { getOwner } from "@/lib/queries";
 import {
   approveScriptAction,
@@ -16,6 +17,7 @@ import {
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
+  saveVideoToDriveAction,
   unpickIdeaAction,
 } from "../actions";
 
@@ -62,7 +64,11 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
   const ep = await getEpisode(owner.id, id);
   if (!ep) notFound();
   const { project, concepts, latestScript, captions } = ep;
-  const [progress, video] = await Promise.all([recordingProgress(project.id), latestVideo(project.id).catch(() => null)]);
+  const [progress, video, drive] = await Promise.all([
+    recordingProgress(project.id),
+    latestVideo(project.id).catch(() => null),
+    getDriveConnection(owner.id).catch(() => null),
+  ]);
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
@@ -198,7 +204,33 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
             Rendered {video.created_at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
             {video.duration_ms ? `, ${Math.round(video.duration_ms / 1000)} s long` : ""}.
           </p>
-          <a href={`${video.url}&download=${encodeURIComponent((project.title ?? "episode") + ".mp4")}`} className="btn btn-secondary mt-3">Download MP4</a>
+          <div className="mt-3 flex flex-wrap items-start gap-2">
+            <a href={`${video.url}&download=${encodeURIComponent((project.title ?? "episode") + ".mp4")}`} className="btn btn-secondary">
+              Download MP4
+            </a>
+            {video.drive_url ? (
+              <a href={video.drive_url} target="_blank" rel="noreferrer" className="btn btn-secondary">
+                Open in Google Drive
+              </a>
+            ) : drive ? (
+              <StepButton
+                action={saveVideoToDriveAction.bind(null, project.id, video.id)}
+                label={video.drive_error ? "Retry saving to Google Drive" : "Save to Google Drive"}
+                pendingLabel="Copying to Drive…"
+                variant="secondary"
+              />
+            ) : (
+              <Link href="/accounts" className="btn btn-quiet">
+                Connect Google Drive
+              </Link>
+            )}
+          </div>
+          {!video.drive_url && video.drive_error && (
+            <p className="mt-2 text-xs" style={{ color: "var(--bad)" }}>
+              Copy to Drive failed: {video.drive_error}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted">To edit in CapCut: open the video from Google Drive (or download it), then import it in CapCut.</p>
         </Card>
       )}
 
