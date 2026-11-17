@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
+import { RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -128,6 +128,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
                         <div className="mt-1 text-[11px]" style={{ color: "var(--bad)" }}>Last sync failed: {a.last_sync_error}</div>
                       )}
                     </div>
+                    <RemoveAccountButton accountId={a.id} name={a.display_name ?? a.handle} />
                   </div>
                 ))}
               </li>

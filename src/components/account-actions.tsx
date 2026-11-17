@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { removeDemoDataAction, syncNowAction } from "@/app/accounts/actions";
+import { removeAccountAction, removeDemoDataAction, syncNowAction } from "@/app/accounts/actions";
 
 function Status({ state }: { state: { ok: boolean; message: string } | null }) {
   if (!state) return null;
@@ -34,6 +34,24 @@ export function RemoveDemoButton() {
         {pending ? "Removing…" : "Remove demo data"}
       </button>
       <Status state={state} />
+    </form>
+  );
+}
+
+export function RemoveAccountButton({ accountId, name }: { accountId: string; name: string }) {
+  const [state, action, pending] = useActionState(() => removeAccountAction(accountId), null);
+  return (
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (!confirm(`Remove ${name} from Studio? Its posts and stats are deleted here (nothing changes on the platform itself).`)) e.preventDefault();
+      }}
+      className="flex shrink-0 flex-col items-end gap-1"
+    >
+      <button disabled={pending} className="rounded-full px-2 py-1 text-[11px] font-semibold text-muted hover:text-text disabled:opacity-60">
+        {pending ? "Removing…" : "Remove"}
+      </button>
+      {state && !state.ok && <p className="text-[11px]" style={{ color: "var(--bad)" }}>{state.message}</p>}
     </form>
   );
 }

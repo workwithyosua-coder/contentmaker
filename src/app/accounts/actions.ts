@@ -34,3 +34,15 @@ export async function removeDemoDataAction(): Promise<ActionResult> {
   revalidatePath("/", "layout");
   return { ok: true, message: "Demo data removed." };
 }
+
+/** Disconnects one account: deletes its stored login (tokens), posts and metrics. */
+export async function removeAccountAction(accountId: string): Promise<ActionResult> {
+  const owner = await getOwner();
+  if (!owner) return { ok: false, message: "No user found." };
+  const sql = db();
+  const rows = await sql`DELETE FROM social_accounts WHERE id = ${accountId} AND user_id = ${owner.id} RETURNING id`;
+  if (!rows.length) return { ok: false, message: "Account not found." };
+  await sql`REFRESH MATERIALIZED VIEW post_performance`;
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Account removed." };
+}
