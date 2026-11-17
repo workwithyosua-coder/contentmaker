@@ -8,6 +8,7 @@ import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
 import { recordingProgress } from "@/lib/recordings";
+import { latestVideo } from "@/lib/render";
 import { getOwner } from "@/lib/queries";
 import {
   approveScriptAction,
@@ -61,7 +62,7 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
   const ep = await getEpisode(owner.id, id);
   if (!ep) notFound();
   const { project, concepts, latestScript, captions } = ep;
-  const progress = await recordingProgress(project.id);
+  const [progress, video] = await Promise.all([recordingProgress(project.id), latestVideo(project.id).catch(() => null)]);
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
@@ -187,6 +188,17 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
               );
             })}
           </ul>
+        </Card>
+      )}
+
+      {video && (
+        <Card title="Episode video">
+          <video src={video.url} controls playsInline preload="metadata" className="mx-auto max-h-[70vh] rounded-control bg-black" />
+          <p className="mt-3 text-sm text-muted">
+            Rendered {video.created_at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+            {video.duration_ms ? `, ${Math.round(video.duration_ms / 1000)} s long` : ""}.
+          </p>
+          <a href={`${video.url}&download=${encodeURIComponent((project.title ?? "episode") + ".mp4")}`} className="btn btn-secondary mt-3">Download MP4</a>
         </Card>
       )}
 

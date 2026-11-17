@@ -1,0 +1,25 @@
+{
+  "name": "uco-ocu-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "tsx render.mts"
+  },
+  "dependencies": {
+    "@fontsource/bangers": "^5.3.0",
+    "@fontsource/luckiest-guy": "^5.3.0",
+    "@fontsource/nunito": "^5.3.0",
+    "@remotion/bundler": "^4.0.544",
+    "@remotion/cli": "^4.0.544",
+    "@remotion/renderer": "^4.0.544",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.544"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

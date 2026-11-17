@@ -58,6 +58,16 @@ export async function signedUrls(paths: string[], seconds = 3600) {
   return Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await signedUrl(p, seconds)] as const)));
 }
 
+/** Downloads a private object (server-side only). Returns null if it doesn't exist. */
+export async function getObject(objectPath: string): Promise<ArrayBuffer | null> {
+  if (local()) return readFile(path.join(LOCAL_DIR, objectPath)).then((b) => new Uint8Array(b).buffer, () => null);
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/authenticated/${BUCKET}/${objectPath}`, { headers });
+  if (res.status === 404 || res.status === 400) return null;
+  if (!res.ok) throw new Error(`Download failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  return res.arrayBuffer();
+}
+
 export async function deleteObjects(paths: string[]) {
   if (!paths.length) return;
   if (local()) {
