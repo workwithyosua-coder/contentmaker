@@ -18,7 +18,7 @@ Links you will be asked for:
 | Website | `https://contentmaker-lime.vercel.app` |
 | Privacy Policy | `https://contentmaker-lime.vercel.app/privacy` |
 | Terms of Service | `https://contentmaker-lime.vercel.app/terms` |
-| Data deletion instructions | `https://contentmaker-lime.vercel.app/privacy#data-deletion` |
+| Data deletion instructions | `https://contentmaker-lime.vercel.app/data-deletion` |
 | App icon (download, then upload) | `https://contentmaker-lime.vercel.app/icon-512.png` |
 
 Redirect (callback) URLs:

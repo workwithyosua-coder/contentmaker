@@ -12,7 +12,7 @@ const items = [
 
 export function Nav() {
   const pathname = usePathname();
-  if (pathname === "/login" || pathname === "/privacy" || pathname === "/terms") return null;
+  if (pathname === "/login" || pathname === "/privacy" || pathname === "/terms" || pathname === "/data-deletion") return null;
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
   return (
