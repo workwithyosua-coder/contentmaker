@@ -71,7 +71,9 @@ export async function setVoiceIdAction(speaker: "uco" | "ocu", _prev: ActionResu
     const { voiceExists } = await import("@/lib/voice/elevenlabs");
     if (!(await voiceExists(voiceId))) return { ok: false, message: "ElevenLabs doesn't know that voice ID on your account." };
     const { setVoiceProfile } = await import("@/lib/voice/profiles");
-    await setVoiceProfile(owner.id, speaker, voiceId, `${speaker === "uco" ? "Uco" : "Ocu"} (own voice ID)`);
+    const { listVoices } = await import("@/lib/voice/elevenlabs");
+    const known = (await listVoices().catch(() => [])).find((v) => v.voice_id === voiceId);
+    await setVoiceProfile(owner.id, speaker, voiceId, known ? `${known.name} (ElevenLabs)` : `${speaker === "uco" ? "Uco" : "Ocu"} (voice ID)`);
     revalidatePath("/accounts");
     return { ok: true, message: "Voice saved." };
   } catch (err) {

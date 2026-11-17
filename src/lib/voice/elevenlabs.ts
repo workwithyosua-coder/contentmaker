@@ -59,3 +59,21 @@ export async function speak(voiceId: string, text: string, opts: { model?: strin
   if (!res.ok) await fail(res, "speech failed");
   return res.arrayBuffer();
 }
+
+export type LibraryVoice = { voice_id: string; name: string; category: string; labels: Record<string, string>; preview_url: string | null };
+
+/** Voices on the account: ready-made ones (free plan) plus any you added or cloned. */
+export async function listVoices(): Promise<LibraryVoice[]> {
+  const res = await fetch(`${API}/voices`, { headers: { "xi-api-key": key() }, next: { revalidate: 3600 } });
+  if (!res.ok) await fail(res, "voice list failed");
+  const json = (await res.json()) as { voices: LibraryVoice[] };
+  return json.voices.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Plan facts the UI needs: tier, whether instant cloning is allowed, characters left this month. */
+export async function subscription() {
+  const res = await fetch(`${API}/user/subscription`, { headers: { "xi-api-key": key() }, cache: "no-store" });
+  if (!res.ok) await fail(res, "plan check failed");
+  const j = (await res.json()) as { tier: string; can_use_instant_voice_cloning?: boolean; character_count: number; character_limit: number };
+  return { tier: j.tier, canClone: Boolean(j.can_use_instant_voice_cloning), used: j.character_count, limit: j.character_limit };
+}
