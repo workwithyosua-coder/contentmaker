@@ -26,8 +26,7 @@ Redirect (callback) URLs:
 | Platform | Redirect URL |
 |---|---|
 | TikTok | `https://contentmaker-lime.vercel.app/api/connect/tiktok/callback` |
-| Instagram | `https://contentmaker-lime.vercel.app/api/connect/instagram/callback` |
-| Facebook | `https://contentmaker-lime.vercel.app/api/connect/facebook/callback` |
+| Instagram + Facebook | `https://contentmaker-lime.vercel.app/api/connect/meta/callback` |
 | YouTube | `https://contentmaker-lime.vercel.app/api/connect/youtube/callback` |
 
 Platform screens change often. If a button has a different name, look for the closest match or send a screenshot.
@@ -74,34 +73,30 @@ Platform screens change often. If a button has a different name, look for the cl
 
 ---
 
-## B. Meta: Instagram + Facebook
+## B. Meta: Instagram + Facebook (one Facebook login covers both)
 
-1. Go to **developers.facebook.com** → **Get started** → register as a developer with your Facebook account.
-2. **My Apps → Create app.**
-   - App name: `Studio Content`, contact email: yours.
-   - **Use cases:** pick **"Manage messaging & content on Instagram"** and **"Manage everything on your Page"**
-     (if asked for an app type instead, choose **Business**).
-   - Business portfolio: skip / "I don't want to connect" is fine.
-3. **App settings → Basic:**
-   - Privacy Policy URL, Terms of Service URL, User data deletion → *Data deletion instructions URL*: links above
-   - App icon: upload `icon-512.png`; Category: *Business and pages*
-   - **Save changes.** Copy **App ID** and **App secret** (click *Show*) into Vercel:
-     - `META_APP_ID`
-     - `META_APP_SECRET`
-4. **Instagram** (Use cases → *Manage messaging & content on Instagram* → *Customize* →
-   **API setup with Instagram login**):
-   - **Add account / Generate token** → log in with your Instagram professional account.
-     If it asks you to add yourself as an **Instagram tester**: *App roles → Roles → Add people → Instagram tester*,
-     then accept in Instagram: *Settings → Website permissions → Apps and websites → Tester invites*.
-   - **Set up Instagram business login → Business login settings → OAuth redirect URIs:** the Instagram redirect URL above. Save.
-   - This section shows its own **Instagram app ID** and **Instagram app secret**. Copy them into Vercel:
-     - `INSTAGRAM_APP_ID`
-     - `INSTAGRAM_APP_SECRET`
-5. **Facebook Page** (Use cases → *Manage everything on your Page* → *Customize*):
-   - Make sure these permissions are added: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `read_insights`.
-   - **Facebook Login for Business → Settings → Valid OAuth Redirect URIs:** the Facebook redirect URL above. Save.
-6. **Leave the app in Development mode.** You're its admin, so it already works with your own Instagram and Page.
-   No business verification or app review is needed for personal use.
+Prerequisites: Instagram is a **professional** (Creator/Business) account and is **linked to your Facebook Page**
+(Facebook Page → Settings → Linked accounts → Instagram).
+
+1. **developers.facebook.com** → **Get started** → register as a developer.
+2. **My Apps → Create app** → name `Studio Content` → use cases (filter **All**): tick
+   **Manage messaging & content on Instagram** and **Manage everything on your Page**. Skip the business portfolio.
+3. **App settings → Basic:** Privacy Policy, Terms, and *Data deletion instructions URL*
+   (`https://contentmaker-lime.vercel.app/data-deletion`, no `#` allowed), icon, category, app domain
+   `contentmaker-lime.vercel.app`. Leave the GDPR/DPO section empty. Save.
+4. **Use cases → Instagram API → API setup with Facebook login** (not "Unified login", which needs a business
+   portfolio) → **Add required content permissions**. Skip the messaging permissions.
+5. **Permissions and features:** make sure these say *Ready for testing*: `instagram_basic`,
+   `instagram_manage_insights`, `instagram_content_publish`, `business_management`, `pages_show_list`,
+   `pages_read_engagement`; under the Page use case also `read_insights` and `pages_manage_posts`.
+   Don't add the `instagram_business_*` ones (they belong to Unified login).
+6. **Facebook Login for Business → Settings:** Client OAuth login, Web OAuth login and Enforce HTTPS = Yes;
+   **Valid OAuth Redirect URIs:** `https://contentmaker-lime.vercel.app/api/connect/meta/callback`. Save.
+7. **Facebook Login for Business → Configurations → Create configuration:** name `Studio`, *User access token*
+   (expiration: Never), assets **Pages** + **Instagram accounts**, the 8 permissions from step 5.
+8. Vercel variables: `META_APP_ID`, `META_APP_SECRET` (Sensitive), `META_LOGIN_CONFIG_ID` (the configuration ID).
+9. Leave the app **Unpublished** (Development mode): it works for your own accounts without app review.
+10. In Studio: **Accounts → Connect via Facebook** → select your Page **and** its Instagram account in the dialog.
 
 ---
 
@@ -131,6 +126,6 @@ Platform screens change often. If a button has a different name, look for the cl
 
 ## Checklist: Vercel variables when everything is done
 
-`TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `META_APP_ID`, `META_APP_SECRET`, `INSTAGRAM_APP_ID`,
-`INSTAGRAM_APP_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+`TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `META_APP_ID`, `META_APP_SECRET`, `META_LOGIN_CONFIG_ID`,
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
 Then tell Claude, who redeploys and adds a **Connect** button for each platform on the Accounts screen.

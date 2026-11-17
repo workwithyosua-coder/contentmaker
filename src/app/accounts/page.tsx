@@ -4,6 +4,7 @@ import { RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
+import { metaConfigured } from "@/lib/platforms/meta";
 import { tiktokConfigured } from "@/lib/platforms/tiktok";
 import { getOwner } from "@/lib/queries";
 
@@ -27,6 +28,12 @@ const MESSAGES: Record<string, string> = {
   tiktok_state: "The TikTok login expired or didn't match. Please try again.",
   tiktok_connect: "TikTok connection failed. Check that your account is a sandbox target user and try again.",
   tiktok_sync: "TikTok connected, but importing your videos failed. See the error under the account.",
+  meta_not_configured: "Meta keys are missing: add META_APP_ID, META_APP_SECRET and META_LOGIN_CONFIG_ID in Vercel, then redeploy.",
+  meta_denied: "Facebook connection was cancelled.",
+  meta_state: "The Facebook login expired or didn't match. Please try again.",
+  meta_no_pages: "No Facebook Page was shared. Connect again and select your Page (and its Instagram account) in the Facebook dialog.",
+  meta_connect: "Facebook/Instagram connection failed. Please try again; if it keeps failing, tell Claude.",
+  meta_sync: "Connected, but importing posts failed. See the error under the account.",
   no_owner: "No user found in the database.",
 };
 
@@ -62,13 +69,23 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
     FROM social_accounts sa WHERE sa.user_id = ${owner.id} ORDER BY sa.platform, sa.created_at`;
   const real = accounts.filter((a) => !a.external_account_id.startsWith("demo-"));
   const demo = accounts.filter((a) => a.external_account_id.startsWith("demo-"));
-  const configured: Record<string, boolean> = { tiktok: tiktokConfigured() };
+  const configured: Record<string, boolean> = {
+    tiktok: tiktokConfigured(),
+    instagram: metaConfigured(),
+    facebook: metaConfigured(),
+  };
+  const connectPath: Record<string, string> = { tiktok: "tiktok", instagram: "meta", facebook: "meta", youtube: "youtube" };
 
   const connectedMsg =
     typeof sp.connected === "string"
-      ? `${PLATFORM_LABEL[sp.connected] ?? sp.connected} connected${typeof sp.videos === "string" ? `: imported ${sp.videos} videos` : ""}.`
+      ? `${sp.connected === "meta" ? "Instagram & Facebook" : (PLATFORM_LABEL[sp.connected] ?? sp.connected)} connected${typeof sp.videos === "string" ? `: imported ${sp.videos} videos` : ""}.`
       : null;
-  const errorMsg = typeof sp.error === "string" ? (MESSAGES[sp.error] ?? "Something went wrong.") : null;
+  const errorMsg =
+    typeof sp.error === "string"
+      ? (MESSAGES[sp.error] ?? "Something went wrong.")
+      : sp.warn === "no_instagram"
+        ? "Your Facebook Page is connected, but no Instagram account is linked to it. Link Instagram to the Page (Page settings → Linked accounts), then tap Reconnect."
+        : null;
 
   return (
     <div className="space-y-4">
@@ -85,10 +102,10 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
                   <PlatformDot platform={p} />
                   {configured[p] ? (
                     <a
-                      href={`/api/connect/${p}`}
+                      href={`/api/connect/${connectPath[p]}`}
                       className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast"
                     >
-                      {linked.length ? "Reconnect" : `Connect ${PLATFORM_LABEL[p]}`}
+                      {linked.length ? "Reconnect" : connectPath[p] === "meta" ? "Connect via Facebook" : `Connect ${PLATFORM_LABEL[p]}`}
                     </a>
                   ) : (
                     <span className="text-xs text-muted">Waiting for setup</span>

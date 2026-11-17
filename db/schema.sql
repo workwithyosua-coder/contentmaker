@@ -433,12 +433,12 @@ WITH latest AS (
 ),
 base AS (
   SELECT p.id AS post_id, p.user_id, p.social_account_id, p.platform, p.format, p.published_at,
-         l.hours_since_publish, l.views, l.likes, l.comments, l.shares, l.saves,
+         l.hours_since_publish, COALESCE(l.views, l.reach) AS views, l.likes, l.comments, l.shares, l.saves,
          l.follows_gained, l.completion_rate, l.avg_view_duration_s,
          -- engagement per view: weights shares/saves higher (strong distribution signals)
-         CASE WHEN COALESCE(l.views,0) = 0 THEN NULL
+         CASE WHEN COALESCE(l.views, l.reach, 0) = 0 THEN NULL
               ELSE (COALESCE(l.likes,0) + 2*COALESCE(l.comments,0)
-                    + 3*COALESCE(l.shares,0) + 3*COALESCE(l.saves,0))::numeric / l.views END
+                    + 3*COALESCE(l.shares,0) + 3*COALESCE(l.saves,0))::numeric / COALESCE(l.views, l.reach) END
            AS weighted_engagement_rate
   FROM posts p
   JOIN latest l ON l.post_id = p.id
