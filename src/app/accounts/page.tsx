@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
@@ -9,6 +10,8 @@ import { tiktokConfigured } from "@/lib/platforms/tiktok";
 import { youtubeConfigured } from "@/lib/platforms/youtube";
 import { getOwner } from "@/lib/queries";
 
+export const metadata: Metadata = { title: "Accounts" };
+
 export default function AccountsPage(props: PageProps<"/accounts">) {
   return (
     <>
@@ -16,7 +19,7 @@ export default function AccountsPage(props: PageProps<"/accounts">) {
         <h1 className="text-2xl font-semibold">Accounts</h1>
         <p className="text-sm text-muted">Social accounts and creative tools connected to your studio.</p>
       </header>
-      <Suspense fallback={<div className="h-48 animate-pulse rounded-2xl bg-surface-2" />}>
+      <Suspense fallback={<div className="h-48 animate-pulse rounded-card bg-surface-2" />}>
         <AccountsList searchParams={props.searchParams} />
       </Suspense>
     </>
@@ -111,7 +114,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
                   {configured[p] ? (
                     <a
                       href={`/api/connect/${connectPath[p]}`}
-                      className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast"
+                      className="btn btn-primary"
                     >
                       {linked.length ? "Reconnect" : connectPath[p] === "meta" ? "Connect via Facebook" : `Connect ${PLATFORM_LABEL[p]}`}
                     </a>
@@ -120,7 +123,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
                   )}
                 </div>
                 {linked.map((a) => (
-                  <div key={a.id} className="mt-2 flex items-center gap-3 rounded-xl bg-surface-2 p-3">
+                  <div key={a.id} className="mt-2 flex items-center gap-3 rounded-control bg-surface-2 p-3">
                     {a.avatar_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={a.avatar_url} alt="" className="h-9 w-9 rounded-full" referrerPolicy="no-referrer" />
@@ -180,7 +183,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
 function Banner({ ok = false, children }: { ok?: boolean; children: React.ReactNode }) {
   return (
     <div
-      className="rounded-2xl px-4 py-3 text-sm font-medium"
+      className="rounded-card px-4 py-3 text-sm font-medium"
       style={{ color: ok ? "var(--win)" : "var(--bad)", background: ok ? "var(--win-bg)" : "var(--bad-bg)" }}
     >
       {children}

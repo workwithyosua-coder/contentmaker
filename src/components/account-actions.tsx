@@ -12,7 +12,7 @@ export function SyncNowButton() {
   const [state, action, pending] = useActionState(syncNowAction, null);
   return (
     <form action={action} className="flex flex-col items-end gap-1">
-      <button disabled={pending} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-60">
+      <button disabled={pending} className="btn btn-secondary">
         {pending ? "Syncing…" : "Sync now"}
       </button>
       <Status state={state} />
@@ -30,7 +30,7 @@ export function RemoveDemoButton() {
       }}
       className="flex flex-col items-start gap-1"
     >
-      <button disabled={pending} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-60" style={{ color: "var(--bad)" }}>
+      <button disabled={pending} className="btn btn-danger">
         {pending ? "Removing…" : "Remove demo data"}
       </button>
       <Status state={state} />
@@ -44,11 +44,11 @@ export function RemoveAccountButton({ accountId, name }: { accountId: string; na
     <form
       action={action}
       onSubmit={(e) => {
-        if (!confirm(`Remove ${name} from Studio? Its posts and stats are deleted here (nothing changes on the platform itself).`)) e.preventDefault();
+        if (!confirm(`Remove ${name} from Dapur Konten? Its posts and stats are deleted here (nothing changes on the platform itself).`)) e.preventDefault();
       }}
       className="flex shrink-0 flex-col items-end gap-1"
     >
-      <button disabled={pending} className="rounded-full px-2 py-1 text-[11px] font-semibold text-muted hover:text-text disabled:opacity-60">
+      <button disabled={pending} className="btn btn-quiet" aria-label={`Remove ${name}`}>
         {pending ? "Removing…" : "Remove"}
       </button>
       {state && !state.ok && <p className="text-[11px]" style={{ color: "var(--bad)" }}>{state.message}</p>}

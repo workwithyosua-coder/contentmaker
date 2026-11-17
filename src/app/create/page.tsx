@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -19,6 +20,8 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
 };
 
+export const metadata: Metadata = { title: "Create" };
+
 export default function CreatePage() {
   return (
     <>
@@ -32,7 +35,7 @@ export default function CreatePage() {
         <Card title="New episode">
           <NewEpisodeForm action={createEpisodeAction} />
         </Card>
-        <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-surface-2" />}>
+        <Suspense fallback={<div className="h-40 animate-pulse rounded-card bg-surface-2" />}>
           <Episodes />
         </Suspense>
       </div>
@@ -53,15 +56,18 @@ async function Episodes() {
   if (!episodes.length) return null;
   return (
     <Card title="Episodes">
-      <ul className="divide-y divide-border">
+      <ul className="space-y-2">
         {episodes.map((e) => (
           <li key={e.id}>
-            <Link href={`/create/${e.id}`} className="flex items-center justify-between gap-3 py-3">
+            <Link
+              href={`/create/${e.id}`}
+              className="ticket flex min-h-14 items-center justify-between gap-3 px-6 py-3 transition-colors hover:border-muted"
+            >
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">{e.title ?? e.direction ?? "Untitled"}</div>
                 <div className="text-[11px] text-muted">{new Date(e.created_at).toLocaleDateString()}</div>
               </div>
-              <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold">
+              <span className="stamp shrink-0 text-muted">
                 {STATUS_LABEL[e.status] ?? e.status}
               </span>
             </Link>

@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { RunAnalystButton } from "@/components/run-analyst";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, EmptyState, PlatformDot } from "@/components/ui";
 import { getInsights, getLatestReport, getOwner } from "@/lib/queries";
+
+export const metadata: Metadata = { title: "Insights" };
 
 export default function InsightsPage() {
   return (
@@ -18,7 +21,7 @@ export default function InsightsPage() {
         </div>
         <RunAnalystButton />
       </header>
-      <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl bg-surface-2" />}>
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-card bg-surface-2" />}>
         <InsightsList />
       </Suspense>
     </>
@@ -73,7 +76,7 @@ async function InsightsList() {
           return (
             <Card key={i.id}>
               <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 font-semibold">{DIM_LABEL[i.dimension] ?? i.dimension}</span>
+                <span className="stamp text-muted">{DIM_LABEL[i.dimension] ?? i.dimension}</span>
                 {i.platform ? <PlatformDot platform={i.platform} /> : <span className="text-muted">All platforms</span>}
                 <span className="ml-auto text-muted">
                   n={i.sample_size} · {conf >= 0.7 ? "high" : conf >= 0.45 ? "medium" : "low"} confidence

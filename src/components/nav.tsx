@@ -22,18 +22,22 @@ export function NavView({ pathname }: { pathname: string }) {
   return (
     <>
       {/* Desktop / tablet sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-border bg-surface px-3 py-6 md:flex">
-        <div className="mb-8 flex items-center gap-2 px-3">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent font-bold text-accent-contrast">S</span>
-          <span className="text-lg font-semibold">Studio</span>
-        </div>
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-band px-3 py-6 text-band-text md:flex">
+        <Link href="/" className="mb-8 flex items-center gap-2.5 rounded-control px-3 py-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon-192.png" alt="" width={32} height={32} className="h-8 w-8 rounded-[8px]" />
+          <span className="text-lg font-bold">Dapur Konten</span>
+        </Link>
         <nav className="flex flex-col gap-1">
           {items.map((it) => (
             <Link
               key={it.href}
               href={it.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive(it.href) ? "bg-surface-2 text-text" : "text-muted hover:bg-surface-2 hover:text-text"
+              aria-current={isActive(it.href) ? "page" : undefined}
+              className={`relative flex min-h-11 items-center gap-3 rounded-control px-3 text-sm font-semibold transition-colors ${
+                isActive(it.href)
+                  ? "bg-white/10 text-band-text before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-full before:bg-accent"
+                  : "text-band-muted hover:bg-white/5 hover:text-band-text"
               }`}
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden>
@@ -46,14 +50,17 @@ export function NavView({ pathname }: { pathname: string }) {
       </aside>
 
       {/* Phone bottom tab bar */}
-      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur md:hidden">
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-20 bg-band text-band-text shadow-[0_-4px_16px_rgba(8,17,42,0.18)] md:hidden">
         <div className="grid grid-cols-4">
           {items.map((it) => (
             <Link
               key={it.href}
               href={it.href}
-              className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium ${
-                isActive(it.href) ? "text-accent" : "text-muted"
+              aria-current={isActive(it.href) ? "page" : undefined}
+              className={`relative flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${
+                isActive(it.href)
+                  ? "text-band-text before:absolute before:inset-x-6 before:top-0 before:h-1 before:rounded-b-full before:bg-accent"
+                  : "text-band-muted hover:text-band-text"
               }`}
             >
               <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden>

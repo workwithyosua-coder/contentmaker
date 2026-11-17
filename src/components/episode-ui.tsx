@@ -12,8 +12,8 @@ export function Status({ state }: { state: StepResult }) {
   );
 }
 
-const primary = "rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-contrast disabled:opacity-60";
-const secondary = "rounded-full border border-border px-4 py-2 text-sm font-semibold disabled:opacity-60";
+const primary = "btn btn-primary";
+const secondary = "btn btn-secondary";
 
 /** A button that runs one server action step, with a "working…" label (agent steps take 20–90 s). */
 export function StepButton({
@@ -50,12 +50,16 @@ export function NewEpisodeForm({ action }: { action: (prev: StepResult, form: Fo
   const [state, run, pending] = useActionState(action, null);
   return (
     <form action={run} className="space-y-3">
+      <label htmlFor="direction" className="label">
+        Topic or direction
+      </label>
       <textarea
+        id="direction"
         name="direction"
         required
         rows={3}
         placeholder="e.g. Is coffee actually bad for you?  ·  Tax on sugary drinks  ·  Why Indonesians love instant noodles  ·  anything in this week's news"
-        className="w-full rounded-xl border border-border bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent"
+        className="field"
       />
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className={primary}>
@@ -71,11 +75,15 @@ export function ReviseForm({ action }: { action: (prev: StepResult, form: FormDa
   const [state, run, pending] = useActionState(action, null);
   return (
     <form action={run} className="space-y-2">
+      <label htmlFor="feedback" className="label">
+        What should change?
+      </label>
       <textarea
+        id="feedback"
         name="feedback"
         rows={2}
-        placeholder="What should change? e.g. make Ocu darker, shorter ending, more about the price, funnier hook…"
-        className="w-full rounded-xl border border-border bg-bg px-3 py-2.5 text-sm outline-none focus:border-accent"
+        placeholder="e.g. make Ocu darker, shorter ending, more about the price, funnier hook…"
+        className="field"
       />
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className={secondary}>
@@ -97,7 +105,7 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
         setDone(true);
         setTimeout(() => setDone(false), 1500);
       }}
-      className="rounded-full border border-border px-3 py-1 text-xs font-semibold"
+      className="btn btn-secondary"
     >
       {done ? "Copied ✓" : label}
     </button>

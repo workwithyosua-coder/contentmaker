@@ -9,7 +9,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
       {children}
       <h2>Contact</h2>
       <p>
-        Questions or requests: {contact ? <a className="text-accent underline" href={`mailto:${contact}`}>{contact}</a> : "contact the owner of this app"}.
+        Questions or requests: {contact ? <a className="text-link underline" href={`mailto:${contact}`}>{contact}</a> : "contact the owner of this app"}.
       </p>
     </article>
   );

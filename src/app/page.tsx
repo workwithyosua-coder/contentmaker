@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Breakdown } from "@/components/breakdown";
@@ -16,6 +17,8 @@ import {
   getPosts,
   getWeeklyViews,
 } from "@/lib/queries";
+
+export const metadata: Metadata = { title: { absolute: "Dashboard · Dapur Konten" } };
 
 export default function DashboardPage(props: PageProps<"/">) {
   return (
@@ -77,7 +80,7 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/">["searc
       </div>
 
       {shownInsights.length > 0 && (
-        <Card title="What the Analyst found" action={<Link href="/insights" className="text-xs font-medium text-accent">All insights →</Link>}>
+        <Card title="What the Analyst found" action={<Link href="/insights" className="inline-flex min-h-11 items-center text-xs font-semibold text-link underline-offset-4 hover:underline">All insights</Link>}>
           <ul className="space-y-3">
             {shownInsights.map((i) => (
               <li key={i.id} className="text-sm">
@@ -112,11 +115,11 @@ async function Dashboard({ searchParams }: { searchParams: PageProps<"/">["searc
 function DashboardSkeleton() {
   return (
     <div className="animate-pulse space-y-4">
-      <div className="h-8 w-64 rounded-full bg-surface-2" />
+      <div className="h-11 w-64 rounded-control bg-surface-2" />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-24 rounded-2xl bg-surface-2" />)}
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-24 rounded-card bg-surface-2" />)}
       </div>
-      <div className="h-64 rounded-2xl bg-surface-2" />
+      <div className="h-64 rounded-card bg-surface-2" />
     </div>
   );
 }

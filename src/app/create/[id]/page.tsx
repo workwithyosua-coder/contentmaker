@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
@@ -35,13 +36,15 @@ const BEAT_LABEL: Record<string, string> = {
   button: "Punchline",
 };
 
+export const metadata: Metadata = { title: "Episode" };
+
 export default function EpisodePage(props: PageProps<"/create/[id]">) {
   return (
     <>
-      <Link href="/create" className="mb-3 inline-block text-xs font-medium text-muted">
+      <Link href="/create" className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-muted hover:text-text">
         ← All episodes
       </Link>
-      <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl bg-surface-2" />}>
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-card bg-surface-2" />}>
         <Episode params={props.params} />
       </Suspense>
     </>
@@ -85,9 +88,9 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
           )}
           <ul className="space-y-3">
             {concepts.map((c) => (
-              <li key={c.id} className="rounded-xl border border-border p-3">
+              <li key={c.id} className="ticket px-6 py-4">
                 <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="rounded-full bg-surface-2 px-2 py-0.5 font-semibold">{PILLAR_LABEL[c.hook_type ?? ""] ?? c.hook_type}</span>
+                  <span className="stamp text-muted">{PILLAR_LABEL[c.hook_type ?? ""] ?? c.hook_type}</span>
                   {c.outline.needs_fact_check && <span className="text-muted">fact-checked before writing</span>}
                 </div>
                 <div className="font-semibold">{c.title}</div>
@@ -137,14 +140,14 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
             {captions.map((c) => {
               const full = [c.title, c.caption, c.hashtags.map((h) => `#${h}`).join(" ")].filter(Boolean).join("\n\n");
               return (
-                <li key={c.platform} className="rounded-xl border border-border p-3">
+                <li key={c.platform} className="rounded-control border border-border p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-semibold">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
                     <CopyButton text={full} />
                   </div>
                   {c.title && <p className="mb-1 text-sm font-semibold">{c.title}</p>}
                   <p className="whitespace-pre-line text-sm">{c.caption}</p>
-                  {c.hashtags.length > 0 && <p className="mt-2 text-xs text-accent">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>}
+                  {c.hashtags.length > 0 && <p className="mt-2 text-xs text-link">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>}
                 </li>
               );
             })}
@@ -189,11 +192,11 @@ function ScriptView({ script, versions }: { script: ScriptRow; versions: number 
           return (
             <li key={i}>
               {showBeat && (
-                <div className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-wider text-muted">{BEAT_LABEL[l.beat] ?? l.beat}</div>
+                <div className="mb-1 mt-4 text-xs font-bold text-muted">{BEAT_LABEL[l.beat] ?? l.beat}</div>
               )}
               <div className={`flex ${uco ? "justify-start" : "justify-end"}`}>
                 <div
-                  className={`max-w-[88%] rounded-2xl px-3 py-2 ${l.thought_bubble ? "border-2 border-dashed" : ""}`}
+                  className={`max-w-[88%] rounded-card px-3 py-2 ${l.thought_bubble ? "border-2 border-dashed" : ""}`}
                   style={{
                     background: uco ? "var(--uco-bg)" : "var(--ocu-bg)",
                     borderColor: uco ? "var(--uco)" : "var(--ocu)",
@@ -224,7 +227,7 @@ function ScriptView({ script, versions }: { script: ScriptRow; versions: number 
             {script.sources.map((s, i) => (
               <li key={i}>
                 {s.claim}:{" "}
-                <a href={s.url} target="_blank" rel="noreferrer" className="break-all text-accent underline">{s.url}</a>
+                <a href={s.url} target="_blank" rel="noreferrer" className="break-all text-link underline">{s.url}</a>
               </li>
             ))}
           </ul>

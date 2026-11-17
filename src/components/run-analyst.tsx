@@ -10,7 +10,7 @@ export function RunAnalystButton() {
       <button
         type="submit"
         disabled={pending}
-        className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-contrast disabled:opacity-60"
+        className="btn btn-primary"
       >
         {pending ? "Analyzing… (up to a minute)" : "Run Analyst"}
       </button>
