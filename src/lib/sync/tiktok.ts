@@ -88,7 +88,8 @@ export async function syncTikTokAccount(accountId: string) {
         ON CONFLICT (social_account_id, day) DO UPDATE SET followers = EXCLUDED.followers, followers_delta = EXCLUDED.followers_delta`;
       await tx`
         UPDATE social_accounts SET last_synced_at = now(), last_sync_error = NULL,
-               display_name = ${user.display_name ?? null}, avatar_url = ${user.avatar_url ?? null}
+               display_name = ${user.display_name ?? null}, avatar_url = ${user.avatar_url ?? null},
+               handle = COALESCE(${user.display_name ?? null}, handle)
         WHERE id = ${accountId}`;
     });
     await sql`REFRESH MATERIALIZED VIEW post_performance`;

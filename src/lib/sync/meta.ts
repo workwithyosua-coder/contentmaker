@@ -224,7 +224,9 @@ export function syncInstagramAccount(accountId: string) {
         );
       }
       await saveFollowers(tx, a, profile.followers_count);
-      await tx`UPDATE social_accounts SET avatar_url = COALESCE(${profile.profile_picture_url ?? null}, avatar_url)
+      await tx`UPDATE social_accounts SET avatar_url = COALESCE(${profile.profile_picture_url ?? null}, avatar_url),
+               display_name = COALESCE(${profile.username ?? null}, display_name),
+               handle = COALESCE('@' || ${profile.username ?? null}, handle)
                WHERE id = ${a.id}`;
     });
     return media.length;

@@ -113,6 +113,7 @@ export async function syncYouTubeChannel(accountId: string) {
       }
       await tx`
         UPDATE social_accounts SET last_synced_at = now(), last_sync_error = NULL, display_name = ${channel.title},
+               handle = ${channel.title},
                avatar_url = ${channel.thumbnail ?? null}
         WHERE id = ${accountId}`;
     });
