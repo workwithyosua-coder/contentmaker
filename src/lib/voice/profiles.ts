@@ -61,7 +61,7 @@ type ScriptLine = { speaker: Speaker; text: string; expression: string; thought_
 export async function aiTake(p: { userId: string; projectId: string; scriptId: string; lineIndex: number; line: ScriptLine; extra?: string }): Promise<SaveResult> {
   const profiles = await getVoiceProfiles(p.userId);
   const profile = profiles[p.line.speaker];
-  if (!profile) return { ok: false, message: `${p.line.speaker.toUpperCase()} has no AI voice yet. Set it up on the Accounts page.` };
+  if (!profile) return { ok: false, message: `${p.line.speaker.toUpperCase()} has no AI voice yet. Set it up on the Create page.` };
   const prompt = directLine(p.line, p.extra);
   const { model, ...settings } = profile.settings ?? {};
   const audio = await speak(profile.voice_id, prompt, { model, settings: { ...DEFAULT_SETTINGS[p.line.speaker], ...settings } });
