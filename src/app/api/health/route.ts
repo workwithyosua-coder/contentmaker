@@ -23,6 +23,13 @@ export async function GET(request: Request) {
       posts: row.posts,
       region: process.env.VERCEL_REGION ?? null,
       hasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
+      // The TikTok client key is public (it appears in the login URL); the secret is never shown.
+      tiktok: {
+        clientKey: process.env.TIKTOK_CLIENT_KEY ?? null,
+        clientKeyHasWhitespace: /\s/.test(process.env.TIKTOK_CLIENT_KEY ?? ""),
+        secretLength: process.env.TIKTOK_CLIENT_SECRET?.length ?? 0,
+        secretHasWhitespace: /\s/.test(process.env.TIKTOK_CLIENT_SECRET ?? ""),
+      },
     });
   } catch (err) {
     const e = err as { message?: string; code?: string };
