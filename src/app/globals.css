@@ -26,6 +26,11 @@
   --c-instagram: #c2410c;
   --c-tiktok: #0e7490;
   --c-youtube: #6d28d9;
+
+  --uco: #d9480f;
+  --uco-bg: #fff1e8;
+  --ocu: #0f8a80;
+  --ocu-bg: #e6f7f5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -55,6 +60,11 @@
     --c-instagram: #fb923c;
     --c-tiktok: #22d3ee;
     --c-youtube: #a78bfa;
+
+    --uco: #ff8a5c;
+    --uco-bg: #2e1a12;
+    --ocu: #4fd1c5;
+    --ocu-bg: #10292a;
   }
 }
 

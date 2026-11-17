@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Nav } from "@/components/nav";
+import { Suspense } from "react";
+import { Nav, NavView } from "@/components/nav";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full">
         <div className="md:flex">
-          <Nav />
+          <Suspense fallback={<NavView pathname="" />}>
+            <Nav />
+          </Suspense>
           <main className="safe-top min-w-0 flex-1 px-4 pb-28 pt-4 md:px-8 md:pb-10 md:pt-8">
             <div className="mx-auto max-w-6xl">{children}</div>
           </main>

@@ -16,6 +16,9 @@ CREATE TYPE project_status_t  AS ENUM (
   'draft',              -- direction given
   'ideating',           -- Strategist generating concepts
   'awaiting_concept',   -- user picks a concept            (HUMAN GATE 1)
+  'scripting',          -- Writers' room researching + writing the dialogue
+  'awaiting_script_approval', -- user approves/edits the Uco & Ocu script
+  'awaiting_recording', -- user records the voice lines
   'awaiting_footage',   -- user uploads raw clips (or AI b-roll)
   'analyzing',          -- transcribe / scene detect
   'awaiting_style',     -- user picks an editing style      (HUMAN GATE 2)
@@ -212,6 +215,27 @@ ALTER TABLE content_projects
   ADD CONSTRAINT fk_sel_concept FOREIGN KEY (selected_concept_id) REFERENCES concepts(id)        ON DELETE SET NULL,
   ADD CONSTRAINT fk_sel_style   FOREIGN KEY (selected_style_id)   REFERENCES style_options(id)   ON DELETE SET NULL,
   ADD CONSTRAINT fk_sel_caption FOREIGN KEY (selected_caption_id) REFERENCES caption_options(id) ON DELETE SET NULL;
+
+-- Dialogue scripts for Uco & Ocu episodes
+CREATE TABLE IF NOT EXISTS scripts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      uuid NOT NULL REFERENCES content_projects(id) ON DELETE CASCADE,
+  concept_id      uuid REFERENCES concepts(id) ON DELETE SET NULL,
+  version         int NOT NULL,
+  title           text NOT NULL,
+  language        text NOT NULL DEFAULT 'id',
+  subtitle_language text DEFAULT 'en',
+  target_duration_s int,
+  lines           jsonb NOT NULL,   -- [{beat, speaker:'uco'|'ocu', text, subtitle, expression, visual, on_screen_text}]
+  fact_sheet      text,             -- research notes the script was written from
+  sources         jsonb DEFAULT '[]', -- [{claim, url}]
+  feedback        text,             -- the owner's notes that produced this version
+  approved_at     timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, version)
+);
+CREATE INDEX IF NOT EXISTS scripts_project_idx ON scripts (project_id);
+
 
 -- ---------------------------------------------------------------------
 -- MEDIA

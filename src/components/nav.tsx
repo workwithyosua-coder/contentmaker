@@ -11,7 +11,11 @@ const items = [
 ];
 
 export function Nav() {
-  const pathname = usePathname();
+  return <NavView pathname={usePathname()} />;
+}
+
+/** Pure navigation markup; also used (with an empty pathname) as the Suspense fallback while the URL is read. */
+export function NavView({ pathname }: { pathname: string }) {
   if (pathname === "/login" || pathname === "/privacy" || pathname === "/terms" || pathname === "/data-deletion") return null;
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
