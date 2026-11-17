@@ -2,7 +2,7 @@ import "server-only";
 import type postgres from "postgres";
 import { db } from "../db";
 import { decrypt, encrypt } from "../crypto";
-import { graph, insightsBestEffort, type MetaPage } from "../platforms/meta";
+import { GraphError, graph, insightsBestEffort, type MetaPage } from "../platforms/meta";
 
 // Every post gets insights once (first import); after that only the newest N are refreshed each sync,
 // so daily syncs stay well inside Meta's rate limits.
@@ -251,10 +251,20 @@ export function syncFacebookPage(accountId: string) {
       a.token,
       { fields: "name,followers_count,fan_count,picture{url}" },
     );
-    const posts = await paged<FbPost>(`/${a.external_account_id}/posts`, a.token, {
+    const postParams = {
       fields:
         "id,message,created_time,permalink_url,full_picture,status_type,shares,reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0)",
       limit: "50",
+    };
+    // /posts needs pages_read_user_content; /published_posts is the fallback edge for the Page's own posts.
+    const posts = await paged<FbPost>(`/${a.external_account_id}/posts`, a.token, postParams).catch(async (err) => {
+      if (!(err instanceof GraphError) || err.code !== 10) throw err;
+      return paged<FbPost>(`/${a.external_account_id}/published_posts`, a.token, postParams).catch(() => {
+        throw new Error(
+          "Facebook needs the 'pages_read_user_content' permission: add it in the Meta app (Page use case → Permissions) " +
+            "and to the Facebook Login configuration, then tap Reconnect.",
+        );
+      });
     });
 
     const unsupported = new Set<string>();
