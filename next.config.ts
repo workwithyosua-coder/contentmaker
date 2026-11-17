@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    // Voice recordings are uploaded through a server action (max 20 MB per file + multipart overhead).
+    serverActions: { bodySizeLimit: "21mb" },
+  },
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

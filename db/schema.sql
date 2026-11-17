@@ -20,6 +20,7 @@ CREATE TYPE project_status_t  AS ENUM (
   'awaiting_script_approval', -- user approves/edits the Uco & Ocu script
   'captioning',         -- Copywriter writing platform captions
   'awaiting_recording', -- user records the voice lines
+  'recorded',           -- every line has a selected take
   'awaiting_footage',   -- user uploads raw clips (or AI b-roll)
   'analyzing',          -- transcribe / scene detect
   'awaiting_style',     -- user picks an editing style      (HUMAN GATE 2)
@@ -237,6 +238,26 @@ CREATE TABLE IF NOT EXISTS scripts (
   UNIQUE (project_id, version)
 );
 CREATE INDEX IF NOT EXISTS scripts_project_idx ON scripts (project_id);
+
+
+-- Voice recordings for scripts (one or more takes per line)
+CREATE TABLE IF NOT EXISTS recordings (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    uuid NOT NULL REFERENCES content_projects(id) ON DELETE CASCADE,
+  script_id     uuid NOT NULL REFERENCES scripts(id) ON DELETE CASCADE,
+  line_index    int NOT NULL,
+  speaker       text NOT NULL,                -- 'uco' | 'ocu' (IP character)
+  take          int NOT NULL,
+  storage_path  text NOT NULL,                -- path in the private 'recordings' bucket
+  mime_type     text NOT NULL,
+  size_bytes    int,
+  duration_ms   int,
+  source        text NOT NULL DEFAULT 'booth', -- 'booth' (recorded in the app) | 'upload'
+  is_selected   boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (script_id, line_index, take)
+);
+CREATE INDEX IF NOT EXISTS recordings_script_idx ON recordings (script_id, line_index);
 
 
 -- ---------------------------------------------------------------------

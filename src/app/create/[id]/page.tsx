@@ -7,6 +7,7 @@ import { AutoRefresh, CopyButton, ReviseForm, StepButton } from "@/components/ep
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
+import { recordingProgress } from "@/lib/recordings";
 import { getOwner } from "@/lib/queries";
 import {
   approveScriptAction,
@@ -60,6 +61,7 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
   const ep = await getEpisode(owner.id, id);
   if (!ep) notFound();
   const { project, concepts, latestScript, captions } = ep;
+  const progress = await recordingProgress(project.id);
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
@@ -188,12 +190,15 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
         </Card>
       )}
 
-      {project.status === "awaiting_recording" && (
-        <Card title="Next: record the voices">
-          <p className="text-sm text-muted">
-            The recording booth and the cartoon animation are being built next (phase 3). Your approved script is saved and will be
-            ready to record line by line.
+      {(project.status === "awaiting_recording" || project.status === "recorded") && (
+        <Card title={project.status === "recorded" ? "Voices recorded" : "Next: record the voices"}>
+          <p className="mb-3 text-sm text-muted">
+            {progress.recorded} of {progress.lines} lines recorded.
+            {project.status === "recorded" ? " The animation step comes next." : " Record each line with your phone, one at a time."}
           </p>
+          <Link href={`/create/${project.id}/record`} className="btn btn-primary">
+            {progress.recorded ? "Open the recording booth" : "Start recording"}
+          </Link>
         </Card>
       )}
 
