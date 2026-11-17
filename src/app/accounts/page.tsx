@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
+import { DisconnectDriveButton, RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
+import { getDriveConnection } from "@/lib/drive";
 import { metaConfigured } from "@/lib/platforms/meta";
 import { tiktokConfigured } from "@/lib/platforms/tiktok";
 import { youtubeConfigured } from "@/lib/platforms/youtube";
@@ -44,6 +45,9 @@ const MESSAGES: Record<string, string> = {
   youtube_no_channel: "That Google account has no YouTube channel. Connect again and pick the account (or brand account) that owns your channel.",
   youtube_connect: "YouTube connection failed. Please try again; if it keeps failing, tell Claude.",
   youtube_sync: "YouTube connected, but importing videos failed. See the error under the account.",
+  drive_denied: "Google Drive connection was cancelled.",
+  drive_api_off: "Google Drive isn't switched on for your Google Cloud project yet. Enable the Google Drive API there, then connect again.",
+  drive_connect: "Google Drive connection failed. Please try again; if it keeps failing, tell Claude.",
   no_owner: "No user found in the database.",
 };
 
@@ -77,6 +81,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
     SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.avatar_url, sa.external_account_id,
            sa.last_synced_at, sa.last_sync_error, (SELECT count(*)::int FROM posts p WHERE p.social_account_id = sa.id) AS posts
     FROM social_accounts sa WHERE sa.user_id = ${owner.id} ORDER BY sa.platform, sa.created_at`;
+  const drive = await getDriveConnection(owner.id).catch(() => null);
   const real = accounts.filter((a) => !a.external_account_id.startsWith("demo-"));
   const demo = accounts.filter((a) => a.external_account_id.startsWith("demo-"));
   const configured: Record<string, boolean> = {
@@ -89,7 +94,9 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
 
   const connectedMsg =
     typeof sp.connected === "string"
-      ? `${sp.connected === "meta" ? "Instagram & Facebook" : (PLATFORM_LABEL[sp.connected] ?? sp.connected)} connected${typeof sp.videos === "string" ? `: imported ${sp.videos} videos` : ""}.`
+      ? sp.connected === "drive"
+        ? "Google Drive connected. New videos are copied to the folder Uco Ocu / Episodes."
+        : `${sp.connected === "meta" ? "Instagram & Facebook" : (PLATFORM_LABEL[sp.connected] ?? sp.connected)} connected${typeof sp.videos === "string" ? `: imported ${sp.videos} videos` : ""}.`
       : null;
   const errorMsg =
     typeof sp.error === "string"
@@ -159,12 +166,35 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
         </Card>
       )}
 
+      <Card title="Video storage">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-medium">Google Drive</div>
+            <div className="text-xs text-muted">
+              {drive
+                ? `Connected${drive.email ? ` as ${drive.email}` : ""}. Every finished video is copied to Uco Ocu / Episodes. Open it from there in CapCut.`
+                : "Copy every finished video into a Drive folder, so you can open it in CapCut and keep an archive. The app only sees files it creates."}
+            </div>
+          </div>
+          {configured.youtube ? (
+            <div className="flex shrink-0 items-center gap-2">
+              {drive && <DisconnectDriveButton />}
+              <a href="/api/connect/drive" className={drive ? "btn btn-secondary" : "btn btn-primary"}>
+                {drive ? "Reconnect" : "Connect Drive"}
+              </a>
+            </div>
+          ) : (
+            <span className="text-xs text-muted">Waiting for setup</span>
+          )}
+        </div>
+      </Card>
+
       <Card title="Creative tools">
         <ul className="divide-y divide-border text-sm">
           {[
             ["Canva", "Thumbnails, carousels, covers (autofill templates)"],
             ["Figma", "Design your editing styles and caption looks"],
-            ["CapCut", "Optional manual polish (handoff package)"],
+            ["CapCut", "No upload API: open videos from Google Drive or the download button"],
           ].map(([name, desc]) => (
             <li key={name} className="flex items-center justify-between gap-3 py-3">
               <div>

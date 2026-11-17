@@ -1,9 +1,11 @@
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { copyVideoToDrive } from "@/lib/drive";
 import { db } from "@/lib/db";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
 import { deleteObjects, getObject, putObject } from "@/lib/storage";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 const MAX_BYTES = 49 * 1024 * 1024; // Supabase free plan: 50 MB per file
 
 // POST /api/render/:id/video/complete { upload, parts, durationMs } → joins the parts into the episode MP4.
@@ -41,5 +43,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/render/[id]
   await sql`UPDATE content_projects SET status = 'awaiting_approval', updated_at = now() WHERE id = ${id}`;
   revalidatePath(`/create/${id}`);
   revalidatePath("/create");
+  // Copy to Google Drive in the background when it's connected (errors are saved on the video).
+  after(() =>
+    copyVideoToDrive(row.id)
+      .then(() => revalidatePath(`/create/${id}`))
+      .catch((err) => console.error("[drive] copy failed:", err instanceof Error ? err.message : err)),
+  );
   return Response.json({ ok: true, id: row.id, path, bytes: size });
 }

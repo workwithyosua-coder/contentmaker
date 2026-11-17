@@ -19,12 +19,13 @@ function creds() {
 
 export const youtubeRedirectUri = (origin: string) => `${origin}/api/connect/youtube/callback`;
 
-export function youtubeAuthorizeUrl(origin: string, state: string) {
+export function youtubeAuthorizeUrl(origin: string, state: string, scopes: string[] = YOUTUBE_SCOPES) {
   const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   u.searchParams.set("client_id", creds().clientId);
+  // Google Drive reuses this already-registered redirect URI; the callback tells the two apart by `state`.
   u.searchParams.set("redirect_uri", youtubeRedirectUri(origin));
   u.searchParams.set("response_type", "code");
-  u.searchParams.set("scope", YOUTUBE_SCOPES.join(" "));
+  u.searchParams.set("scope", scopes.join(" "));
   u.searchParams.set("access_type", "offline"); // we need a refresh token for daily syncs
   u.searchParams.set("prompt", "consent"); // always return a refresh token, also on reconnect
   u.searchParams.set("include_granted_scopes", "true");
