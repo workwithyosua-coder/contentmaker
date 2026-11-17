@@ -241,7 +241,7 @@ export function RecordingBooth({
           <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-lg font-bold" style={{ color }}>{NAME[line.speaker]}</span>
             <span className="text-sm">Line {line.index + 1} of {lines.length}</span>
-            {recorded[line.index] && <span className="stamp" style={{ color: "var(--win)" }}>Recorded · take {recorded[line.index].take}</span>}
+            {recorded[line.index] && <span className="stamp" style={{ color: "var(--win)" }}>{recorded[line.index].source === "ai" ? "AI voice" : "Recorded"} · take {recorded[line.index].take}</span>}
           </div>
           <p className="text-2xl font-semibold leading-snug md:text-3xl">{line.text}</p>
           <p className="mt-2 text-sm italic">{line.subtitle}</p>
