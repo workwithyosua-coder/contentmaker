@@ -1,6 +1,6 @@
 // Renders one Uco & Ocu episode to MP4 and uploads it to the app.
 //
-//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload]
+//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse]
 //
 // Steps: fetch the script from the app → download each line's selected take → trim silence and even out
 // loudness (ffmpeg) → measure loudness per frame for the mouth movement → render with Remotion → upload.
@@ -8,6 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { FPS, GAP_FRAMES, type EpisodeProps, type ManifestLine } from "./src/types.ts";
@@ -28,13 +29,22 @@ const work = path.join(here, "out", episodeId);
 const auth = { Authorization: `Bearer ${token}` };
 const log = (s: string) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${s}`);
 
-async function get(url: string) {
-  const res = await fetch(`${base}${url}`, { headers: auth });
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${(await res.text()).slice(0, 200)}`);
-  return res;
+/** GET from the app, returning the body bytes; retries a stalled or failed request a few times. */
+async function get(url: string): Promise<Buffer> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${base}${url}`, { headers: auth, signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      if (attempt >= 4) throw err;
+      log(`retrying ${url} (${err instanceof Error ? err.message : err})`);
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
+  }
 }
 
-const manifest = (await (await get(`/api/render/${episodeId}`)).json()) as {
+const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) as {
   title: string;
   version: number;
   lines: ManifestLine[];
@@ -45,13 +55,14 @@ rmSync(path.join(pub, episodeId), { recursive: true, force: true });
 mkdirSync(path.join(pub, episodeId), { recursive: true });
 mkdirSync(work, { recursive: true });
 
-const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...a]);
+const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", ...a], { timeout: 120_000 });
 // Trim silence at both ends (keep a short tail), even out loudness, 48 kHz mono.
-const CLEAN =
+// Two passes: running loudnorm in the same chain as areverse can stall ffmpeg on some browser recordings.
+const TRIM =
   "highpass=f=70," +
   "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.08," +
-  "areverse,silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.15,areverse," +
-  "loudnorm=I=-16:TP=-1.5:LRA=11";
+  "areverse,silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.15,areverse";
+const LEVEL = "loudnorm=I=-16:TP=-1.5:LRA=11";
 
 const lines: EpisodeProps["lines"] = [];
 for (const line of manifest.lines) {
@@ -64,13 +75,15 @@ for (const line of manifest.lines) {
     continue;
   }
   const raw = path.join(work, `line-${n}.raw`);
-  writeFileSync(raw, Buffer.from(await (await get(`/api/render/${episodeId}/audio/${line.index}`)).arrayBuffer()));
+  writeFileSync(raw, await get(`/api/render/${episodeId}/audio/${line.index}`));
   const rel = `${episodeId}/line-${n}.wav`;
   const wav = path.join(pub, rel);
-  ffmpeg("-i", raw, "-af", CLEAN, "-ar", "48000", "-ac", "1", wav);
+  const trimmed = path.join(work, `line-${n}.trim.wav`);
+  ffmpeg("-i", raw, "-af", TRIM, "-ar", "48000", "-ac", "1", trimmed);
+  ffmpeg("-i", trimmed, "-af", LEVEL, "-ar", "48000", "-ac", "1", wav);
 
   // Loudness per video frame → mouth openness 0..1
-  const pcm = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", wav, "-f", "s16le", "-ac", "1", "-ar", "48000", "-"], {
+  const pcm = execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-i", wav, "-f", "s16le", "-ac", "1", "-ar", "48000", "-"], {
     maxBuffer: 1 << 28,
   });
   const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
@@ -102,11 +115,12 @@ const composition = await selectComposition({ serveUrl, id: "Episode", inputProp
 const out = path.join(work, `episode-v${manifest.version}.mp4`);
 log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);
 let last = -1;
-await renderMedia({
+// --reuse: upload the MP4 from a previous run instead of rendering again
+if (!(args.includes("--reuse") && existsSync(out))) await renderMedia({
   composition,
   serveUrl,
   codec: "h264",
-  crf: 20,
+  crf: 23,
   audioBitrate: "192k",
   outputLocation: out,
   inputProps: props,
@@ -122,14 +136,32 @@ const durationMs = Math.round((composition.durationInFrames / FPS) * 1000);
 log(`done: ${out} (${(size / 1e6).toFixed(1)} MB, ${(durationMs / 1000).toFixed(1)} s)`);
 
 if (upload) {
+  // Vercel caps request bodies at 4.5 MB: send 4 MB parts, then ask the app to join them.
   log("uploading to the app…");
-  const res = await fetch(`${base}/api/render/${episodeId}/video`, {
-    method: "POST",
-    headers: { ...auth, "Content-Type": "video/mp4", "x-duration-ms": String(durationMs) },
-    body: readFileSync(out),
-  });
-  if (!res.ok) throw new Error(`upload → ${res.status} ${(await res.text()).slice(0, 300)}`);
-  log(`uploaded: ${JSON.stringify(await res.json())}`);
+  const bytes = readFileSync(out);
+  const id = crypto.randomUUID();
+  const PART = 4 * 1024 * 1024;
+  const parts = Math.ceil(bytes.length / PART);
+  for (let n = 0; n < parts; n++) {
+    await post(`/api/render/${episodeId}/video/part?upload=${id}&n=${n}`, bytes.subarray(n * PART, (n + 1) * PART), "application/octet-stream");
+    log(`  part ${n + 1}/${parts}`);
+  }
+  const done = await post(`/api/render/${episodeId}/video/complete`, JSON.stringify({ upload: id, parts, durationMs }), "application/json");
+  log(`uploaded: ${done}`);
+}
+
+async function post(url: string, body: Buffer | string, type: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${base}${url}`, { method: "POST", headers: { ...auth, "Content-Type": type }, body: typeof body === "string" ? body : new Uint8Array(body), signal: AbortSignal.timeout(120_000) });
+      if (!res.ok) throw new Error(`POST ${url} → ${res.status} ${(await res.text()).slice(0, 300)}`);
+      return res.text();
+    } catch (err) {
+      if (attempt >= 4) throw err;
+      log(`retrying ${url} (${err instanceof Error ? err.message : err})`);
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
+  }
 }
 
 function findChrome() {

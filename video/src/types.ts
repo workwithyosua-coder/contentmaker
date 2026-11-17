@@ -5,6 +5,8 @@ export const HEIGHT = 1920;
 export const GAP_FRAMES = 6;
 /** End card length. */
 export const END_FRAMES = 3 * FPS;
+/** Center 80% safe zone (TikTok / Reels / Shorts UI stays outside it). */
+export const SAFE = { left: 108, right: 108, top: 192, bottom: 192 };
 
 export type Speaker = "uco" | "ocu";
 export type Expression = "deadpan" | "angry" | "calm" | "furious" | "worried" | "excited" | "thinking" | "smug" | string;
@@ -33,22 +35,19 @@ export type EpisodeLine = ManifestLine & {
 
 export type EpisodeProps = { title: string; lines: EpisodeLine[] };
 
-// From the reference badge: warm amber Uco vs cool slate-teal Ocu on charcoal, split by a lightning bolt.
+// Uco & Ocu style bible: high-contrast split on charcoal.
 export const COLORS = {
-  uco: "#F4A922", // amber
-  ucoDeep: "#C9761A",
-  ucoWarm: "#FFD36B",
-  ucoSweater: "#D9962B",
-  ucoSweaterDark: "#A86E17",
-  ucoShirt: "#FBE3A0",
-  ocu: "#5F8A93", // slate teal
-  ocuDeep: "#3B5D66",
-  ocuSlate: "#4A6E78",
-  ocuBlazer: "#6F8C95",
-  ocuBlazerLight: "#85A3AB",
-  ocuTurtle: "#2F4A50",
-  ink: "#1A1A1F",
-  paper: "#FFF6E0",
-  charcoal: "#2B3034",
-  yellow: "#FFD23F",
+  ink: "#0E0E12",
+  canvas: "#1E1E24",
+  // Uco, left, warm
+  uco: "#E85D04", // burnt orange
+  ucoAmber: "#F48C06",
+  ucoDeep: "#9D3A02",
+  // Ocu, right, cool
+  ocu: "#3A5A78", // slate blue
+  ocuTeal: "#2A6F7B",
+  ocuDeep: "#16283A",
+  // highlights
+  yellow: "#FFD60A",
+  white: "#F8F9FA",
 };
