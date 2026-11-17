@@ -4,12 +4,17 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { RecordingBooth } from "@/components/recording-booth";
+import { AiVoicePanel } from "@/components/voice-ui";
+import { elevenLabsConfigured } from "@/lib/voice/elevenlabs";
+import { getVoiceProfiles } from "@/lib/voice/profiles";
+import { generateAiTakesAction } from "./ai-actions";
 import { SetupNotice } from "@/components/setup-notice";
-import { EmptyState } from "@/components/ui";
+import { Card, EmptyState } from "@/components/ui";
 import { getOwner } from "@/lib/queries";
 import { getBooth } from "@/lib/recordings";
 
 export const metadata: Metadata = { title: "Recording booth" };
+export const maxDuration = 300; // AI voice generation for a whole episode
 
 export default function RecordPage(props: PageProps<"/create/[id]/record">) {
   return (
@@ -42,6 +47,8 @@ async function Booth({
   }
   if (!data) notFound();
   const { project, script, lines, recorded } = data;
+  const voices = elevenLabsConfigured() ? await getVoiceProfiles(owner.id).catch(() => ({})) : null;
+  const missing = lines.filter((l) => !recorded[l.index]).length;
 
   return (
     <div className="space-y-4">
@@ -63,7 +70,27 @@ async function Booth({
               This script isn&apos;t approved yet. You can record already, but changes to the script after approval may need new takes.
             </p>
           )}
+          <Card title="AI voices">
+            {!voices ? (
+              <p className="text-sm text-muted">
+                Want the app to voice lines for you? Set up AI voices on the <Link href="/accounts" className="text-link underline">Accounts</Link> page.
+              </p>
+            ) : Object.keys(voices).length < 2 ? (
+              <p className="text-sm text-muted">
+                Clone {"uco" in voices ? "Ocu's" : "ocu" in voices ? "Uco's" : "Uco's and Ocu's"} voice on the{" "}
+                <Link href="/accounts" className="text-link underline">Accounts</Link> page first.
+              </p>
+            ) : (
+              <AiVoicePanel
+                action={generateAiTakesAction.bind(null, project.id)}
+                lines={lines.map((l) => ({ index: l.index, speaker: l.speaker, text: l.text }))}
+                missing={missing}
+              />
+            )}
+          </Card>
           <RecordingBooth
+            // remount when takes change on the server (e.g. AI takes), so the list shows them
+            key={Object.entries(recorded).map(([i, r]) => `${i}:${r.take}`).join(",")}
             projectId={project.id}
             scriptId={script.id}
             lines={lines}

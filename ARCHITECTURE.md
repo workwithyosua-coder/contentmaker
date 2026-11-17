@@ -182,6 +182,34 @@ Each tool gets the job it is best at. The automated video renderer stays Remotio
 
 ---
 
+## 7c. Voices, animation, storage (Uco & Ocu episodes)
+
+```
+script (Writers' room, with a `delivery` note per line)
+   │
+   ├─► Recording booth ── you record a line ──────────────┐
+   │                                                       ├─► recordings (one selected take per line;
+   └─► AI voices (ElevenLabs) ── cloned Uco / Ocu voice ──┘     source = booth | upload | ai)
+                                                                 │
+video/render.mts (Remotion) ◄── /api/render/:id (token) ─────────┘
+   │  trims silence, levels loudness, animates per video/STYLE.md, renders 1080x1920
+   └─► /api/render/:id/video/part + /complete ─► private storage ─► episode page (+ Google Drive copy)
+```
+
+**AI voices (ElevenLabs).** One instant voice clone per character, made from your own booth takes
+(Accounts → AI voices), or a voice ID you made on elevenlabs.io (for example a Professional Voice Clone).
+In the booth, "Voice the missing lines with AI" sends each line to Eleven v3 with delivery tags built from the
+character, the line's expression, inner-thought flag and the writer's `delivery` note
+(`src/lib/voice/direction.ts`, e.g. `[deadpan] [flat]` for Ocu, `[furious] [shouting]` for Uco, `[whispers]`
+for inner thoughts). The audio is saved as a normal take with `source = 'ai'` and the exact prompt in
+`recordings.ai_prompt`, so mixing AI and recorded lines in one episode works, and nothing downstream changed.
+Key: `ELEVENLABS_API_KEY` in Vercel. Cost: Starter plan (about $6/month) includes instant cloning; one
+55-second episode is roughly 700 characters.
+
+**Video storage.** Renders live in the private Supabase bucket (free tier: 1 GB, 50 MB per file) and are copied
+to Google Drive (`Uco Ocu / Episodes`, scope `drive.file`). CapCut has no upload API, so open videos in CapCut from
+Drive or the download button.
+
 ## 8. Build order
 
 1. **Weeks 1–2, analytics first:** connect accounts, import history, metrics cron, `post_performance`, dashboard, Analyst insights. Useful on its own before any editing exists.

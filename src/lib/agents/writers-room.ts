@@ -141,17 +141,21 @@ Keep it under 350 words. Format: bullet points, each ending with (source: URL).`
 // ---------- 3. Script ----------
 const ScriptSchema = z.object({
   title: z.string(),
-  target_duration_s: z.number().int().describe("Estimated spoken length, 30–60"),
+  target_duration_s: z.number().int().describe("Estimated spoken length, 50–60"),
   lines: z.array(
     z.object({
       beat: z.enum(BEATS),
       speaker: z.enum(["uco", "ocu"]),
-      text: z.string().describe("Spoken line in casual Indonesian, max ~22 words"),
+      text: z.string().describe("Spoken line in casual Jakarta Indonesian, punchy, 2–3 seconds (about 5–10 words); one longer line allowed for the key fact"),
       subtitle: z.string().describe("Natural English subtitle for the line (not word-for-word)"),
       expression: z.enum(EXPRESSIONS),
       thought_bubble: z.boolean().describe("true = an inner thought (not said out loud), used for the unspoken concession"),
       visual: z.string().describe("What's on screen: background, prop, graphic, gesture (short)"),
       on_screen_text: z.string().nullable().describe("Big on-screen text if any (numbers, key fact, punchline)"),
+      delivery: z
+        .string()
+        .nullable()
+        .describe("How to say it, for the voice actor or AI voice: emotion, pace, emphasis (e.g. 'fast, indignant, hit 65 ribu')"),
     }),
   ),
   sources: z.array(z.object({ claim: z.string(), url: z.string() })),

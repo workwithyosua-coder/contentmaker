@@ -46,3 +46,35 @@ export async function removeAccountAction(accountId: string): Promise<ActionResu
   revalidatePath("/", "layout");
   return { ok: true, message: "Account removed." };
 }
+
+/** Makes an ElevenLabs instant clone of one character's voice from the owner's recorded booth takes. */
+export async function cloneVoiceAction(speaker: "uco" | "ocu"): Promise<ActionResult> {
+  try {
+    const owner = await getOwner();
+    if (!owner) return { ok: false, message: "No user found." };
+    const { cloneFromTakes } = await import("@/lib/voice/profiles");
+    const r = await cloneFromTakes(owner.id, speaker);
+    revalidatePath("/accounts");
+    return { ok: true, message: `${speaker === "uco" ? "Uco" : "Ocu"}'s voice cloned from ${r.samples} takes (${r.seconds} s).` };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Uses a voice made on the ElevenLabs website instead (e.g. a Professional Voice Clone). */
+export async function setVoiceIdAction(speaker: "uco" | "ocu", _prev: ActionResult, form: FormData): Promise<ActionResult> {
+  try {
+    const owner = await getOwner();
+    if (!owner) return { ok: false, message: "No user found." };
+    const voiceId = String(form.get("voiceId") ?? "").trim();
+    if (!/^[A-Za-z0-9]{10,40}$/.test(voiceId)) return { ok: false, message: "That doesn't look like an ElevenLabs voice ID." };
+    const { voiceExists } = await import("@/lib/voice/elevenlabs");
+    if (!(await voiceExists(voiceId))) return { ok: false, message: "ElevenLabs doesn't know that voice ID on your account." };
+    const { setVoiceProfile } = await import("@/lib/voice/profiles");
+    await setVoiceProfile(owner.id, speaker, voiceId, `${speaker === "uco" ? "Uco" : "Ocu"} (own voice ID)`);
+    revalidatePath("/accounts");
+    return { ok: true, message: "Voice saved." };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
