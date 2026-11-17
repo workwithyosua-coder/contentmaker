@@ -3,15 +3,26 @@ import "@fontsource/luckiest-guy/400.css";
 import "@fontsource/nunito/800.css";
 import "@fontsource/nunito/900.css";
 import React from "react";
-import { AbsoluteFill, Audio, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Easing, Sequence, interpolate, random, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { Character } from "./Character";
-import { COLORS, END_FRAMES, GAP_FRAMES, type EpisodeLine, type EpisodeProps, type Speaker } from "./types";
+import { Prop, propsFor } from "./Props";
+import { COLORS, END_FRAMES, GAP_FRAMES, SAFE, type EpisodeLine, type EpisodeProps, type Speaker } from "./types";
 
-const TITLE_FONT = "Bangers, Impact, sans-serif";
-const LOGO_FONT = "'Luckiest Guy', Impact, sans-serif";
-const BODY_FONT = "Nunito, Arial, sans-serif";
+const COMIC = "Bangers, Impact, sans-serif";
+const LOGO = "'Luckiest Guy', Impact, sans-serif";
+const BODY = "Nunito, Arial, sans-serif";
+
+/** Ocu's signature iced drink, colored by what the episode is about. */
+function drinkFor(lines: EpisodeLine[]) {
+  const all = lines.map((l) => `${l.text} ${l.visual ?? ""}`).join(" ").toLowerCase();
+  if (all.includes("matcha")) return "#8DB255";
+  if (/kopi|coffee/.test(all)) return "#7B4B2A";
+  if (/\bteh\b|tea/.test(all)) return "#C2803B";
+  return null;
+}
 
 export function Episode({ lines }: EpisodeProps) {
+  const drink = drinkFor(lines);
   let from = 0;
   const placed = lines.map((line, i) => {
     const start = from;
@@ -21,80 +32,109 @@ export function Episode({ lines }: EpisodeProps) {
   const last = lines[lines.length - 1];
 
   return (
-    <AbsoluteFill style={{ backgroundColor: COLORS.charcoal }}>
+    <AbsoluteFill style={{ backgroundColor: COLORS.canvas }}>
       {placed.map(({ line, start, prev }) => (
-        <Sequence key={line.index} from={start} durationInFrames={line.frames + GAP_FRAMES} name={`${line.index + 1} ${line.speaker}`}>
-          <Shot line={line} prevSpeaker={prev?.speaker} />
+        <Sequence key={line.index} from={start} durationInFrames={line.frames + GAP_FRAMES} name={`${line.index + 1} ${line.speaker} ${line.expression}`}>
+          <Shot line={line} prev={prev} drink={drink} />
           {line.audio && <Audio src={staticFile(line.audio)} />}
         </Sequence>
       ))}
       <Sequence from={from} durationInFrames={END_FRAMES} name="end card">
-        <EndCard cta={last?.on_screen_text ?? null} />
+        <EndCard cta={last?.on_screen_text ?? null} drink={drink} />
       </Sequence>
       <Bug />
     </AbsoluteFill>
   );
 }
 
-/** How a line is framed: one character close up, or both in the frame. */
 const isTwoShot = (l: EpisodeLine) => Boolean(l.thought_bubble) || l.beat === "concession" || l.beat === "button";
+const hot = (l: EpisodeLine) => ["angry", "furious", "excited"].includes(l.expression);
 
-function Shot({ line, prevSpeaker }: { line: EpisodeLine; prevSpeaker?: Speaker }) {
+function Shot({ line, prev, drink }: { line: EpisodeLine; prev?: EpisodeLine; drink: string | null }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const mouth = smoothMouth(line.envelope, frame);
   const talking = frame < line.frames;
+  const uco = line.speaker === "uco";
+  const cut = !prev || prev.speaker !== line.speaker || isTwoShot(prev) !== isTwoShot(line);
 
-  // whip in from the side the speaker lives on (Uco left, Ocu right) when the speaker changes
-  const enter = spring({ frame, fps, config: { damping: 18, stiffness: 160 }, durationInFrames: 10 });
-  const fromSide = line.speaker === "uco" ? -1 : 1;
-  const whip = prevSpeaker && prevSpeaker !== line.speaker ? (1 - enter) * 1080 * fromSide : 0;
-  const zoom = interpolate(frame, [0, line.frames], [1, line.speaker === "ocu" ? 1.07 : 1.04], { extrapolateRight: "clamp" });
+  // Motion curves: Uco = fast overshoot + screen shake; Ocu = slow linear ease, long holds.
+  let enter = "";
+  let shake = { x: 0, y: 0 };
+  if (uco) {
+    const s = cut ? spring({ frame, fps, config: { damping: 7, stiffness: 260, mass: 0.6 } }) : 1;
+    enter = `translateY(${(1 - s) * 160}px) scale(${0.82 + 0.18 * s}, ${1.12 - 0.12 * s})`; // squash & stretch pop
+    const amp = cut && hot(line) ? interpolate(frame, [0, 14], [22, 0], { extrapolateRight: "clamp" }) : 0;
+    const peak = talking && line.expression === "furious" ? mouth * 6 : 0;
+    shake = { x: (random(`sx${frame}`) - 0.5) * 2 * (amp + peak), y: (random(`sy${frame}`) - 0.5) * 2 * (amp + peak) };
+  } else {
+    const t = cut ? interpolate(frame, [0, 24], [0, 1], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.sin) }) : 1;
+    enter = `translateX(${(1 - t) * 60}px)`;
+  }
+  const zoom = uco
+    ? 1 + (talking ? mouth * 0.015 : 0)
+    : interpolate(frame, [0, line.frames], [1, 1.06], { extrapolateRight: "clamp" }); // slow unbothered push-in
+  const flash = uco && cut && hot(line) ? interpolate(frame, [0, 3], [0.9, 0], { extrapolateRight: "clamp" }) : 0;
 
   return (
-    <AbsoluteFill>
-      <Backdrop line={line} />
-      <AbsoluteFill style={{ transform: `translateX(${whip}px) scale(${zoom})`, transformOrigin: "50% 70%" }}>
-        {isTwoShot(line) ? (
-          <TwoShot line={line} mouth={mouth} talking={talking} frame={frame} />
-        ) : (
-          <Solo line={line} mouth={mouth} talking={talking} frame={frame} />
-        )}
+    <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px)` }}>
+      <Backdrop line={line} frame={frame} />
+      {line.beat === "hook" && <Bolts frame={frame} />}
+      <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 60%" }}>
+        <AbsoluteFill style={{ transform: enter, transformOrigin: "50% 100%" }}>
+          {isTwoShot(line) ? (
+            <TwoShot line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} />
+          ) : (
+            <Solo line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} />
+          )}
+        </AbsoluteFill>
       </AbsoluteFill>
+      {propsFor(line).map((p, i) => (
+        <Prop key={p} kind={p} slot={i} line={line} frame={frame} />
+      ))}
       {line.thought_bubble && <ThoughtCloud side={line.speaker} frame={frame} />}
-      {line.on_screen_text && <Label text={line.on_screen_text} speaker={line.speaker} frame={frame} />}
+      {line.on_screen_text && <CaptionCard text={line.on_screen_text} line={line} frame={frame} />}
       <Subtitle line={line} frame={frame} />
+      {flash > 0 && <AbsoluteFill style={{ backgroundColor: COLORS.white, opacity: flash }} />}
     </AbsoluteFill>
   );
 }
 
-function Solo({ line, mouth, talking, frame }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number }) {
-  const angerBoost = line.speaker === "uco" && ["angry", "furious"].includes(line.expression);
+function Solo({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null }) {
+  const uco = line.speaker === "uco";
   return (
     <>
-      <div style={{ position: "absolute", left: 90, right: 90, bottom: 230, height: 1250 }}>
-        <Character who={line.speaker} expression={line.expression} mouth={mouth} frame={frame} talking={talking} />
+      <div
+        style={{
+          position: "absolute",
+          left: SAFE.left - 20,
+          right: SAFE.right - 20,
+          bottom: 250,
+          height: 1180,
+          transform: uco ? "rotate(-2deg) translateY(-10px)" : "rotate(1.5deg) translateY(30px)", // Uco leans in, Ocu slumps
+          transformOrigin: "50% 100%",
+        }}
+      >
+        <Character who={line.speaker} expression={line.expression} mouth={mouth} frame={frame} talking={talking} drink={drink} />
       </div>
-      {angerBoost && <AngerMeter level={line.expression === "furious" ? 1 : 0.55} frame={frame} />}
-      {line.speaker === "ocu" && ["deadpan", "calm", "smug"].includes(line.expression) && <Dots frame={frame} />}
-      {line.speaker === "ocu" && line.expression === "worried" && <RainCloud frame={frame} />}
+      {uco && ["angry", "furious"].includes(line.expression) && <AngerMeter level={line.expression === "furious" ? 1 : 0.6} frame={frame} />}
     </>
   );
 }
 
-function TwoShot({ line, mouth, talking, frame }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number }) {
+function TwoShot({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null }) {
   const side = (who: Speaker) => {
     const speaking = who === line.speaker;
     return (
       <div
         style={{
           position: "absolute",
-          bottom: 260,
-          width: 680,
-          height: 930,
-          [who === "uco" ? "left" : "right"]: -70,
-          filter: speaking ? "none" : "brightness(0.62) saturate(0.7)",
-          transform: `scale(${speaking ? 1.04 : 0.94})`,
+          bottom: 300,
+          width: 480,
+          height: 656,
+          [who === "uco" ? "left" : "right"]: SAFE.left - 30,
+          filter: speaking ? "none" : "brightness(0.6) saturate(0.7)",
+          transform: `scale(${speaking ? 1.04 : 0.95})`,
           transformOrigin: "50% 100%",
         }}
       >
@@ -104,7 +144,8 @@ function TwoShot({ line, mouth, talking, frame }: { line: EpisodeLine; mouth: nu
           mouth={speaking ? mouth : 0}
           frame={frame + (who === "ocu" ? 37 : 0)}
           talking={speaking && talking}
-          look={who === "uco" ? (line.thought_bubble ? -1 : 1) : line.thought_bubble ? 1 : -1}
+          look={line.thought_bubble ? (who === "uco" ? -1 : 1) : who === "uco" ? 1 : -1}
+          drink={drink}
         />
       </div>
     );
@@ -117,78 +158,163 @@ function TwoShot({ line, mouth, talking, frame }: { line: EpisodeLine; mouth: nu
   );
 }
 
-function Backdrop({ line }: { line: EpisodeLine }) {
-  const frame = useCurrentFrame();
-  const dots = (color: string, size: number) => ({
-    backgroundImage: `radial-gradient(circle, ${color} ${size}px, transparent ${size + 0.5}px)`,
-    backgroundSize: "30px 30px",
-  });
+const dots = (color: string, r: number, size = 26) => ({
+  backgroundImage: `radial-gradient(circle, ${color} ${r}px, transparent ${r + 0.6}px)`,
+  backgroundSize: `${size}px ${size}px`,
+});
+
+function Backdrop({ line, frame }: { line: EpisodeLine; frame: number }) {
   if (isTwoShot(line)) {
-    const dim = line.thought_bubble ? 0.55 : 0;
+    const dim = line.thought_bubble;
     return (
       <AbsoluteFill>
-        <AbsoluteFill style={{ backgroundColor: COLORS.ocu }} />
-        <Bolt color={COLORS.uco} />
-        <AbsoluteFill style={{ ...dots("rgba(0,0,0,0.12)", 4) }} />
-        <AbsoluteFill style={{ backgroundColor: COLORS.charcoal, opacity: dim }} />
+        <AbsoluteFill style={{ background: `radial-gradient(circle at 75% 45%, ${COLORS.ocuTeal}, ${COLORS.ocu} 55%, ${COLORS.ocuDeep})` }} />
+        <ZigZag color={COLORS.uco} />
+        <AbsoluteFill style={dots("rgba(14,14,18,0.22)", 4)} />
+        {dim && (
+          <>
+            <AbsoluteFill style={{ backgroundColor: COLORS.canvas, opacity: 0.68 }} />
+            {/* rim lights: amber on Uco's side, teal on Ocu's */}
+            <AbsoluteFill style={{ background: `radial-gradient(ellipse at 18% 55%, ${COLORS.ucoAmber}55, transparent 45%), radial-gradient(ellipse at 82% 55%, ${COLORS.ocuTeal}77, transparent 45%)` }} />
+          </>
+        )}
       </AbsoluteFill>
     );
   }
   if (line.speaker === "uco") {
-    const hot = ["angry", "furious", "excited"].includes(line.expression);
     return (
-      <AbsoluteFill style={{ background: `radial-gradient(circle at 50% 55%, ${COLORS.ucoWarm} 0%, ${COLORS.uco} 50%, ${COLORS.ucoDeep} 100%)` }}>
-        {hot && (
-          <AbsoluteFill
-            style={{
-              background: `repeating-conic-gradient(from ${frame * 0.6}deg at 50% 55%, rgba(255,210,63,0.35) 0deg 7deg, transparent 7deg 16deg)`,
-            }}
-          />
-        )}
-        <AbsoluteFill style={{ ...dots("rgba(255,255,255,0.16)", 4) }} />
+      <AbsoluteFill style={{ background: `radial-gradient(circle at 50% 52%, ${COLORS.ucoAmber} 0%, ${COLORS.uco} 48%, ${COLORS.ucoDeep} 100%)` }}>
+        {hot(line) && <Burst frame={frame} />}
+        <AbsoluteFill style={dots("rgba(14,14,18,0.18)", 4)} />
       </AbsoluteFill>
     );
   }
+  // Ocu: dark charcoal with a cool halftone spotlight
   return (
-    <AbsoluteFill style={{ background: `radial-gradient(circle at 50% 50%, #7FA3AB 0%, ${COLORS.ocu} 45%, ${COLORS.ocuDeep} 100%)` }}>
-      <AbsoluteFill style={{ ...dots("rgba(255,255,255,0.10)", 3.5) }} />
+    <AbsoluteFill style={{ backgroundColor: COLORS.canvas }}>
+      <AbsoluteFill style={{ background: `radial-gradient(circle at 50% 48%, ${COLORS.ocu}EE 0%, ${COLORS.ocuTeal}88 30%, transparent 62%)` }} />
+      <AbsoluteFill
+        style={{
+          ...dots("rgba(248,249,250,0.10)", 3.5, 22),
+          WebkitMaskImage: "radial-gradient(circle at 50% 48%, black 0%, black 35%, transparent 70%)",
+        }}
+      />
     </AbsoluteFill>
   );
 }
 
-/** Indonesian on-screen text: a comic label at the top. */
-function Label({ text, speaker, frame }: { text: string; speaker: Speaker; frame: number }) {
+/** Lightning-yellow comic impact burst rays + speed lines behind Uco. */
+function Burst({ frame }: { frame: number }) {
+  const rays = 22;
+  const pts: string[] = [];
+  for (let i = 0; i < rays * 2; i++) {
+    const a = (i / (rays * 2)) * Math.PI * 2 + frame * 0.004;
+    const r = i % 2 ? 1500 : 380 + random(`b${i}`) * 120;
+    pts.push(`${540 + Math.cos(a) * r},${1000 + Math.sin(a) * r}`);
+  }
+  return (
+    <svg viewBox="0 0 1080 1920" style={{ position: "absolute", inset: 0 }}>
+      <polygon points={pts.join(" ")} fill={COLORS.yellow} opacity={0.32} />
+      {Array.from({ length: 14 }, (_, i) => {
+        const a = (i / 14) * Math.PI * 2 + 0.2;
+        const r1 = 620 + ((frame * 30 + i * 90) % 400);
+        return (
+          <line key={i} x1={540 + Math.cos(a) * r1} y1={1000 + Math.sin(a) * r1} x2={540 + Math.cos(a) * (r1 + 160)} y2={1000 + Math.sin(a) * (r1 + 160)} stroke={COLORS.white} strokeWidth={6} opacity={0.5} />
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Uco's warm side on the left, Ocu's cool side on the right, split by a jagged yellow zig-zag. */
+function ZigZag({ color }: { color: string }) {
+  const d = "M 0 0 L 600 0 L 500 520 L 620 500 L 460 1060 L 590 1040 L 420 1920 L 0 1920 Z";
+  return (
+    <svg viewBox="0 0 1080 1920" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+      <path d={d} fill={color} />
+      <path d="M 600 0 L 500 520 L 620 500 L 460 1060 L 590 1040 L 420 1920" fill="none" stroke={COLORS.yellow} strokeWidth={26} strokeLinejoin="miter" />
+      <path d="M 600 0 L 500 520 L 620 500 L 460 1060 L 590 1040 L 420 1920" fill="none" stroke={COLORS.ink} strokeWidth={8} strokeLinejoin="miter" transform="translate(16 0)" />
+    </svg>
+  );
+}
+
+/** Yellow lightning bolts crackling around the frame (the hook). */
+function Bolts({ frame }: { frame: number }) {
+  const on = Math.floor(frame / 4) % 2 === 0;
+  const bolt = (x: number, y: number, s: number, r: number, k: number) => (
+    <path
+      key={k}
+      d="M 0 0 L 40 0 L 22 50 L 50 46 L 6 130 L 18 66 L -8 70 Z"
+      transform={`translate(${x} ${y}) scale(${s}) rotate(${r})`}
+      fill={COLORS.yellow}
+      stroke={COLORS.ink}
+      strokeWidth={4}
+      opacity={on || k % 2 ? 1 : 0.4}
+    />
+  );
+  return (
+    <svg viewBox="0 0 1080 1920" style={{ position: "absolute", inset: 0 }}>
+      {bolt(150, 430, 1.4, -20, 0)}
+      {bolt(860, 400, 1.6, 15, 1)}
+      {bolt(130, 980, 1.1, -35, 2)}
+      {bolt(900, 1000, 1.2, 30, 3)}
+    </svg>
+  );
+}
+
+/** Kinetic comic caption card: a jagged speech burst with a heavy drop shadow; first word in yellow. */
+function CaptionCard({ text, line, frame }: { text: string; line: EpisodeLine; frame: number }) {
   const { fps } = useVideoConfig();
-  const pop = spring({ frame: frame - 6, fps, config: { damping: 11, stiffness: 180 } });
-  const size = text.length > 60 ? 50 : text.length > 34 ? 64 : 84;
+  const uco = line.speaker === "uco";
+  const pop = uco
+    ? spring({ frame: frame - 5, fps, config: { damping: 8, stiffness: 240 } })
+    : interpolate(frame, [8, 26], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.quad) });
+  const size = text.length > 70 ? 46 : text.length > 40 ? 58 : 76;
+  const [first, ...rest] = text.split(" ");
+  const w = 864;
+  const h = size * (text.length > 40 ? 3.3 : 2.4) + 40;
+  // jagged edge
+  const n = 28;
+  const pts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = i % 2 ? 1 : 0.9 + random(`c${line.index}${i}`) * 0.04;
+    pts.push(`${w / 2 + Math.cos(a) * (w / 2) * r},${h / 2 + Math.sin(a) * (h / 2) * r}`);
+  }
   return (
     <div
       style={{
         position: "absolute",
-        top: 230,
-        left: 70,
-        right: 70,
-        display: "flex",
-        justifyContent: "center",
-        transform: `scale(${pop}) rotate(${speaker === "uco" ? -2.5 : 1.5}deg)`,
+        top: SAFE.top + 60,
+        left: SAFE.left,
+        width: w,
+        height: h,
+        transform: `scale(${pop}) rotate(${uco ? -2.5 : 1}deg)`,
+        opacity: uco ? 1 : pop,
       }}
     >
+      <svg viewBox={`0 0 ${w} ${h}`} style={{ position: "absolute", inset: 0, overflow: "visible" }}>
+        <polygon points={pts.join(" ")} fill={COLORS.ink} transform="translate(12 12)" />
+        <polygon points={pts.join(" ")} fill={COLORS.white} stroke={COLORS.ink} strokeWidth={7} strokeLinejoin="miter" />
+      </svg>
       <div
         style={{
-          fontFamily: TITLE_FONT,
+          position: "absolute",
+          inset: "0 90px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          fontFamily: COMIC,
           fontSize: size,
           lineHeight: 1.05,
           letterSpacing: 1.5,
-          textAlign: "center",
           color: COLORS.ink,
-          background: speaker === "uco" ? COLORS.yellow : COLORS.paper,
-          border: `7px solid ${COLORS.ink}`,
-          borderRadius: 14,
-          padding: "16px 28px 10px",
-          boxShadow: `10px 10px 0 ${COLORS.ink}`,
         }}
       >
-        {text}
+        <span>
+          <span style={{ color: COLORS.yellow, WebkitTextStroke: `3px ${COLORS.ink}`, paintOrder: "stroke fill" }}>{first}</span> {rest.join(" ")}
+        </span>
       </div>
     </div>
   );
@@ -208,18 +334,18 @@ function Subtitle({ line, frame }: { line: EpisodeLine; frame: number }) {
     }
     acc += c.length;
   }
-  const color = line.speaker === "uco" ? COLORS.uco : COLORS.ocu;
+  const uco = line.speaker === "uco";
   return (
-    <div style={{ position: "absolute", left: 60, right: 140, bottom: 330, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+    <div style={{ position: "absolute", left: SAFE.left, right: SAFE.right, bottom: SAFE.bottom + 100, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
       <div
         style={{
-          fontFamily: TITLE_FONT,
+          fontFamily: COMIC,
           fontSize: 40,
           letterSpacing: 3,
-          color: line.speaker === "uco" ? COLORS.ink : "#fff",
-          background: color,
+          color: uco ? COLORS.ink : COLORS.white,
+          background: uco ? COLORS.ucoAmber : COLORS.ocuTeal,
           border: `4px solid ${COLORS.ink}`,
-          borderRadius: 10,
+          boxShadow: `5px 5px 0 ${COLORS.ink}`,
           padding: "4px 18px 0",
         }}
       >
@@ -228,16 +354,17 @@ function Subtitle({ line, frame }: { line: EpisodeLine; frame: number }) {
       </div>
       <div
         style={{
-          fontFamily: BODY_FONT,
+          fontFamily: BODY,
           fontWeight: 900,
-          fontSize: 54,
+          fontSize: 50,
           lineHeight: 1.18,
           textAlign: "center",
-          color: "#fff",
+          color: COLORS.white,
           fontStyle: line.thought_bubble ? "italic" : "normal",
-          background: "rgba(26,26,46,0.82)",
-          borderRadius: 18,
-          padding: "14px 26px",
+          background: "rgba(14,14,18,0.85)",
+          border: `4px solid ${COLORS.ink}`,
+          borderRadius: 14,
+          padding: "12px 24px",
         }}
       >
         {current}
@@ -246,7 +373,7 @@ function Subtitle({ line, frame }: { line: EpisodeLine; frame: number }) {
   );
 }
 
-function chunk(text: string, max = 46) {
+function chunk(text: string, max = 44) {
   const words = text.split(/\s+/).filter(Boolean);
   const out: string[] = [];
   let cur = "";
@@ -266,59 +393,43 @@ function chunk(text: string, max = 46) {
 
 function AngerMeter({ level, frame }: { level: number; frame: number }) {
   const { fps } = useVideoConfig();
-  const fill = spring({ frame: frame - 4, fps, config: { damping: 9 } }) * level;
-  const shake = level >= 1 ? Math.sin(frame * 2.3) * 4 : 0;
+  const fill = spring({ frame: frame - 4, fps, config: { damping: 7 } }) * level;
+  const shake = level >= 1 ? Math.sin(frame * 2.3) * 5 : 0;
   return (
-    <svg viewBox="0 0 120 420" style={{ position: "absolute", right: 70, top: 560, width: 120, height: 420, transform: `translateX(${shake}px)` }}>
-      <rect x={38} y={10} width={44} height={330} rx={22} fill="#fff" stroke={COLORS.ink} strokeWidth={7} />
-      <rect x={47} y={20 + 310 * (1 - fill)} width={26} height={310 * fill + 20} rx={13} fill="#E23B3B" />
-      <circle cx={60} cy={365} r={45} fill="#E23B3B" stroke={COLORS.ink} strokeWidth={7} />
+    <svg viewBox="0 0 140 440" style={{ position: "absolute", right: SAFE.right + 10, top: 560, width: 120, height: 380, transform: `translateX(${shake}px) rotate(12deg)` }}>
+      <rect x={46} y={20} width={48} height={330} rx={24} fill={COLORS.white} stroke={COLORS.ink} strokeWidth={8} />
+      <rect x={56} y={30 + 310 * (1 - fill)} width={28} height={310 * fill + 20} rx={14} fill="#E5383B" />
+      {[80, 140, 200, 260].map((y) => (
+        <line key={y} x1={94} x2={112} y1={y} y2={y} stroke={COLORS.ink} strokeWidth={5} />
+      ))}
+      <circle cx={70} cy={378} r={50} fill="#E5383B" stroke={COLORS.ink} strokeWidth={8} />
       {level >= 1 &&
         [0, 1, 2].map((i) => {
           const t = ((frame + i * 9) % 27) / 27;
-          return <circle key={i} cx={40 + i * 20} cy={10 - t * 60} r={10 + t * 14} fill="#fff" opacity={1 - t} stroke={COLORS.ink} strokeWidth={3} />;
+          return <circle key={i} cx={46 + i * 24} cy={14 - t * 70} r={12 + t * 16} fill={COLORS.white} opacity={1 - t} stroke={COLORS.ink} strokeWidth={4} />;
         })}
-    </svg>
-  );
-}
-
-function RainCloud({ frame }: { frame: number }) {
-  const bob = Math.sin(frame / 20) * 8;
-  return (
-    <svg viewBox="0 0 300 220" style={{ position: "absolute", right: 60, top: 560 + bob, width: 260, height: 190 }}>
-      <path
-        d="M 60 120 a 45 45 0 0 1 20 -85 a 60 60 0 0 1 110 -5 a 45 45 0 0 1 60 60 a 35 35 0 0 1 -20 30 Z"
-        fill="#7C8BA1"
-        stroke={COLORS.ink}
-        strokeWidth={7}
-        strokeLinejoin="round"
-      />
-      {[0, 1, 2, 3].map((i) => {
-        const t = ((frame + i * 8) % 30) / 30;
-        return <line key={i} x1={85 + i * 40} x2={80 + i * 40} y1={135 + t * 70} y2={150 + t * 70} stroke="#9BE7FF" strokeWidth={7} strokeLinecap="round" opacity={1 - t} />;
-      })}
     </svg>
   );
 }
 
 function ThoughtCloud({ side, frame }: { side: Speaker; frame: number }) {
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 12 } });
+  const pop = side === "uco" ? spring({ frame, fps, config: { damping: 9 } }) : interpolate(frame, [0, 20], [0, 1], { extrapolateRight: "clamp" });
   const left = side === "uco";
   return (
     <svg
-      viewBox="0 0 400 300"
-      style={{ position: "absolute", top: 560, [left ? "left" : "right"]: 70, width: 400, height: 300, transform: `scale(${pop})`, opacity: 0.95 }}
+      viewBox="0 0 420 300"
+      style={{ position: "absolute", top: 520, [left ? "left" : "right"]: SAFE.left + 10, width: 400, height: 286, transform: `scale(${pop})`, transformOrigin: left ? "20% 100%" : "80% 100%" }}
     >
       <path
-        d="M 90 190 a 50 50 0 0 1 0 -100 a 70 70 0 0 1 120 -40 a 60 60 0 0 1 110 40 a 50 50 0 0 1 -10 100 Z"
-        fill="#fff"
+        d="M 90 190 a 52 52 0 0 1 -6 -100 a 70 70 0 0 1 120 -46 a 66 66 0 0 1 118 26 a 52 52 0 0 1 4 112 a 60 60 0 0 1 -110 14 a 60 60 0 0 1 -126 -6 Z"
+        fill={COLORS.white}
         stroke={COLORS.ink}
-        strokeWidth={7}
+        strokeWidth={8}
       />
-      <circle cx={left ? 120 : 280} cy={232 + Math.sin(frame / 8) * 3} r={16} fill="#fff" stroke={COLORS.ink} strokeWidth={6} />
-      <circle cx={left ? 100 : 300} cy={272} r={10} fill="#fff" stroke={COLORS.ink} strokeWidth={5} />
-      <text x={200} y={155} textAnchor="middle" fontFamily={TITLE_FONT} fontSize={64} fill={COLORS.ink}>
+      <circle cx={left ? 110 : 310} cy={238 + Math.sin(frame / 10) * 3} r={18} fill={COLORS.white} stroke={COLORS.ink} strokeWidth={6} />
+      <circle cx={left ? 84 : 336} cy={278} r={10} fill={COLORS.white} stroke={COLORS.ink} strokeWidth={5} />
+      <text x={210} y={150} textAnchor="middle" fontFamily={COMIC} fontSize={70} fill={COLORS.ink}>
         . . .
       </text>
     </svg>
@@ -327,73 +438,48 @@ function ThoughtCloud({ side, frame }: { side: Speaker; frame: number }) {
 
 function Bug() {
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 120,
-        left: 60,
-        fontFamily: LOGO_FONT,
-        fontSize: 40,
-        letterSpacing: 1,
-        color: "#fff",
-        WebkitTextStroke: `2px ${COLORS.ink}`,
-        textShadow: `4px 4px 0 ${COLORS.ink}`,
-      }}
-    >
-      <span style={{ color: COLORS.uco }}>UCO</span> & <span style={{ color: COLORS.ocu }}>OCU</span>
+    <div style={{ position: "absolute", top: SAFE.top, left: SAFE.left, fontFamily: LOGO, fontSize: 38, color: COLORS.white, WebkitTextStroke: `6px ${COLORS.ink}`, paintOrder: "stroke fill" }}>
+      <span style={{ color: COLORS.ucoAmber }}>UCO</span> & <span style={{ color: "#7FB3C8" }}>OCU</span>
     </div>
   );
 }
 
-function EndCard({ cta }: { cta: string | null }) {
+function EndCard({ cta, drink }: { cta: string | null; drink: string | null }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const pop = spring({ frame, fps, config: { damping: 12 } });
+  const pop = spring({ frame, fps, config: { damping: 8, stiffness: 200 } });
+  const slow = interpolate(frame, [0, 30], [0, 1], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.sin) });
   return (
-    <AbsoluteFill>
-      <AbsoluteFill style={{ backgroundColor: COLORS.charcoal }} />
-      <div style={{ position: "absolute", left: 40, right: 40, top: 760, height: 1000, borderRadius: "50%", overflow: "hidden", border: `10px solid ${COLORS.ink}` }}>
-        <AbsoluteFill style={{ backgroundColor: COLORS.ocu }} />
-        <Bolt color={COLORS.uco} />
+    <AbsoluteFill style={{ backgroundColor: COLORS.canvas }}>
+      <div style={{ position: "absolute", left: SAFE.left, right: SAFE.right, top: 820, bottom: SAFE.bottom, overflow: "hidden", border: `8px solid ${COLORS.ink}`, borderRadius: 28 }}>
+        <AbsoluteFill style={{ background: `linear-gradient(${COLORS.ocuTeal}, ${COLORS.ocu})` }} />
+        <ZigZag color={COLORS.uco} />
+        <AbsoluteFill style={dots("rgba(14,14,18,0.22)", 4)} />
+        <div style={{ position: "absolute", left: -40, bottom: -60, width: 520, height: 710, transform: `translateY(${(1 - pop) * 300}px)` }}>
+          <Character who="uco" expression="furious" mouth={0.75 + Math.sin(frame / 2.5) * 0.25} frame={frame} talking look={1} />
+        </div>
+        <div style={{ position: "absolute", right: -40, bottom: -60, width: 520, height: 710, transform: `translateY(${(1 - slow) * 300}px)` }}>
+          <Character who="ocu" expression="smug" mouth={0} frame={frame + 37} talking={false} look={-1} drink={drink} />
+        </div>
       </div>
-      <div style={{ position: "absolute", left: -20, bottom: 0, width: 600, height: 820, transform: `translateY(${(1 - pop) * 400}px)` }}>
-        <Character who="uco" expression="angry" mouth={0.7 + Math.sin(frame / 3) * 0.3} frame={frame} talking look={1} />
-      </div>
-      <div style={{ position: "absolute", right: -20, bottom: 0, width: 600, height: 820, transform: `translateY(${(1 - pop) * 400}px)` }}>
-        <Character who="ocu" expression="smug" mouth={0} frame={frame + 37} talking={false} look={-1} />
-      </div>
-      <div style={{ position: "absolute", top: 220, left: 0, right: 0, textAlign: "center", transform: `scale(${pop})` }}>
-        <div
-          style={{
-            fontFamily: LOGO_FONT,
-            fontSize: 170,
-            lineHeight: 1,
-            color: "#FFF6DA",
-            WebkitTextStroke: `8px ${COLORS.ink}`,
-            paintOrder: "stroke fill",
-            textShadow: `0 10px 0 ${COLORS.ink}`,
-          }}
-        >
+      <div style={{ position: "absolute", top: SAFE.top + 70, left: SAFE.left, right: SAFE.right, textAlign: "center", transform: `scale(${pop})` }}>
+        <div style={{ fontFamily: LOGO, fontSize: 150, lineHeight: 1, color: COLORS.white, WebkitTextStroke: `10px ${COLORS.ink}`, paintOrder: "stroke fill", textShadow: `0 12px 0 ${COLORS.ink}` }}>
           UCO & OCU
         </div>
-        <div style={{ fontFamily: BODY_FONT, fontWeight: 900, fontSize: 52, color: "#fff", marginTop: 20, textShadow: `3px 3px 0 ${COLORS.ink}` }}>
-          @uco.ocu
-        </div>
+        <div style={{ fontFamily: BODY, fontWeight: 900, fontSize: 48, color: COLORS.yellow, marginTop: 14 }}>@uco.ocu</div>
         {cta && (
           <div
             style={{
-              margin: "50px auto 0",
-              maxWidth: 880,
-              fontFamily: BODY_FONT,
+              margin: "36px auto 0",
+              fontFamily: BODY,
               fontWeight: 900,
-              fontSize: 48,
+              fontSize: 44,
               lineHeight: 1.2,
               color: COLORS.ink,
-              background: COLORS.paper,
+              background: COLORS.white,
               border: `6px solid ${COLORS.ink}`,
-              borderRadius: 18,
-              padding: "20px 30px",
-              boxShadow: `8px 8px 0 ${COLORS.ink}`,
+              boxShadow: `10px 10px 0 ${COLORS.ink}`,
+              padding: "18px 26px",
             }}
           >
             {cta}
@@ -413,34 +499,4 @@ function smoothMouth(env: number[], frame: number) {
   const v = a * 0.25 + b * 0.5 + c * 0.25;
   if (v < 0.08) return 0;
   return Math.min(1, v * (0.85 + 0.15 * Math.sin(frame * 1.7)));
-}
-
-/** Amber on the left, slate on the right, split by a zig-zag lightning bolt. */
-function Bolt({ color }: { color: string }) {
-  return (
-    <svg viewBox="0 0 1080 1920" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-      <path d="M 0 0 L 640 0 L 520 640 L 640 620 L 470 1180 L 600 1160 L 430 1920 L 0 1920 Z" fill={color} />
-      <path d="M 640 0 L 520 640 L 640 620 L 470 1180 L 600 1160 L 430 1920" fill="none" stroke={COLORS.ink} strokeWidth={8} strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/** Ocu's quiet "..." next to his head. */
-function Dots({ frame }: { frame: number }) {
-  return (
-    <div style={{ position: "absolute", right: 110, top: 760, display: "flex", gap: 16 }}>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: 11,
-            background: COLORS.ink,
-            opacity: ((frame / 8 + i * 0.7) % 3) / 3 > 0.33 ? 1 : 0.35,
-          }}
-        />
-      ))}
-    </div>
-  );
 }

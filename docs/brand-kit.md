@@ -48,10 +48,8 @@ Science · Politics & society · Food · Academics & campus life · Everyday abs
 ## Visual identity
 
 - **Logo:** a cartoon version of the two characters (to be designed).
-- **Proposed colors** (warm vs. cool = their opposite personalities):
-  - Uco: `#FF6B35` (fiery orange)
-  - Ocu: `#2EC4B6` (calm teal)
-  - Ink / text: `#1A1A2E`, background: `#FFF8F0`
+- **Colors and art style:** see [`video/STYLE.md`](../video/STYLE.md). Uco warm (burnt orange `#E85D04`, amber `#F48C06`),
+  Ocu cool (slate `#3A5A78`, teal `#2A6F7B`), on charcoal `#1E1E24`, split by lightning yellow `#FFD60A`.
 
 ## Handles
 

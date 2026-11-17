@@ -2,10 +2,12 @@ import React from "react";
 import { random } from "remotion";
 import { COLORS, type Expression, type Speaker } from "./types";
 
-// Uco & Ocu as SVG puppets, drawn after the reference art (the "UCO & OCU" badge the owner shared):
-// Uco: ginger messy hair, black rectangular glasses, mustard sweater over a pale yellow collar, loud.
-// Ocu: slate quiff, round glasses, half-lidded eyes and a smirk, dark turtleneck + grey-blue blazer, arms crossed.
-// Everything is drawn in a 600 x 820 box (head + chest); the body continues below for tall frames.
+// Uco & Ocu rigs, per the style bible:
+// - bold, slightly irregular ink outlines that "boil" (re-jitter every 3 frames, limited-animation style)
+// - Ben-Day / halftone dot shading
+// - Uco: spiky dark hair, oversized angular glasses, frantic eyes, gaping yelling mouth, orange shirt, leans forward
+// - Ocu: messy flat hair, huge round glasses, heavy half-lidded eyes, flat smirk, stubble, grey tee, slouched, holds a drink
+// Drawn in a 600 x 820 box (head + chest); the body continues below for tall frames.
 
 type Face = {
   brow: number; // degrees, + = inner ends up (worried), - = inner ends down (angry)
@@ -19,25 +21,26 @@ type Face = {
   asym?: boolean; // one corner of the mouth up (smirk)
 };
 
+// 8 expression swaps per character.
 const FACES: Record<string, Face> = {
-  deadpan: { brow: 0, browY: 4, lid: 0.45, curve: 0.12, pupil: 0.9, shake: 0, blush: 0, tilt: -2, asym: true },
-  calm: { brow: 3, browY: 0, lid: 0.35, curve: 0.25, pupil: 1, shake: 0, blush: 0, tilt: -3, asym: true },
-  worried: { brow: 16, browY: -6, lid: 0.1, curve: -0.55, pupil: 0.8, shake: 1, blush: 0, tilt: 4 },
-  angry: { brow: -22, browY: 6, lid: 0.05, curve: -0.5, pupil: 0.7, shake: 3, blush: 0.5, tilt: 0 },
-  furious: { brow: -30, browY: 10, lid: 0, curve: -0.7, pupil: 0.55, shake: 7, blush: 1, tilt: 0 },
-  excited: { brow: 10, browY: -14, lid: 0, curve: 0.85, pupil: 1.1, shake: 2, blush: 0.25, tilt: -4 },
-  thinking: { brow: 8, browY: -2, lid: 0.35, curve: -0.25, pupil: 0.9, shake: 0, blush: 0, tilt: 6 },
-  smug: { brow: -6, browY: 2, lid: 0.45, curve: 0.45, pupil: 0.9, shake: 0, blush: 0.15, tilt: -5, asym: true },
+  deadpan: { brow: 0, browY: 6, lid: 0.5, curve: 0.1, pupil: 0.85, shake: 0, blush: 0, tilt: -2, asym: true },
+  calm: { brow: 4, browY: 0, lid: 0.4, curve: 0.2, pupil: 0.9, shake: 0, blush: 0, tilt: -3, asym: true },
+  worried: { brow: 18, browY: -8, lid: 0.15, curve: -0.55, pupil: 0.7, shake: 1, blush: 0, tilt: 4 },
+  angry: { brow: -24, browY: 8, lid: 0, curve: -0.5, pupil: 0.55, shake: 4, blush: 0.5, tilt: 0 },
+  furious: { brow: -32, browY: 12, lid: 0, curve: -0.7, pupil: 0.42, shake: 8, blush: 1, tilt: 0 },
+  excited: { brow: 12, browY: -16, lid: 0, curve: 0.9, pupil: 0.8, shake: 3, blush: 0.3, tilt: -4 },
+  thinking: { brow: 10, browY: -2, lid: 0.35, curve: -0.25, pupil: 0.8, shake: 0, blush: 0, tilt: 6 },
+  smug: { brow: -8, browY: 2, lid: 0.45, curve: 0.45, pupil: 0.85, shake: 0, blush: 0.15, tilt: -5, asym: true },
 };
 export const faceFor = (e: Expression) => FACES[e] ?? FACES.calm;
 
 const LOOK = {
-  uco: { skin: "#F4BE95", shade: "#D9946A", hair: "#D8662A", hairDark: "#A84517", hairLight: "#F08A45", brow: "#A84517" },
-  ocu: { skin: "#9DBDC2", shade: "#7A9CA3", hair: "#3B5560", hairDark: "#263B44", hairLight: "#557280", brow: "#263B44" },
+  uco: { skin: "#C98E62", shade: "#9E6A43", hair: "#17161C", hairHi: "#3B3A48" },
+  ocu: { skin: "#B4AC9C", shade: "#857E70", hair: "#1A1C22", hairHi: "#3A4150" }, // cool, washed-out under slate light
 };
 
 const INK = COLORS.ink;
-const S = 7; // outline width
+const S = 8; // outline width
 
 export function Character({
   who,
@@ -47,6 +50,7 @@ export function Character({
   talking,
   look = 0,
   props = true,
+  drink = "#8DB255",
 }: {
   who: Speaker;
   expression: Expression;
@@ -56,40 +60,44 @@ export function Character({
   talking: boolean;
   /** Where the pupils point: -1 left .. 1 right. */
   look?: number;
-  /** Draw the expression extras (anger mark, sweat, "..."). */
+  /** Draw the expression extras (anger vein, sweat drops). */
   props?: boolean;
+  /** Color of Ocu's iced drink; null = hands tucked away. */
+  drink?: string | null;
 }) {
   const f = faceFor(expression);
   const c = LOOK[who];
   const isOcu = who === "ocu";
+  const id = `${who}-${Math.round(random(who) * 1e6)}`;
+  const boil = Math.floor(frame / 3); // new line wobble every 3 frames
 
-  // Idle life: breathing, blinks, a nod with the voice, jitter when angry.
-  const breathe = Math.sin(frame / (isOcu ? 24 : 16)) * (isOcu ? 3 : 5);
-  const blinkCycle = isOcu ? 113 : 89;
+  // Idle: Ocu breathes slow and shallow; Uco fast. Ocu barely nods.
+  const breathe = isOcu ? Math.sin(frame / 30) * 3 : Math.sin(frame / 12) * 5;
+  const blinkCycle = isOcu ? 131 : 83;
   const blinkAt = (frame + (isOcu ? 40 : 0)) % blinkCycle;
   const blink = blinkAt < 3 ? 1 : blinkAt < 5 ? 0.6 : 0;
-  const lid = Math.min(1, Math.max(f.lid + (isOcu ? 0.15 : 0), blink));
-  const nod = talking ? mouth * (isOcu ? 3 : 8) : 0;
+  const lid = Math.min(1, Math.max(f.lid + (isOcu ? 0.18 : 0), blink));
+  const nod = talking ? mouth * (isOcu ? 2 : 10) : 0;
   const jitter = talking && f.shake ? (random(`${who}-x-${frame}`) - 0.5) * f.shake * 2 : 0;
   const jitterY = talking && f.shake ? (random(`${who}-y-${frame}`) - 0.5) * f.shake * 2 : 0;
-  const tilt = f.tilt + (talking ? Math.sin(frame / 7) * (isOcu ? 0.8 : 2.4) : Math.sin(frame / 40) * 1);
+  const tilt = f.tilt + (isOcu ? 4 : 0) + (talking && !isOcu ? Math.sin(frame / 6) * 2.5 : Math.sin(frame / 50) * 0.8);
 
   const eyeY = 300;
-  const eyes = [248, 352];
+  const eyes = [246, 354];
   const lookX = look * 8;
-  const lookY = expression === "thinking" ? -8 : 0;
-  const eyeR = isOcu ? { rx: 23, ry: 22 } : { rx: 30, ry: 32 };
+  const lookY = expression === "thinking" ? -9 : isOcu ? 2 : 0;
+  const eyeR = isOcu ? { rx: 30, ry: 26 } : { rx: 34, ry: 36 };
 
-  // Mouth: Uco's opens huge (teeth + tongue), Ocu barely parts his lips.
-  const open = talking ? Math.max(0, mouth) * (isOcu ? 30 : 62) : 0;
-  const w = (isOcu ? 58 : 74) + open * (isOcu ? 0.3 : 0.7);
-  const my = 400;
+  // Mouth: Uco gapes, Ocu barely moves his lips.
+  const open = talking ? Math.max(0, mouth) * (isOcu ? 26 : 70) : 0;
+  const w = (isOcu ? 58 : 80) + open * (isOcu ? 0.3 : 0.6);
+  const my = 404;
   const curve = f.curve * 16;
-  const lc = f.asym ? curve * -0.1 : curve; // left corner
+  const lc = f.asym ? curve * -0.15 : curve;
   const rc = curve;
   const mouthPath =
     open > 3
-      ? `M ${300 - w / 2} ${my - lc} Q 300 ${my + curve * 0.6 - 6} ${300 + w / 2} ${my - rc} Q 300 ${my + open * 1.6 + curve * 0.3} ${300 - w / 2} ${my - lc} Z`
+      ? `M ${300 - w / 2} ${my - lc} Q 300 ${my + curve * 0.6 - 8} ${300 + w / 2} ${my - rc} Q 300 ${my + open * 1.6 + curve * 0.3} ${300 - w / 2} ${my - lc} Z`
       : null;
   const closedMouth = `M ${300 - w / 2} ${my - lc} Q 300 ${my + curve} ${300 + w / 2} ${my - rc}`;
   const angry = ["angry", "furious"].includes(expression);
@@ -97,264 +105,268 @@ export function Character({
   return (
     <svg viewBox="0 0 600 820" width="100%" height="100%" style={{ overflow: "visible" }}>
       <defs>
+        {/* irregular, boiling ink lines */}
+        <filter id={`${id}-ink`} x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves={2} seed={boil % 7} />
+          <feDisplacementMap in="SourceGraphic" scale={3.2} xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        {/* Ben-Day halftone */}
+        <pattern id={`${id}-dots`} width={12} height={12} patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+          <circle cx={6} cy={6} r={2.6} fill={INK} />
+        </pattern>
         {eyes.map((x, i) => (
-          <clipPath id={`${who}-eye-${i}`} key={i}>
+          <clipPath id={`${id}-eye-${i}`} key={i}>
             <ellipse cx={x} cy={eyeY} rx={eyeR.rx} ry={eyeR.ry} />
           </clipPath>
         ))}
-        <clipPath id={`${who}-mouth`}>{mouthPath && <path d={mouthPath} />}</clipPath>
+        <clipPath id={`${id}-mouth`}>{mouthPath && <path d={mouthPath} />}</clipPath>
       </defs>
 
-      {/* body */}
-      <g transform={`translate(0 ${breathe * 0.6})`}>{isOcu ? <OcuBody /> : <UcoBody />}</g>
+      <g filter={`url(#${id}-ink)`}>
+        {/* body (Ocu slumps lower) */}
+        <g transform={`translate(${isOcu ? 0 : 0} ${breathe * 0.6 + (isOcu ? 18 : 0)})`}>
+          {isOcu ? <OcuBody id={id} /> : <UcoBody id={id} />}
+        </g>
 
-      {/* head */}
-      <g transform={`translate(${jitter} ${breathe + nod + jitterY}) rotate(${tilt} 300 470)`}>
-        <rect x={262} y={420} width={76} height={110} fill={c.skin} stroke={INK} strokeWidth={S} />
-        <path d="M 264 470 Q 300 500 336 470 L 336 440 L 264 440 Z" fill={c.shade} opacity={0.6} />
-        {/* ears (Uco's stick out) */}
-        <Ear x={isOcu ? 158 : 150} c={c} big={!isOcu} flip={false} />
-        <Ear x={isOcu ? 442 : 450} c={c} big={!isOcu} flip />
-        {/* long face, narrow chin */}
-        <path
-          d="M 300 128 C 400 128 446 200 444 300 C 442 392 390 470 300 476 C 210 470 158 392 156 300 C 154 200 200 128 300 128 Z"
-          fill={c.skin}
-          stroke={INK}
-          strokeWidth={S}
-        />
-        <path d="M 190 390 Q 300 520 410 390 Q 300 468 190 390 Z" fill={c.shade} opacity={0.35} />
+        {/* head */}
+        <g transform={`translate(${jitter} ${breathe + nod + jitterY + (isOcu ? 22 : 0)}) rotate(${tilt} 300 470)`}>
+          <path d="M 262 410 L 338 410 L 342 540 L 258 540 Z" fill={c.skin} stroke={INK} strokeWidth={S} />
+          <path d="M 262 450 Q 300 494 338 450 L 338 420 L 262 420 Z" fill={`url(#${id}-dots)`} opacity={0.5} />
+          <Ear x={isOcu ? 156 : 152} c={c} flip={false} />
+          <Ear x={isOcu ? 444 : 448} c={c} flip />
+          {/* face: Uco angular jaw, Ocu long and soft */}
+          <path
+            d={
+              isOcu
+                ? "M 300 132 C 398 132 444 204 442 300 C 440 396 392 474 300 480 C 208 474 160 396 158 300 C 156 204 202 132 300 132 Z"
+                : "M 300 124 C 404 124 452 196 450 290 C 448 370 420 430 372 462 L 300 486 L 228 462 C 180 430 152 370 150 290 C 148 196 196 124 300 124 Z"
+            }
+            fill={c.skin}
+            stroke={INK}
+            strokeWidth={S}
+          />
+          {/* halftone shading on the far cheek + jaw */}
+          <path d="M 400 220 C 440 280 436 380 380 450 C 410 380 412 300 400 220 Z" fill={`url(#${id}-dots)`} opacity={0.45} />
+          <path d="M 200 420 Q 300 500 400 420 Q 300 476 200 420 Z" fill={`url(#${id}-dots)`} opacity={0.45} />
 
-        {/* cheeks */}
-        {f.blush > 0 && (
-          <g opacity={f.blush}>
-            <ellipse cx={208} cy={372} rx={28} ry={13} fill="#FF4D4D" opacity={0.45} />
-            <ellipse cx={392} cy={372} rx={28} ry={13} fill="#FF4D4D" opacity={0.45} />
-          </g>
-        )}
-        {/* angry forehead creases */}
-        {angry && !isOcu && <path d="M 262 222 q 38 -12 76 0 M 270 240 q 30 -8 60 0" stroke={c.shade} strokeWidth={5} fill="none" strokeLinecap="round" />}
-
-        {/* eyes */}
-        {eyes.map((x, i) => (
-          <g key={i}>
-            <ellipse cx={x} cy={eyeY} rx={eyeR.rx} ry={eyeR.ry} fill="#fff" stroke={INK} strokeWidth={4} />
-            <g clipPath={`url(#${who}-eye-${i})`}>
-              <circle cx={x + lookX} cy={eyeY + lookY + 2} r={(isOcu ? 11 : 12) * f.pupil} fill={isOcu ? INK : "#3B2A1A"} />
-              <circle cx={x + lookX + 4} cy={eyeY + lookY - 3} r={3.5 * f.pupil} fill="#fff" />
-              <rect x={x - 34} y={eyeY - 36} width={68} height={72 * lid} fill={c.skin} />
-              {lid > 0.05 && <line x1={x - 32} x2={x + 32} y1={eyeY - 36 + 72 * lid} y2={eyeY - 36 + 72 * lid} stroke={INK} strokeWidth={5} />}
-            </g>
-            {/* bags under Ocu's eyes */}
-            {isOcu && <path d={`M ${x - 18} ${eyeY + 30} q 18 8 36 0`} stroke={c.shade} strokeWidth={4} fill="none" />}
-          </g>
-        ))}
-
-        {/* brows */}
-        {eyes.map((x, i) => {
-          const rot = i === 0 ? -f.brow : f.brow;
-          const thick = isOcu ? 10 : 14;
-          return (
-            <rect
-              key={i}
-              x={x - 34}
-              y={eyeY - 66 + f.browY - thick / 2}
-              width={68}
-              height={thick}
-              rx={thick / 2}
-              fill={c.brow}
-              stroke={INK}
-              strokeWidth={2}
-              transform={`rotate(${rot} ${x} ${eyeY - 66 + f.browY})`}
-            />
-          );
-        })}
-
-        {/* glasses: Uco black rectangles, Ocu thin round frames */}
-        <g fill="none" stroke={INK}>
-          {isOcu ? (
-            <g strokeWidth={6}>
-              <circle cx={248} cy={eyeY} r={46} fill="rgba(255,255,255,0.14)" />
-              <circle cx={352} cy={eyeY} r={46} fill="rgba(255,255,255,0.14)" />
-              <path d={`M 294 ${eyeY - 4} Q 300 ${eyeY - 12} 306 ${eyeY - 4}`} />
-              <line x1={202} y1={eyeY - 8} x2={160} y2={eyeY - 16} />
-              <line x1={398} y1={eyeY - 8} x2={440} y2={eyeY - 16} />
-            </g>
-          ) : (
-            <g strokeWidth={11}>
-              <rect x={190} y={eyeY - 42} width={108} height={82} rx={12} fill="rgba(255,255,255,0.12)" />
-              <rect x={302} y={eyeY - 42} width={108} height={82} rx={12} fill="rgba(255,255,255,0.12)" />
-              <line x1={298} y1={eyeY - 10} x2={302} y2={eyeY - 10} />
-              <line x1={190} y1={eyeY - 20} x2={150} y2={eyeY - 26} />
-              <line x1={410} y1={eyeY - 20} x2={450} y2={eyeY - 26} />
+          {f.blush > 0 && (
+            <g opacity={f.blush}>
+              <ellipse cx={204} cy={376} rx={30} ry={13} fill="#E5383B" opacity={0.5} />
+              <ellipse cx={396} cy={376} rx={30} ry={13} fill="#E5383B" opacity={0.5} />
             </g>
           )}
-        </g>
-        <path d={isOcu ? `M 224 ${eyeY - 30} l 14 -8` : `M 206 ${eyeY - 26} l 20 -10`} stroke="#fff" strokeWidth={5} strokeLinecap="round" opacity={0.85} />
+          {/* Ocu's stubble */}
+          {isOcu &&
+            Array.from({ length: 26 }, (_, i) => (
+              <circle key={i} cx={232 + random(`st${i}`) * 136} cy={432 + random(`sy${i}`) * 36} r={2.2} fill={INK} opacity={0.5} />
+            ))}
 
-        {/* nose */}
-        <path d={isOcu ? "M 300 322 Q 318 352 298 362" : "M 302 318 Q 326 356 296 366"} fill="none" stroke={c.shade} strokeWidth={6} strokeLinecap="round" />
-
-        {/* mouth */}
-        {mouthPath ? (
-          <g>
-            <path d={mouthPath} fill="#5B1A1A" stroke={INK} strokeWidth={5} strokeLinejoin="round" />
-            <g clipPath={`url(#${who}-mouth)`}>
-              <ellipse cx={300} cy={my + open * 1.3 + curve * 0.3} rx={w * 0.34} ry={Math.min(open * 0.45, 22)} fill="#E8706A" />
-              {open > 10 && <rect x={300 - w / 2} y={my - Math.max(lc, rc) - 10} width={w} height={14 + open * 0.12} fill="#fff" stroke={INK} strokeWidth={2} />}
-              {!isOcu && open > 30 && <rect x={300 - w * 0.4} y={my + open * 1.45} width={w * 0.8} height={14} fill="#fff" stroke={INK} strokeWidth={2} />}
+          {/* eyes */}
+          {eyes.map((x, i) => (
+            <g key={i}>
+              <ellipse cx={x} cy={eyeY} rx={eyeR.rx} ry={eyeR.ry} fill={COLORS.white} stroke={INK} strokeWidth={4} />
+              <g clipPath={`url(#${id}-eye-${i})`}>
+                <circle cx={x + lookX} cy={eyeY + lookY + 2} r={(isOcu ? 12 : 10) * f.pupil} fill={INK} />
+                <circle cx={x + lookX + 3} cy={eyeY + lookY - 2} r={3 * f.pupil} fill={COLORS.white} />
+                {/* frantic bloodshot lines */}
+                {!isOcu && angry && (
+                  <path d={`M ${x - 30} ${eyeY + 6} l 12 -2 M ${x + 30} ${eyeY + 8} l -12 -3`} stroke="#E5383B" strokeWidth={2.5} />
+                )}
+                <rect x={x - 36} y={eyeY - 38} width={72} height={76 * lid} fill={c.skin} />
+                {lid > 0.05 && <line x1={x - 34} x2={x + 34} y1={eyeY - 38 + 76 * lid} y2={eyeY - 38 + 76 * lid} stroke={INK} strokeWidth={6} />}
+              </g>
+              {isOcu && <path d={`M ${x - 22} ${eyeY + 32} q 22 10 44 0`} stroke={c.shade} strokeWidth={5} fill="none" />}
             </g>
-            <path d={mouthPath} fill="none" stroke={INK} strokeWidth={5} strokeLinejoin="round" />
+          ))}
+
+          {/* brows */}
+          {eyes.map((x, i) => {
+            const rot = i === 0 ? -f.brow : f.brow;
+            const thick = isOcu ? 11 : 16;
+            const by = eyeY - (isOcu ? 62 : 72) + f.browY;
+            return (
+              <path
+                key={i}
+                d={`M ${x - 36} ${by + 4} Q ${x} ${by - thick} ${x + 36} ${by + 2} L ${x + 34} ${by + thick * 0.7} Q ${x} ${by - 2} ${x - 34} ${by + thick} Z`}
+                fill={c.hair}
+                transform={`rotate(${rot} ${x} ${by})`}
+              />
+            );
+          })}
+
+          {/* glasses: Uco oversized angular, Ocu massive circles */}
+          <g fill="none" stroke={INK}>
+            {isOcu ? (
+              <g strokeWidth={8}>
+                <circle cx={244} cy={eyeY} r={60} fill="rgba(248,249,250,0.12)" />
+                <circle cx={356} cy={eyeY} r={60} fill="rgba(248,249,250,0.12)" />
+                <path d={`M 302 ${eyeY - 6} Q 300 ${eyeY - 14} 298 ${eyeY - 6}`} />
+                <line x1={184} y1={eyeY - 8} x2={156} y2={eyeY - 14} />
+                <line x1={416} y1={eyeY - 8} x2={444} y2={eyeY - 14} />
+              </g>
+            ) : (
+              <g strokeWidth={12} strokeLinejoin="miter">
+                <path d={`M 178 ${eyeY - 52} L 296 ${eyeY - 46} L 292 ${eyeY + 40} L 186 ${eyeY + 46} Z`} fill="rgba(248,249,250,0.12)" />
+                <path d={`M 422 ${eyeY - 52} L 304 ${eyeY - 46} L 308 ${eyeY + 40} L 414 ${eyeY + 46} Z`} fill="rgba(248,249,250,0.12)" />
+                <line x1={296} y1={eyeY - 16} x2={304} y2={eyeY - 16} />
+                <line x1={178} y1={eyeY - 40} x2={146} y2={eyeY - 34} />
+                <line x1={422} y1={eyeY - 40} x2={454} y2={eyeY - 34} />
+              </g>
+            )}
           </g>
-        ) : (
-          <path d={closedMouth} fill="none" stroke={INK} strokeWidth={6} strokeLinecap="round" />
-        )}
+          <path d={isOcu ? `M 210 ${eyeY - 34} l 16 -12` : `M 196 ${eyeY - 32} l 24 -12`} stroke={COLORS.white} strokeWidth={6} strokeLinecap="round" opacity={0.85} />
 
-        {/* hair on top */}
-        {isOcu ? <OcuHair c={c} /> : <UcoHair c={c} frame={frame} angry={f.shake > 2} />}
+          {/* nose */}
+          <path d={isOcu ? "M 300 326 Q 320 356 296 366" : "M 304 320 Q 330 358 294 368"} fill="none" stroke={INK} strokeWidth={5} strokeLinecap="round" />
 
-        {/* expression extras */}
-        {props && angry && !isOcu && <AngerMark frame={frame} red={expression === "furious"} />}
-        {props && angry && !isOcu && talking && <Spit frame={frame} />}
-        {props && expression === "worried" && <Sweat frame={frame} />}
+          {/* mouth */}
+          {mouthPath ? (
+            <g>
+              <path d={mouthPath} fill="#4A1414" />
+              <g clipPath={`url(#${id}-mouth)`}>
+                <ellipse cx={300} cy={my + open * 1.3 + curve * 0.3} rx={w * 0.34} ry={Math.min(open * 0.45, 24)} fill="#D9534F" />
+                {open > 10 && <rect x={300 - w / 2} y={my - Math.max(lc, rc) - 12} width={w} height={16 + open * 0.12} fill={COLORS.white} stroke={INK} strokeWidth={2} />}
+                {!isOcu && open > 30 && <rect x={300 - w * 0.4} y={my + open * 1.45} width={w * 0.8} height={14} fill={COLORS.white} stroke={INK} strokeWidth={2} />}
+              </g>
+              <path d={mouthPath} fill="none" stroke={INK} strokeWidth={6} strokeLinejoin="round" />
+            </g>
+          ) : (
+            <path d={closedMouth} fill="none" stroke={INK} strokeWidth={7} strokeLinecap="round" />
+          )}
+
+          {isOcu ? <OcuHair c={c} frame={frame} /> : <UcoHair c={c} frame={frame} angry={f.shake > 3} />}
+
+          {props && angry && !isOcu && <AngerVein frame={frame} />}
+          {props && (angry || expression === "worried") && <SweatDrops frame={frame} side={isOcu ? 1 : -1} />}
+        </g>
+
+        {isOcu && drink && <Drink color={drink} frame={frame} breathe={breathe} />}
       </g>
-      {/* arms in front */}
-      <g transform={`translate(0 ${breathe * 0.6})`}>{isOcu ? <OcuArms /> : null}</g>
     </svg>
   );
 }
 
-function Ear({ x, c, big, flip }: { x: number; c: (typeof LOOK)["uco"]; big: boolean; flip: boolean }) {
-  const rx = big ? 34 : 26;
-  const ry = big ? 46 : 34;
+function Ear({ x, c, flip }: { x: number; c: (typeof LOOK)["uco"]; flip: boolean }) {
   return (
     <g>
-      <ellipse cx={x} cy={318} rx={rx} ry={ry} fill={c.skin} stroke={INK} strokeWidth={S} />
-      <path d={`M ${x + (flip ? -8 : 8)} 296 q ${flip ? 14 : -14} 22 0 44`} stroke={c.shade} strokeWidth={6} fill="none" strokeLinecap="round" />
+      <ellipse cx={x} cy={318} rx={28} ry={38} fill={c.skin} stroke={INK} strokeWidth={S} />
+      <path d={`M ${x + (flip ? -8 : 8)} 298 q ${flip ? 12 : -12} 20 0 40`} stroke={INK} strokeWidth={4} fill="none" strokeLinecap="round" />
     </g>
   );
 }
 
 function UcoHair({ c, frame, angry }: { c: (typeof LOOK)["uco"]; frame: number; angry: boolean }) {
-  // messy ginger flicks; they twitch when he is angry
-  const t = angry ? Math.sin(frame / 2) * 5 : Math.sin(frame / 18) * 2;
+  // wild, jagged spikes; they twitch when he is angry
+  const n = 15;
+  const pts: string[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = Math.PI * (1.0 + (1.0 * i) / n);
+    const wob = angry ? Math.sin(frame / 1.5 + i * 2) * 7 : Math.sin(frame / 14 + i) * 2;
+    const r = i % 2 ? 250 + wob + (i % 4 === 1 ? 20 : 0) : 172;
+    pts.push(`${300 + r * Math.cos(a) * 1.04},${300 + r * Math.sin(a)}`);
+  }
   return (
-    <g strokeLinejoin="round">
+    <g strokeLinejoin="miter">
       <path
-        d={`M 150 300 C 136 220 150 170 186 140 L 160 ${92 + t} L 222 118 L 214 ${60 - t} L 270 104 L 290 ${44 + t} L 322 100
-            L 372 ${58 - t} L 380 112 L 440 ${92 + t} L 424 150 C 456 180 462 240 450 300
-            C 440 250 420 222 396 210 L 404 254 L 360 214 L 344 250 L 316 206 L 282 244 L 270 210 L 232 250 L 228 212 C 196 226 168 252 150 300 Z`}
+        d={`M 146 330 L ${pts.join(" L ")} L 454 330 L 436 250 L 404 268 L 392 214 L 352 246 L 334 196 L 300 240 L 270 194 L 248 246 L 210 212 L 196 268 L 164 250 Z`}
         fill={c.hair}
         stroke={INK}
         strokeWidth={S}
       />
-      <path d={`M 214 ${70 - t} L 236 128 M 290 ${54 + t} L 296 120 M 372 ${68 - t} L 360 124`} stroke={c.hairDark} strokeWidth={6} strokeLinecap="round" />
-      <path d="M 200 160 Q 250 132 300 138" stroke={c.hairLight} strokeWidth={9} fill="none" strokeLinecap="round" />
-      {/* forelock falling over the brow */}
-      <path d="M 300 206 C 296 236 280 252 262 262 C 286 246 292 226 290 208 Z" fill={c.hair} stroke={INK} strokeWidth={5} />
+      <path d="M 210 150 L 250 132 M 300 118 L 340 124" stroke={c.hairHi} strokeWidth={8} strokeLinecap="round" />
     </g>
   );
 }
 
-function OcuHair({ c }: { c: (typeof LOOK)["ocu"] }) {
-  // neat quiff swept up and back, forehead clear
+function OcuHair({ c, frame }: { c: (typeof LOOK)["ocu"]; frame: number }) {
+  // messy, flat, relaxed: a mop that droops over the forehead, a few stray strands
+  const sway = Math.sin(frame / 40) * 2;
   return (
     <g strokeLinejoin="round">
       <path
-        d="M 156 300 C 140 200 170 120 236 96 C 260 60 330 42 390 64 C 450 86 470 150 446 210 C 452 240 450 270 444 300
-           C 432 250 412 214 380 196 C 340 186 300 200 266 190 C 226 196 186 230 156 300 Z"
+        d={`M 150 330 C 128 230 150 150 214 118 C 260 90 330 86 384 104 C 440 124 470 190 456 330
+            C 446 290 436 262 420 246 L 414 ${282 + sway} L 388 236 L 368 ${270 + sway} L 344 228 L 318 ${262 + sway} L 292 226
+            L 262 ${268 + sway} L 244 230 L 216 ${266 + sway} L 196 240 C 174 262 160 292 150 330 Z`}
         fill={c.hair}
         stroke={INK}
         strokeWidth={S}
       />
-      <path d="M 244 104 C 290 76 360 70 420 104 M 236 140 C 290 110 360 106 430 140" stroke={c.hairLight} strokeWidth={7} fill="none" strokeLinecap="round" />
-      <path d="M 266 190 C 300 176 350 172 392 190" stroke={c.hairDark} strokeWidth={6} fill="none" strokeLinecap="round" />
-      {/* sideburns */}
-      <path d="M 160 300 L 172 336 L 178 290 Z M 440 300 L 428 336 L 422 290 Z" fill={c.hair} stroke={INK} strokeWidth={4} />
+      <path d={`M 230 104 C 220 80 236 66 252 72 M 352 96 C 368 72 392 80 388 98`} stroke={INK} strokeWidth={6} fill="none" strokeLinecap="round" />
+      <path d="M 210 150 C 260 124 330 120 400 142" stroke={c.hairHi} strokeWidth={8} fill="none" strokeLinecap="round" />
     </g>
   );
 }
 
-function UcoBody() {
+function UcoBody({ id }: { id: string }) {
   return (
     <g strokeLinejoin="round">
-      {/* mustard sweater */}
-      <path d="M 70 1300 L 78 820 C 86 590 180 520 300 514 C 420 520 514 590 522 820 L 530 1300 Z" fill={COLORS.ucoSweater} stroke={INK} strokeWidth={S} />
-      <path d="M 150 700 Q 170 640 196 610 M 450 700 Q 430 640 404 610" stroke={COLORS.ucoSweaterDark} strokeWidth={7} fill="none" />
-      {/* crew neck + pale yellow shirt collar */}
-      <path d="M 218 528 Q 300 600 382 528 L 368 516 Q 300 572 232 516 Z" fill={COLORS.ucoSweaterDark} stroke={INK} strokeWidth={5} />
-      <path d="M 300 560 L 236 504 L 220 566 Z" fill={COLORS.ucoShirt} stroke={INK} strokeWidth={6} />
-      <path d="M 300 560 L 364 504 L 380 566 Z" fill={COLORS.ucoShirt} stroke={INK} strokeWidth={6} />
-      {/* rib at the hem area */}
-      <path d="M 300 600 L 300 1300" stroke={COLORS.ucoSweaterDark} strokeWidth={4} opacity={0.5} />
-    </g>
-  );
-}
-
-function OcuBody() {
-  return (
-    <g strokeLinejoin="round">
-      {/* grey-blue blazer */}
-      <path d="M 66 1300 L 74 820 C 82 596 180 524 300 518 C 420 524 518 596 526 820 L 534 1300 Z" fill={COLORS.ocuBlazer} stroke={INK} strokeWidth={S} />
-      {/* turtleneck showing in the V */}
-      <path d="M 220 540 L 300 900 L 380 540 Q 300 520 220 540 Z" fill={COLORS.ocuTurtle} stroke={INK} strokeWidth={6} />
-      <rect x={236} y={448} width={128} height={100} rx={28} fill={COLORS.ocuTurtle} stroke={INK} strokeWidth={S} />
-      {[0, 1, 2, 3, 4].map((i) => (
-        <line key={i} x1={256 + i * 22} y1={460} x2={256 + i * 22} y2={538} stroke="#22383D" strokeWidth={5} />
+      {/* orange collared shirt, shoulders squared and forward */}
+      <path d="M 60 1300 L 70 800 C 80 590 178 516 300 510 C 422 516 520 590 530 800 L 540 1300 Z" fill={COLORS.uco} stroke={INK} strokeWidth={S} />
+      <path d="M 430 600 C 480 660 500 760 500 1300 L 540 1300 L 530 800 C 522 690 490 626 430 600 Z" fill={`url(#${id}-dots)`} opacity={0.5} />
+      <path d="M 300 560 L 226 500 L 206 590 Z" fill={COLORS.ucoAmber} stroke={INK} strokeWidth={7} />
+      <path d="M 300 560 L 374 500 L 394 590 Z" fill={COLORS.ucoAmber} stroke={INK} strokeWidth={7} />
+      <path d="M 300 560 L 300 1300" stroke={INK} strokeWidth={6} />
+      {[640, 740, 840].map((y) => (
+        <circle key={y} cx={318} cy={y} r={8} fill={COLORS.white} stroke={INK} strokeWidth={4} />
       ))}
-      {/* lapels */}
-      <path d="M 220 540 L 300 900 L 250 700 L 190 640 L 214 600 L 180 570 Z" fill={COLORS.ocuBlazerLight} stroke={INK} strokeWidth={6} />
-      <path d="M 380 540 L 300 900 L 350 700 L 410 640 L 386 600 L 420 570 Z" fill={COLORS.ocuBlazerLight} stroke={INK} strokeWidth={6} />
+      <path d="M 120 760 L 200 700 L 210 760" stroke={COLORS.ucoDeep} strokeWidth={8} fill="none" />
     </g>
   );
 }
 
-function OcuArms() {
-  const c = LOOK.ocu;
+function OcuBody({ id }: { id: string }) {
   return (
     <g strokeLinejoin="round">
-      {/* crossed forearms */}
-      <path d="M 92 760 C 150 700 330 700 470 760 L 474 850 C 340 800 170 800 96 860 Z" fill={COLORS.ocuBlazer} stroke={INK} strokeWidth={S} />
-      <path d="M 508 790 C 450 740 270 744 130 800 L 124 890 C 260 836 430 836 504 890 Z" fill={COLORS.ocuBlazerLight} stroke={INK} strokeWidth={S} />
-      {/* hands tucked */}
-      <path d="M 420 760 q 40 -30 70 0 q 10 30 -20 40 q -30 0 -50 -40 Z" fill={c.skin} stroke={INK} strokeWidth={6} />
-      <path d="M 170 820 q -40 -24 -66 6 q -6 30 24 36 q 26 -4 42 -42 Z" fill={c.skin} stroke={INK} strokeWidth={6} />
+      {/* grey tee, slouched round shoulders */}
+      <path d="M 70 1300 L 76 860 C 70 660 170 556 300 546 C 430 556 530 660 524 860 L 530 1300 Z" fill="#5C6670" stroke={INK} strokeWidth={S} />
+      <path d="M 236 552 Q 300 600 364 552" stroke={INK} strokeWidth={7} fill="none" />
+      <path d="M 420 640 C 470 700 490 800 486 1300 L 530 1300 L 524 860 C 520 740 480 670 420 640 Z" fill={`url(#${id}-dots)`} opacity={0.5} />
+      <path d="M 160 760 Q 190 820 186 900 M 300 640 Q 290 700 310 760" stroke="#47505A" strokeWidth={7} fill="none" />
     </g>
   );
 }
 
-function AngerMark({ frame, red }: { frame: number; red: boolean }) {
-  const s = 1 + Math.sin(frame / 3) * 0.12;
+function Drink({ color, frame, breathe }: { color: string; frame: number; breathe: number }) {
+  // clear plastic iced cup with straw, held loosely low on the left
+  const y = 640 + breathe * 0.6 + Math.sin(frame / 45) * 3;
   return (
-    <g transform={`translate(430 120) scale(${s})`} stroke={red ? "#E23B3B" : INK} strokeWidth={8} strokeLinecap="round" fill="none">
-      <path d="M -26 -8 Q -8 -8 -8 -26" />
-      <path d="M 26 -8 Q 8 -8 8 -26" />
-      <path d="M -26 8 Q -8 8 -8 26" />
-      <path d="M 26 8 Q 8 8 8 26" />
+    <g transform={`translate(70 ${y}) rotate(-4)`}>
+      <path d="M 0 0 L 150 0 L 134 230 L 16 230 Z" fill="rgba(230,240,240,0.35)" stroke={INK} strokeWidth={7} />
+      <path d="M 8 70 L 142 70 L 134 226 L 16 226 Z" fill={color} />
+      <path d="M 8 70 L 142 70 L 138 120 L 12 120 Z" fill={`rgba(255,255,255,0.25)`} />
+      {[0, 1, 2].map((i) => (
+        <rect key={i} x={20 + i * 40} y={80 + (i % 2) * 22} width={34} height={30} rx={6} fill="rgba(255,255,255,0.55)" stroke={INK} strokeWidth={3} transform={`rotate(${i * 12 - 10} ${36 + i * 40} ${94})`} />
+      ))}
+      <rect x={-8} y={-14} width={166} height={18} rx={6} fill="rgba(240,248,248,0.7)" stroke={INK} strokeWidth={6} />
+      <path d="M 96 -14 L 120 -110" stroke="#2D6A4F" strokeWidth={12} strokeLinecap="round" />
+      {/* hand wrapped around the cup */}
+      <path d="M 120 120 C 170 100 196 130 190 170 C 186 200 150 214 120 206 Z" fill={LOOK.ocu.skin} stroke={INK} strokeWidth={7} />
+      <path d="M 150 140 L 186 146 M 146 168 L 184 172" stroke={INK} strokeWidth={4} />
     </g>
   );
 }
 
-function Spit({ frame }: { frame: number }) {
+function AngerVein({ frame }: { frame: number }) {
+  const s = 1 + Math.sin(frame / 2.5) * 0.15;
+  return (
+    <g transform={`translate(424 150) scale(${s})`} stroke="#E5383B" strokeWidth={9} strokeLinecap="round" fill="none">
+      <path d="M -28 -8 Q -8 -8 -8 -28" />
+      <path d="M 28 -8 Q 8 -8 8 -28" />
+      <path d="M -28 8 Q -8 8 -8 28" />
+      <path d="M 28 8 Q 8 8 8 28" />
+    </g>
+  );
+}
+
+function SweatDrops({ frame, side }: { frame: number; side: number }) {
   return (
     <g>
       {[0, 1, 2].map((i) => {
-        const t = ((frame + i * 7) % 20) / 20;
-        return (
-          <path
-            key={i}
-            d={`M ${200 - t * 120 - i * 10} ${400 - i * 30 - t * 40} q 8 14 0 20 q -8 -6 0 -20 Z`}
-            fill="#8FD3F4"
-            stroke={INK}
-            strokeWidth={3}
-            opacity={1 - t}
-          />
-        );
+        const t = ((frame + i * 9) % 27) / 27;
+        const x = 300 + side * (170 + t * 70 + i * 10);
+        const y = 230 + i * 40 - t * 30;
+        return <path key={i} d={`M ${x} ${y} q 10 18 0 26 q -10 -8 0 -26 Z`} fill="#8ECAE6" stroke={INK} strokeWidth={3.5} opacity={1 - t} />;
       })}
     </g>
   );
-}
-
-function Sweat({ frame }: { frame: number }) {
-  const y = (frame % 45) * 1.2;
-  return <path d={`M 452 ${250 + y} q 14 26 0 34 q -14 -8 0 -34 Z`} fill="#9BE7FF" stroke={INK} strokeWidth={4} opacity={1 - (frame % 45) / 60} />;
 }
