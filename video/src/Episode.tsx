@@ -4,9 +4,9 @@ import "@fontsource/nunito/800.css";
 import "@fontsource/nunito/900.css";
 import React from "react";
 import { AbsoluteFill, Audio, Easing, Sequence, interpolate, random, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import { Character } from "./Character";
+import { Character, slapAt, type Gesture } from "./Character";
 import { Prop, propsFor } from "./Props";
-import { COLORS, END_FRAMES, GAP_FRAMES, SAFE, type EpisodeLine, type EpisodeProps, type Speaker } from "./types";
+import { COLORS, END_FRAMES, SAFE, timeline, type EpisodeLine, type EpisodeProps, type Speaker } from "./types";
 
 const COMIC = "Bangers, Impact, sans-serif";
 const LOGO = "'Luckiest Guy', Impact, sans-serif";
@@ -23,23 +23,30 @@ function drinkFor(lines: EpisodeLine[]) {
 
 export function Episode({ lines }: EpisodeProps) {
   const drink = drinkFor(lines);
-  let from = 0;
-  const placed = lines.map((line, i) => {
-    const start = from;
-    from += line.frames + GAP_FRAMES;
-    return { line, start, prev: lines[i - 1] };
-  });
+  const { starts, end } = timeline(lines);
   const last = lines[lines.length - 1];
+  const cams = cameras(lines);
 
   return (
     <AbsoluteFill style={{ backgroundColor: COLORS.canvas }}>
-      {placed.map(({ line, start, prev }) => (
-        <Sequence key={line.index} from={start} durationInFrames={line.frames + GAP_FRAMES} name={`${line.index + 1} ${line.speaker} ${line.expression}`}>
-          <Shot line={line} prev={prev} drink={drink} />
-          {line.audio && <Audio src={staticFile(line.audio)} />}
-        </Sequence>
-      ))}
-      <Sequence from={from} durationInFrames={END_FRAMES} name="end card">
+      {lines.map((line, i) => {
+        // the picture holds until the next line starts (hard cuts); the voice plays its full length
+        const until = (starts[i + 1] ?? end) - starts[i];
+        return (
+          <Sequence key={line.index} from={starts[i]} durationInFrames={until} name={`${line.index + 1} ${line.speaker} ${line.expression} ${cams[i]}`}>
+            <Shot line={line} prev={lines[i - 1]} drink={drink} camera={cams[i]} />
+          </Sequence>
+        );
+      })}
+      {lines.map(
+        (line, i) =>
+          line.audio && (
+            <Sequence key={`a${line.index}`} from={starts[i]} durationInFrames={line.frames} name={`voice ${line.index + 1}`} layout="none">
+              <Audio src={staticFile(line.audio)} />
+            </Sequence>
+          ),
+      )}
+      <Sequence from={end} durationInFrames={END_FRAMES} name="end card">
         <EndCard cta={last?.on_screen_text ?? null} drink={drink} />
       </Sequence>
       <Bug />
@@ -47,60 +54,136 @@ export function Episode({ lines }: EpisodeProps) {
   );
 }
 
+type Camera = "close" | "medium" | "dutch-close" | "dutch-medium" | "push-close" | "push-medium" | "two" | "split";
+
+/** A different framing for every solo line, so no shot sits still: Uco gets tilts when he rages, Ocu slow push-ins. */
+function cameras(lines: EpisodeLine[]): Camera[] {
+  const seen = { uco: 0, ocu: 0 };
+  return lines.map((l) => {
+    if (/split/i.test(l.visual ?? "")) return "split";
+    if (isTwoShot(l)) return "two";
+    const k = seen[l.speaker]++;
+    if (l.speaker === "uco") return hot(l) ? (k % 2 ? "dutch-medium" : "dutch-close") : k % 2 ? "medium" : "close";
+    return k % 2 ? "push-medium" : "push-close";
+  });
+}
+
+/** Arm acting picked from the line's visual notes and mood. */
+export function gestureFor(l: EpisodeLine): Gesture {
+  const v = (l.visual ?? "").toLowerCase();
+  if (l.speaker === "uco") {
+    if (/slap|whack|smack/.test(v)) return "slap";
+    if (/receipt|statement|struk/.test(v)) return "receipt";
+    if (/slides|offers?|hands? (him|over)/.test(v)) return "offer";
+    if (/point|jab|finger/.test(v)) return "point";
+    if (l.thought_bubble || l.expression === "thinking") return "chin";
+    if (l.expression === "furious") return "fist";
+    if (l.expression === "excited") return "shrug";
+    if (l.expression === "angry") return "point";
+    return "wave";
+  }
+  if (/sip|slurp|catches the cup/.test(v)) return "sip";
+  if (/\brubs?\b|rubbing|tired/.test(v) || l.expression === "worried") return "rub";
+  return "hold";
+}
+
 const isTwoShot = (l: EpisodeLine) => Boolean(l.thought_bubble) || l.beat === "concession" || l.beat === "button";
 const hot = (l: EpisodeLine) => ["angry", "furious", "excited"].includes(l.expression);
 
-function Shot({ line, prev, drink }: { line: EpisodeLine; prev?: EpisodeLine; drink: string | null }) {
+function Shot({ line, prev, drink, camera }: { line: EpisodeLine; prev?: EpisodeLine; drink: string | null; camera: Camera }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const mouth = smoothMouth(line.envelope, frame);
   const talking = frame < line.frames;
   const uco = line.speaker === "uco";
   const cut = !prev || prev.speaker !== line.speaker || isTwoShot(prev) !== isTwoShot(line);
+  const gesture = gestureFor(line);
 
-  // Motion curves: Uco = fast overshoot + screen shake; Ocu = slow linear ease, long holds.
+  // Entrances. Uco: whip-pan in with motion blur and an overshoot landing. Ocu: hard cut, then slow linear push.
   let enter = "";
+  let blur = 0;
   let shake = { x: 0, y: 0 };
   if (uco) {
-    const s = cut ? spring({ frame, fps, config: { damping: 7, stiffness: 260, mass: 0.6 } }) : 1;
-    enter = `translateY(${(1 - s) * 160}px) scale(${0.82 + 0.18 * s}, ${1.12 - 0.12 * s})`; // squash & stretch pop
-    const amp = cut && hot(line) ? interpolate(frame, [0, 14], [22, 0], { extrapolateRight: "clamp" }) : 0;
-    const peak = talking && line.expression === "furious" ? mouth * 6 : 0;
-    shake = { x: (random(`sx${frame}`) - 0.5) * 2 * (amp + peak), y: (random(`sy${frame}`) - 0.5) * 2 * (amp + peak) };
-  } else {
-    const t = cut ? interpolate(frame, [0, 24], [0, 1], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.sin) }) : 1;
-    enter = `translateX(${(1 - t) * 60}px)`;
+    if (cut) {
+      const w = interpolate(frame, [0, 7], [1, 0], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
+      const land = spring({ frame: frame - 5, fps, config: { damping: 8, stiffness: 300, mass: 0.5 } });
+      enter = `translateX(${-w * 1100}px) scale(${1.06 - 0.06 * land}, ${0.94 + 0.06 * land})`;
+      blur = w * 26;
+    }
+    const amp = cut && hot(line) ? interpolate(frame, [4, 16], [20, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 0;
+    const peak = talking && line.expression === "furious" ? mouth * 7 : 0;
+    const slapHit = gesture === "slap" ? interpolate(frame - slapAt(line.frames), [0, 8], [24, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 0;
+    const a = amp + peak + slapHit;
+    shake = { x: (random(`sx${frame}`) - 0.5) * 2 * a, y: (random(`sy${frame}`) - 0.5) * 2 * a };
   }
-  const zoom = uco
-    ? 1 + (talking ? mouth * 0.015 : 0)
-    : interpolate(frame, [0, line.frames], [1, 1.06], { extrapolateRight: "clamp" }); // slow unbothered push-in
-  const flash = uco && cut && hot(line) ? interpolate(frame, [0, 3], [0.9, 0], { extrapolateRight: "clamp" }) : 0;
+
+  // Framing
+  const p = interpolate(frame, [0, Math.max(1, line.frames)], [0, 1], { extrapolateRight: "clamp" });
+  let zoom = 1;
+  let rot = 0;
+  let origin = "50% 48%";
+  switch (camera) {
+    case "close":
+      zoom = 1.32 + (talking ? mouth * 0.02 : 0);
+      break;
+    case "medium":
+      zoom = 1.0 + (talking ? mouth * 0.015 : 0);
+      break;
+    case "dutch-close":
+      zoom = 1.34 + (talking ? mouth * 0.03 : 0);
+      rot = -7;
+      break;
+    case "dutch-medium":
+      zoom = 1.08 + (talking ? mouth * 0.02 : 0);
+      rot = 6;
+      break;
+    case "push-close":
+      zoom = 1.2 + p * 0.16; // slow, unbothered
+      break;
+    case "push-medium":
+      zoom = 1.0 + p * 0.1;
+      break;
+    case "two":
+    case "split":
+      zoom = 1 + p * 0.04;
+      origin = "50% 60%";
+      break;
+  }
+  const flash = uco && cut && hot(line) ? interpolate(frame, [5, 8], [0.85, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) : 0;
+  const props = propsFor(line).filter((k) => !(k === "receipt" && gesture === "receipt") && !(k === "cup" && gesture === "offer"));
 
   return (
-    <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px)` }}>
+    <AbsoluteFill style={{ transform: `translate(${shake.x}px, ${shake.y}px)`, overflow: "hidden" }}>
       <Backdrop line={line} frame={frame} />
       {line.beat === "hook" && <Bolts frame={frame} />}
-      <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 60%" }}>
+      <AbsoluteFill style={{ transform: `rotate(${rot}deg) scale(${zoom})`, transformOrigin: origin, filter: blur > 0.5 ? `blur(${blur}px)` : undefined }}>
         <AbsoluteFill style={{ transform: enter, transformOrigin: "50% 100%" }}>
-          {isTwoShot(line) ? (
-            <TwoShot line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} />
+          {camera === "two" || camera === "split" ? (
+            <TwoShot line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} gesture={gesture} />
           ) : (
-            <Solo line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} />
+            <Solo line={line} mouth={mouth} talking={talking} frame={frame} drink={drink} gesture={gesture} />
           )}
         </AbsoluteFill>
       </AbsoluteFill>
-      {propsFor(line).map((p, i) => (
-        <Prop key={p} kind={p} slot={i} line={line} frame={frame} />
+      {props.map((k, i) => (
+        <Prop
+          key={k}
+          kind={k}
+          slot={i}
+          line={line}
+          frame={frame}
+          flyAt={k === "chart" && gesture === "slap" ? slapAt(line.frames) : undefined}
+          morph={k === "house" && /morph/i.test(line.visual ?? "") ? "cup" : undefined}
+        />
       ))}
       {line.thought_bubble && <ThoughtCloud side={line.speaker} frame={frame} />}
-      {line.on_screen_text && <CaptionCard text={line.on_screen_text} line={line} frame={frame} />}
       <Subtitle line={line} frame={frame} />
       {flash > 0 && <AbsoluteFill style={{ backgroundColor: COLORS.white, opacity: flash }} />}
     </AbsoluteFill>
   );
 }
 
-function Solo({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null }) {
+function Solo({ line, mouth, talking, frame, drink, gesture }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null; gesture: Gesture }) {
   const uco = line.speaker === "uco";
   return (
     <>
@@ -115,14 +198,14 @@ function Solo({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mouth
           transformOrigin: "50% 100%",
         }}
       >
-        <Character who={line.speaker} expression={line.expression} mouth={mouth} frame={frame} talking={talking} drink={drink} />
+        <Character who={line.speaker} expression={line.expression} mouth={mouth} frame={frame} talking={talking} drink={drink} gesture={gesture} gt={frame} glen={line.frames} />
       </div>
       {uco && ["angry", "furious"].includes(line.expression) && <AngerMeter level={line.expression === "furious" ? 1 : 0.6} frame={frame} />}
     </>
   );
 }
 
-function TwoShot({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null }) {
+function TwoShot({ line, mouth, talking, frame, drink, gesture }: { line: EpisodeLine; mouth: number; talking: boolean; frame: number; drink: string | null; gesture: Gesture }) {
   const side = (who: Speaker) => {
     const speaking = who === line.speaker;
     return (
@@ -146,6 +229,9 @@ function TwoShot({ line, mouth, talking, frame, drink }: { line: EpisodeLine; mo
           talking={speaking && talking}
           look={line.thought_bubble ? (who === "uco" ? -1 : 1) : who === "uco" ? 1 : -1}
           drink={drink}
+          gesture={speaking ? gesture : who === "uco" ? "none" : line.thought_bubble ? "sip" : "hold"}
+          gt={frame}
+          glen={line.frames}
         />
       </div>
     );
@@ -334,37 +420,25 @@ function Subtitle({ line, frame }: { line: EpisodeLine; frame: number }) {
     }
     acc += c.length;
   }
-  const uco = line.speaker === "uco";
+  // One small English line in the lower-middle: the Indonesian lives in the voice only.
+  const color = line.speaker === "uco" ? COLORS.ucoAmber : "#7FB3C8";
+  const shown = interpolate(frame, [0, 3], [0, 1], { extrapolateRight: "clamp" });
   return (
-    <div style={{ position: "absolute", left: SAFE.left, right: SAFE.right, bottom: SAFE.bottom + 100, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-      <div
-        style={{
-          fontFamily: COMIC,
-          fontSize: 40,
-          letterSpacing: 3,
-          color: uco ? COLORS.ink : COLORS.white,
-          background: uco ? COLORS.ucoAmber : COLORS.ocuTeal,
-          border: `4px solid ${COLORS.ink}`,
-          boxShadow: `5px 5px 0 ${COLORS.ink}`,
-          padding: "4px 18px 0",
-        }}
-      >
-        {line.speaker.toUpperCase()}
-        {line.thought_bubble ? " (dalam hati)" : ""}
-      </div>
+    <div style={{ position: "absolute", left: SAFE.left, right: SAFE.right, bottom: SAFE.bottom + 150, display: "flex", justifyContent: "center", opacity: shown }}>
       <div
         style={{
           fontFamily: BODY,
-          fontWeight: 900,
-          fontSize: 50,
-          lineHeight: 1.18,
+          fontWeight: 800,
+          fontSize: 36,
+          lineHeight: 1.25,
           textAlign: "center",
           color: COLORS.white,
           fontStyle: line.thought_bubble ? "italic" : "normal",
-          background: "rgba(14,14,18,0.85)",
-          border: `4px solid ${COLORS.ink}`,
-          borderRadius: 14,
-          padding: "12px 24px",
+          background: "rgba(14,14,18,0.72)",
+          borderLeft: `6px solid ${color}`,
+          borderRadius: 10,
+          padding: "8px 18px",
+          maxWidth: 760,
         }}
       >
         {current}
@@ -373,7 +447,7 @@ function Subtitle({ line, frame }: { line: EpisodeLine; frame: number }) {
   );
 }
 
-function chunk(text: string, max = 44) {
+function chunk(text: string, max = 52) {
   const words = text.split(/\s+/).filter(Boolean);
   const out: string[] = [];
   let cur = "";

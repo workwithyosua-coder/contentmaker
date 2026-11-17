@@ -1,6 +1,6 @@
 // Renders one Uco & Ocu episode to MP4 and uploads it to the app.
 //
-//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse]
+//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse] [--prep] [--no-tighten]
 //
 // Steps: fetch the script from the app → download each line's selected take → trim silence and even out
 // loudness (ffmpeg) → measure loudness per frame for the mouth movement → render with Remotion → upload.
@@ -11,7 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
-import { FPS, GAP_FRAMES, type EpisodeProps, type ManifestLine } from "./src/types.ts";
+import { FPS, totalFrames, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--base");
@@ -62,7 +62,15 @@ const TRIM =
   "highpass=f=70," +
   "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.08," +
   "areverse,silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.15,areverse";
-const LEVEL = "loudnorm=I=-16:TP=-1.5:LRA=11";
+// Voice chain: rumble cut at 80 Hz, gentle compression, loudness to -14 LUFS (TikTok/Reels/Shorts level).
+// Tighten (default on, --no-tighten to skip): pauses inside a line over 0.3 s shrink to 0.15 s, and a gentle
+// speed-up (pitch kept) like a Shorts editor would do: Uco a bit more, Ocu barely, so his deadpan survives.
+const TIGHTEN = !args.includes("--no-tighten");
+const PAUSES = "silenceremove=stop_periods=-1:stop_duration=0.3:stop_threshold=-40dB:stop_silence=0.15,";
+const SPEED: Record<string, number> = { uco: 1.12, ocu: 1.06 };
+const LEVEL = "highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,loudnorm=I=-14:TP=-1.5:LRA=7";
+// Inner thoughts: telephone band plus a short room reverb, so they read as "in his head".
+const THOUGHT = "highpass=f=300,lowpass=f=3400,aecho=0.8:0.55:45|90:0.25|0.15,";
 
 const lines: EpisodeProps["lines"] = [];
 for (const line of manifest.lines) {
@@ -80,7 +88,8 @@ for (const line of manifest.lines) {
   const wav = path.join(pub, rel);
   const trimmed = path.join(work, `line-${n}.trim.wav`);
   ffmpeg("-i", raw, "-af", TRIM, "-ar", "48000", "-ac", "1", trimmed);
-  ffmpeg("-i", trimmed, "-af", LEVEL, "-ar", "48000", "-ac", "1", wav);
+  const tighten = TIGHTEN ? `${PAUSES}atempo=${SPEED[line.speaker] ?? 1},` : "";
+  ffmpeg("-i", trimmed, "-af", tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL, "-ar", "48000", "-ac", "1", wav);
 
   // Loudness per video frame → mouth openness 0..1
   const pcm = execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-i", wav, "-f", "s16le", "-ac", "1", "-ar", "48000", "-"], {
@@ -104,9 +113,14 @@ for (const line of manifest.lines) {
 }
 
 const props: EpisodeProps = { title: manifest.title, lines };
-const total = lines.reduce((s, l) => s + l.frames + GAP_FRAMES, 0);
-log(`timeline: ${(total / FPS).toFixed(1)} s of dialogue + end card`);
+const total = totalFrames(lines);
+log(`timeline: ${(total / FPS).toFixed(1)} s including the end card`);
 writeFileSync(path.join(work, "props.json"), JSON.stringify(props));
+if (args.includes("--prep")) {
+  // --prep: stop after the audio and props.json (for previews: npx remotion still … --props=out/<id>/props.json)
+  log(`prepared ${path.join(work, "props.json")}`);
+  process.exit(0);
+}
 
 log("bundling…");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });

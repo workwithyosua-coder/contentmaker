@@ -1,7 +1,7 @@
 import React from "react";
 import { Composition } from "remotion";
 import { Episode } from "./Episode";
-import { END_FRAMES, FPS, GAP_FRAMES, HEIGHT, WIDTH, type EpisodeProps } from "./types";
+import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeProps } from "./types";
 
 const sample: EpisodeProps = {
   title: "Preview",
@@ -24,7 +24,7 @@ export function Root() {
       durationInFrames={300}
       defaultProps={sample}
       calculateMetadata={({ props }) => ({
-        durationInFrames: props.lines.reduce((s, l) => s + l.frames + GAP_FRAMES, 0) + END_FRAMES,
+        durationInFrames: totalFrames(props.lines),
       })}
     />
   );

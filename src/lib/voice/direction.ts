@@ -35,11 +35,32 @@ export const DEFAULT_SETTINGS: Record<"uco" | "ocu", VoiceSettings> = {
   ocu: { stability: 0.5, similarity_boost: 0.85, style: 0.2, use_speaker_boost: true },
 };
 
+// Words in a delivery note → short v3 tags. Long free text in brackets risks being read out loud, so only these go in.
+const NOTE_TAGS: [RegExp, string][] = [
+  [/whisper|half voice|under (his|your) breath/i, "whispers"],
+  [/shout|yell|loud/i, "shouting"],
+  [/\bsigh/i, "sighs"],
+  [/\blaugh/i, "laughs"],
+  [/fast|quick|rush/i, "fast"],
+  [/slow/i, "slowly"],
+  [/sarcas/i, "sarcastic"],
+  [/indignant|outraged/i, "indignant"],
+  [/triumphant|caught him/i, "triumphant"],
+  [/annoyed|irritated/i, "annoyed"],
+  [/serious|grave|ominous/i, "serious"],
+  [/smirk|smug/i, "smug"],
+  [/trail off|dawns/i, "hesitant"],
+];
+
 export function directLine(line: Line, extra?: string) {
   const tags = [...(TAGS[line.speaker][line.expression] ?? TAGS[line.speaker].calm)];
   if (line.thought_bubble) tags.splice(0, tags.length, "whispers", line.speaker === "uco" ? "annoyed" : "dry");
-  const notes = [line.delivery, extra].filter(Boolean).join(", ");
-  const head = tags.map((t) => `[${t}]`).join(" ");
-  // the writer's note goes in as one more direction tag
-  return `${head}${notes ? ` [${notes.replace(/[[\]]/g, "").slice(0, 120)}]` : ""} ${line.text.trim()}`;
+  for (const note of [line.delivery, extra]) {
+    if (!note) continue;
+    for (const [re, tag] of NOTE_TAGS) if (re.test(note) && !tags.includes(tag)) tags.push(tag);
+  }
+  return `${tags
+    .slice(0, 4)
+    .map((t) => `[${t}]`)
+    .join(" ")} ${line.text.trim()}`;
 }
