@@ -22,11 +22,11 @@ SRC = os.path.join(HERE, "assets", "lipstick-dialogue.mp3")
 PUB = os.path.join(HERE, "public", "lipstick")
 DATA = os.path.join(HERE, "src", "lipstick", "data.json")
 
-# Lines 2-3 say "terapi stres" (not "obat penenang"): the wording Gemini can voice without tripping its content filter.
+# Voices are the ElevenLabs dialogue file; Gemini clips (if used) are silent visuals only, so captions follow this audio.
 LINES = [
     ("uco", "hook", "Katanya kelas menengah lagi turun kelas, daya beli anjlok... tapi kafe penuh, skincare ludes! Drama doang!", "furious", (0.00, 7.62)),
-    ("ocu", "counter", "Matcha enam puluh lima ribu di tangan orang bokek itu bukan gaya hidup... Itu terapi stres yang dikasih es batu.", "deadpan", (7.90, 16.52)),
-    ("uco", "escalation", "Terapi stres, apaan?! Bilangnya nggak bisa nabung, tapi mutasi rekeningnya matcha, serum, toner!", "furious", (16.88, 24.74)),
+    ("ocu", "counter", "Matcha enam puluh lima ribu di tangan orang bokek itu bukan gaya hidup... Itu obat penenang yang dikasih es batu.", "deadpan", (7.90, 16.52)),
+    ("uco", "escalation", "Obat penenang, apaan?! Bilangnya nggak bisa nabung, tapi mutasi rekeningnya matcha, serum, toner!", "furious", (16.88, 24.74)),
     ("ocu", "escalation", "Justru itu. Harga rumah makin mustahil, jadi orang beli kemewahan kecil biar ngerasa masih punya kendali.", "calm", (25.08, 32.04)),
     ("ocu", "escalation", "Nanti rumah cuma jadi brosur, matcha jadi aset utama, kita nyicil es batu pakai paylater... terus matahari meledak. DHUARRR!!!", "worried", (32.55, 41.56)),
     ("uco", "counter", "Teori ngarang dari mana lagi itu?! Ekonom aja masih debat!", "angry", (41.93, 45.38)),
@@ -40,8 +40,8 @@ LINES = [
 THOUGHTS = {8, 9}  # 0-based: lines 9 and 10
 SUBS = [  # tiny English meaning, kept in data for the app's caption export; not drawn (single-caption rule)
     "They say the middle class is sliding and spending power crashed... but cafes are packed, skincare sold out! Pure drama!",
-    "A 65k matcha in a broke person's hand isn't a lifestyle... It's stress therapy served with ice.",
-    "Stress therapy, my foot?! They say they can't save, but their bank statement is matcha, serum, toner!",
+    "A 65k matcha in a broke person's hand isn't a lifestyle... It's a sedative served with ice.",
+    "Sedative, my foot?! They say they can't save, but their bank statement is matcha, serum, toner!",
     "Exactly. Houses are getting impossible, so people buy small luxuries to feel they're still in control.",
     "Soon houses are just brochures, matcha is our main asset, we pay off ice cubes with paylater... then the sun explodes. KABOOM!",
     "Where'd you make up that theory?! Even economists are still arguing!",
