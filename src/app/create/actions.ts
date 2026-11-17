@@ -7,6 +7,7 @@ import { claudeConfigured } from "@/lib/agents/claude";
 import { factCheck, generateIdeas, writeCaptions, writeScript, type ConceptOutline, type Script } from "@/lib/agents/writers-room";
 import { db } from "@/lib/db";
 import { getOwner } from "@/lib/queries";
+import { recordingProgress } from "@/lib/recordings";
 
 export type StepResult = { ok: boolean; message: string } | null;
 const ALL_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"];
@@ -180,7 +181,9 @@ export async function approveScriptAction(projectId: string): Promise<StepResult
       if (!s) throw new Error("No script yet.");
       await writeCaptions({ userId: o.id, projectId, script: s });
       await sql`UPDATE scripts SET approved_at = now() WHERE id = ${s.id}`;
-      await setStatus(projectId, "awaiting_recording");
+      // Lines may already be recorded before approval; skip straight to "recorded" if all are done.
+      const prog = await recordingProgress(projectId);
+      await setStatus(projectId, prog.lines > 0 && prog.recorded >= prog.lines ? "recorded" : "awaiting_recording");
     });
     revalidatePath(`/create/${projectId}`);
     revalidatePath("/create");
