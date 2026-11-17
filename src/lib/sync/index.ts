@@ -2,11 +2,13 @@ import "server-only";
 import { db } from "../db";
 import { syncFacebookPage, syncInstagramAccount } from "./meta";
 import { syncTikTokAccount } from "./tiktok";
+import { syncYouTubeChannel } from "./youtube";
 
 const SYNCERS: Record<string, (id: string) => Promise<{ ok: boolean; videos?: number; error?: string }>> = {
   tiktok: syncTikTokAccount,
   instagram: syncInstagramAccount,
   facebook: syncFacebookPage,
+  youtube: syncYouTubeChannel,
 };
 
 /** Syncs every connected (non-demo) account. Used by the daily cron and the "Sync now" button. */

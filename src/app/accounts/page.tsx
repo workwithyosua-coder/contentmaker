@@ -6,6 +6,7 @@ import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
 import { metaConfigured } from "@/lib/platforms/meta";
 import { tiktokConfigured } from "@/lib/platforms/tiktok";
+import { youtubeConfigured } from "@/lib/platforms/youtube";
 import { getOwner } from "@/lib/queries";
 
 export default function AccountsPage(props: PageProps<"/accounts">) {
@@ -34,6 +35,12 @@ const MESSAGES: Record<string, string> = {
   meta_no_pages: "No Facebook Page was shared. Connect again and select your Page (and its Instagram account) in the Facebook dialog.",
   meta_connect: "Facebook/Instagram connection failed. Please try again; if it keeps failing, tell Claude.",
   meta_sync: "Connected, but importing posts failed. See the error under the account.",
+  youtube_not_configured: "Google keys are missing: add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel, then redeploy.",
+  youtube_denied: "YouTube connection was cancelled.",
+  youtube_state: "The Google login expired or didn't match. Please try again.",
+  youtube_no_channel: "That Google account has no YouTube channel. Connect again and pick the account (or brand account) that owns your channel.",
+  youtube_connect: "YouTube connection failed. Please try again; if it keeps failing, tell Claude.",
+  youtube_sync: "YouTube connected, but importing videos failed. See the error under the account.",
   no_owner: "No user found in the database.",
 };
 
@@ -73,6 +80,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
     tiktok: tiktokConfigured(),
     instagram: metaConfigured(),
     facebook: metaConfigured(),
+    youtube: youtubeConfigured(),
   };
   const connectPath: Record<string, string> = { tiktok: "tiktok", instagram: "meta", facebook: "meta", youtube: "youtube" };
 
