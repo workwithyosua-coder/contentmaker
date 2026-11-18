@@ -13,9 +13,15 @@ export type StepResult = { ok: boolean; message: string } | null;
 const ALL_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"];
 
 async function owner() {
+  const o = await account();
+  if (!claudeConfigured()) throw new Error("ANTHROPIC_API_KEY is not set in Vercel.");
+  return o;
+}
+
+/** The signed-in owner, for steps that don't call Claude (publishing, rendering, Drive, line edits). */
+async function account() {
   const o = await getOwner();
   if (!o) throw new Error("No user found.");
-  if (!claudeConfigured()) throw new Error("ANTHROPIC_API_KEY is not set in Vercel.");
   return o;
 }
 
@@ -208,7 +214,7 @@ export async function deleteEpisodeAction(projectId: string): Promise<StepResult
 /** Copies an episode's video into the connected Google Drive folder (also retries a failed copy). */
 export async function saveVideoToDriveAction(projectId: string, videoId: string): Promise<StepResult> {
   try {
-    await owner();
+    await account();
     const { copyVideoToDrive } = await import("@/lib/drive");
     const done = await copyVideoToDrive(videoId);
     revalidatePath(`/create/${projectId}`);
@@ -243,7 +249,7 @@ export async function importScriptAction(projectId: string, _prev: StepResult, f
 /** Edits one line of a script in place, without creating a new version. */
 export async function updateLineAction(projectId: string, scriptId: string, index: number, _prev: StepResult, form: FormData): Promise<StepResult> {
   try {
-    const o = await owner();
+    const o = await account();
     const { updateScriptLine } = await import("@/lib/script-import");
     await updateScriptLine({
       ownerId: o.id,
@@ -270,11 +276,73 @@ export async function updateLineAction(projectId: string, scriptId: string, inde
 /** "Render video": asks GitHub Actions to render the episode; the page shows progress and the video when it lands. */
 export async function renderVideoAction(projectId: string): Promise<StepResult> {
   try {
-    await owner();
+    await account();
     const { startRender } = await import("@/lib/render-jobs");
     await startRender(projectId);
     revalidatePath(`/create/${projectId}`);
     return { ok: true, message: "Render started. It takes about 15–20 minutes; this page updates by itself." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Publish panel: post now / schedule / retry failed / cancel the schedule, with the panel's per-platform settings. */
+export async function publishAction(projectId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
+  try {
+    const o = await account();
+    const { handlePublish } = await import("@/lib/publish/requests");
+    const { PUBLISH_PLATFORMS } = await import("@/lib/publish/captions");
+    const mode = String(form.get("mode") ?? "now") as "now" | "schedule" | "retry" | "cancel";
+    const settings: Record<string, Record<string, unknown>> = {};
+    for (const p of PUBLISH_PLATFORMS) {
+      if (!form.has(`${p}.present`)) continue; // only platforms shown in the panel
+      const flag = (k: string) => form.get(`${p}.${k}`) === "on";
+      const str = (k: string) => (form.get(`${p}.${k}`) as string | null)?.trim() || undefined;
+      settings[p] = {
+        enabled: flag("enabled"),
+        title: str("title"),
+        text: str("text"),
+        privacy: str("privacy"),
+        allowComments: flag("allowComments"),
+        allowDuet: flag("allowDuet"),
+        allowStitch: flag("allowStitch"),
+        shareToFeed: flag("shareToFeed"),
+        coverSecond: Number(form.get(`${p}.coverSecond`)) || 1,
+      };
+    }
+    // the schedule picker is WIB (Asia/Jakarta, UTC+7, no daylight saving)
+    const local = String(form.get("at") ?? "");
+    const at = local ? `${local}:00+07:00` : null;
+    const r = await handlePublish(o.id, projectId, { mode, at, settings: mode === "cancel" ? undefined : settings });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: r.message };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** "Auto-post on render complete" switch. */
+export async function setAutoPublishAction(projectId: string, on: boolean): Promise<StepResult> {
+  try {
+    const o = await account();
+    await db()`UPDATE content_projects SET auto_publish = ${on} WHERE id = ${projectId} AND user_id = ${o.id}`;
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: on ? "New renders will be posted automatically." : "Auto-post is off." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Writes (or rewrites) the platform-specific captions for an already-approved script. */
+export async function writePlatformCaptionsAction(projectId: string): Promise<StepResult> {
+  try {
+    const o = await owner();
+    const [s] = await db()<(Script & { id: string })[]>`
+      SELECT id, title, target_duration_s, lines, sources FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
+    if (!s) return { ok: false, message: "No script yet." };
+    await writeCaptions({ userId: o.id, projectId, script: s });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Platform captions written." };
   } catch (err) {
     return { ok: false, message: message(err) };
   }

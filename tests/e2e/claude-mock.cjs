@@ -16,7 +16,7 @@ http.createServer((req, res) => {
       const n = Number(/^These (\d+) spoken lines/.exec(prompt)[1]); const beats = ['hook', 'counter', 'escalation', 'escalation', 'concession', 'button'];
       return send(msg(JSON.stringify({ title: 'Ngaku Bokek, Kafe Penuh', lines: Array.from({ length: n }, (_, i) => ({ beat: beats[Math.min(i, 5)], speaker: i % 2 ? 'ocu' : 'uco', text: 'MOCK REWRITE', subtitle: 'mock EN', expression: i % 2 ? 'deadpan' : 'angry', thought_bubble: false, visual: 'mock visual', on_screen_text: null, delivery: 'fast' })) })));
     }
-    if (prompt.startsWith('Write platform captions')) return send(msg(JSON.stringify({ tiktok: { caption: 'Tim Uco atau Tim Ocu?', hashtags: ['ucoocu'] }, instagram: { caption: 'Antre roti viral', hashtags: ['roti'] }, facebook: { caption: 'Kalian tim mana?' }, youtube: { title: 'Antre roti? #Shorts', description: 'Sumber: example.org', hashtags: ['shorts'] } })));
+    if (prompt.startsWith('Write publishing metadata')) return send(msg(JSON.stringify({ youtube: { title: 'Antre roti?', description: 'Sumber: example.org', tags: ['shorts'] }, tiktok: { caption: 'Tim Uco atau Tim Ocu?', hashtags: ['ucoocu', 'roti', 'fyp', 'komedi'] }, instagram: { hook: 'Antre roti viral', context: 'Uco vs Ocu.', comment_prompt: 'Kalian tim mana?', hashtags: ['roti'] }, facebook: { title: 'Antre roti?', description: 'Kalian tim mana?' } })));
     send(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'unknown prompt' } }), 400);
   });
 }).listen(4010, () => console.log('mock on 4010'));

@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
 import { EpisodePreview } from "@/components/episode-preview";
+import { PublishPanel } from "@/components/publish-panel";
 import { ScriptEditor, ScriptLine } from "@/components/script-editor";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
@@ -15,16 +16,23 @@ import { getBooth, recordingProgress } from "@/lib/recordings";
 import { latestRenderJob, renderButtonConfigured } from "@/lib/render-jobs";
 import { latestVideo } from "@/lib/render";
 import { getDriveConnection } from "@/lib/drive";
+import { db } from "@/lib/db";
+import { publishAccounts } from "@/lib/publish/accounts";
+import { PUBLISH_PLATFORMS, defaultText, type PlatformCaptions } from "@/lib/publish/captions";
+import { publicationsFor } from "@/lib/publish/engine";
 import { getOwner } from "@/lib/queries";
 import {
   approveScriptAction,
   deleteEpisodeAction,
   importScriptAction,
+  publishAction,
   renderVideoAction,
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
   saveVideoToDriveAction,
+  setAutoPublishAction,
+  writePlatformCaptionsAction,
   unpickIdeaAction,
   updateLineAction,
 } from "../actions";
@@ -87,13 +95,22 @@ async function Episode({
     latestRenderJob(project.id).catch(() => null),
   ]);
   const rendering = job?.status === "queued" || job?.status === "running";
+  const [[pubProject], pubAccounts, pubs] = await Promise.all([
+    db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null }[]>`
+      SELECT platform_captions, publish_settings, auto_publish, publish_at FROM content_projects WHERE id = ${project.id}`,
+    publishAccounts(owner.id).catch(() => []),
+    publicationsFor(project.id).catch(() => []),
+  ]);
+  const publishing = pubs.some(
+    (p) => p.status === "uploading" || p.status === "processing" || (p.status === "queued" && p.run_after.getTime() < Date.now() + 60_000),
+  );
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
 
   return (
     <div className="space-y-4">
-      <AutoRefresh active={working || rendering} />
+      <AutoRefresh active={working || rendering || publishing} />
       <header>
         <h1 className="text-2xl font-semibold">{project.title ?? "New episode"}</h1>
         {project.direction && <p className="text-sm text-muted">Direction: {project.direction}</p>}
@@ -308,6 +325,43 @@ async function Episode({
             </p>
           )}
           <p className="mt-2 text-xs text-muted">To edit in CapCut: open the video from Google Drive (or download it), then import it in CapCut.</p>
+        </Card>
+      )}
+
+      {latestScript && (
+        <Card title="Publish to social media">
+          {latestScript.approved_at && !pubProject?.platform_captions && (
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-muted">This episode was approved before platform captions existed. Write them once to start posting.</p>
+              <StepButton action={writePlatformCaptionsAction.bind(null, project.id)} label="Write platform captions" pendingLabel="Writing… (about 20 s)" />
+            </div>
+          )}
+          <PublishPanel
+            accounts={pubAccounts}
+            defaults={Object.fromEntries(
+              pubProject?.platform_captions ? PUBLISH_PLATFORMS.map((p) => [p, defaultText(p, pubProject.platform_captions!)]) : [],
+            )}
+            saved={pubProject?.publish_settings ?? {}}
+            publications={pubs.map((p) => ({
+              platform: p.platform,
+              status: p.status,
+              external_post_url: p.external_post_url,
+              error: p.error,
+              run_after: p.run_after.toISOString(),
+              note: p.step?.note ?? null,
+            }))}
+            autoPublish={pubProject?.auto_publish ?? false}
+            publishAt={pubProject?.publish_at && pubProject.publish_at.getTime() > Date.now() ? pubProject.publish_at.toISOString() : null}
+            ready={
+              !pubProject?.platform_captions
+                ? "Approve the script first: that step writes each platform's caption."
+                : !video
+                  ? "Render the video first, then post it here (or switch on auto-post below)."
+                  : null
+            }
+            action={publishAction.bind(null, project.id)}
+            autoAction={setAutoPublishAction.bind(null, project.id)}
+          />
         </Card>
       )}
 

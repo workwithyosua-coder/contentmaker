@@ -28,11 +28,12 @@ export async function saveTikTokAccount(userId: string, token: TikTokToken) {
 }
 
 /** Valid access token for an account, refreshing it (and saving the new pair) when it is about to expire. */
-async function accessTokenFor(accountId: string) {
+export async function accessTokenFor(accountId: string) {
   const sql = db();
   const [a] = await sql<{ access_token_enc: Buffer; refresh_token_enc: Buffer; token_expires_at: Date | null }[]>`
     SELECT access_token_enc, refresh_token_enc, token_expires_at FROM social_accounts WHERE id = ${accountId}`;
   if (!a) throw new Error("Account not found");
+  if (!a.access_token_enc || !a.refresh_token_enc) throw new Error("TikTok login is missing: tap Reconnect.");
   if (a.token_expires_at && a.token_expires_at.getTime() - Date.now() > 10 * 60_000) return decrypt(a.access_token_enc);
   const t = await refreshTikTokToken(decrypt(a.refresh_token_enc));
   await sql`
