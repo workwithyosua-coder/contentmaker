@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
 import { EpisodePreview } from "@/components/episode-preview";
 import { PublishPanel } from "@/components/publish-panel";
+import { VideoUpload } from "@/components/video-upload";
 import { ScriptEditor, ScriptLine } from "@/components/script-editor";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
@@ -32,6 +33,8 @@ import {
   reviseScriptAction,
   saveVideoToDriveAction,
   setAutoPublishAction,
+  startVideoUploadAction,
+  finishVideoUploadAction,
   writePlatformCaptionsAction,
   unpickIdeaAction,
   updateLineAction,
@@ -295,7 +298,7 @@ async function Episode({
         <Card title="Episode video">
           <video src={video.url} controls playsInline preload="metadata" className="mx-auto max-h-[70vh] rounded-control bg-black" />
           <p className="mt-3 text-sm text-muted">
-            Rendered {video.created_at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+            {video.renderer === "upload" ? "Uploaded" : "Rendered"} {video.created_at.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
             {video.duration_ms ? `, ${Math.round(video.duration_ms / 1000)} s long` : ""}.
           </p>
           <div className="mt-3 flex flex-wrap items-start gap-2">
@@ -325,6 +328,12 @@ async function Episode({
             </p>
           )}
           <p className="mt-2 text-xs text-muted">To edit in CapCut: open the video from Google Drive (or download it), then import it in CapCut.</p>
+        </Card>
+      )}
+
+      {latestScript && (
+        <Card title={video ? "Replace the video" : "Episode video"}>
+          <VideoUpload start={startVideoUploadAction.bind(null, project.id)} finish={finishVideoUploadAction.bind(null, project.id)} />
         </Card>
       )}
 
