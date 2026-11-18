@@ -36,7 +36,7 @@ export async function getKpis(userId: string, days: number, platform?: Platform)
     SELECT count(*)::int AS posts,
            sum(pp.views) AS views,
            percentile_cont(0.5) WITHIN GROUP (ORDER BY pp.performance_score)
-             FILTER (WHERE pp.verdict <> 'too_early') AS median_score,
+             FILTER (WHERE pp.verdict NOT IN ('too_early', 'not_enough')) AS median_score,
            count(*) FILTER (WHERE pp.verdict = 'winner')::int AS winners,
            count(*) FILTER (WHERE pp.verdict = 'underperformer')::int AS underperformers
     FROM post_performance pp
@@ -121,7 +121,7 @@ export async function getBreakdown(userId: string, dim: Dimension, days: number,
      FROM post_performance pp
      JOIN post_features f ON f.post_id = pp.post_id
      LEFT JOIN editing_styles s ON s.id = f.editing_style_id
-     WHERE pp.user_id = $1 AND pp.verdict <> 'too_early'
+     WHERE pp.user_id = $1 AND pp.verdict NOT IN ('too_early', 'not_enough')
        AND pp.published_at >= now() - make_interval(days => $2::int) ${pf}
      GROUP BY 1`,
     params,

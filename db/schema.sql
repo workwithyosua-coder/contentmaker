@@ -35,7 +35,7 @@ CREATE TYPE asset_kind_t      AS ENUM ('raw_footage','broll','music','sfx','voic
 CREATE TYPE design_tool_t     AS ENUM ('canva','figma','capcut');
 CREATE TYPE job_status_t      AS ENUM ('queued','running','succeeded','failed','cancelled');
 CREATE TYPE post_status_t     AS ENUM ('scheduled','publishing','published','failed','deleted');
-CREATE TYPE verdict_t         AS ENUM ('winner','above_avg','average','below_avg','underperformer','too_early');
+CREATE TYPE verdict_t         AS ENUM ('winner','above_avg','average','below_avg','underperformer','too_early','not_enough');
 CREATE TYPE agent_name_t      AS ENUM ('orchestrator','analyst','strategist','creative_director','copywriter','editor','qa');
 
 -- ---------------------------------------------------------------------
@@ -65,6 +65,7 @@ CREATE TABLE social_accounts (
   display_name          text,
   avatar_url            text,
   last_sync_error       text,
+  count_from            date DEFAULT (current_date - 30), -- dashboard ignores posts published before this (old uploads)
   created_at            timestamptz NOT NULL DEFAULT now(),
   UNIQUE (platform, external_account_id)
 );
@@ -489,11 +490,16 @@ base AS (
            AS weighted_engagement_rate
   FROM posts p
   JOIN latest l ON l.post_id = p.id
+  JOIN social_accounts sa ON sa.id = p.social_account_id
+  -- videos only (page photos and text posts aren't episodes), and only since the account's "count posts from" date
   WHERE p.status = 'published'
+    AND p.format IN ('short_video','long_video')
+    AND (sa.count_from IS NULL OR p.published_at >= sa.count_from)
 ),
 ranked AS (
   -- percentile vs. YOUR OWN posts on the same account+format (not vs. the internet)
   SELECT b.*,
+         count(*) OVER (PARTITION BY social_account_id, format)::int AS peers,
          percent_rank() OVER (PARTITION BY social_account_id, format ORDER BY views NULLS FIRST)                    AS views_pctl,
          percent_rank() OVER (PARTITION BY social_account_id, format ORDER BY weighted_engagement_rate NULLS FIRST) AS engagement_pctl,
          percent_rank() OVER (PARTITION BY social_account_id, format ORDER BY completion_rate NULLS FIRST)          AS completion_pctl
@@ -506,14 +512,17 @@ composite AS (
 scored AS (
   -- Re-rank the blended score so 0.5 = your typical post and "winner" = your top 15%
   -- (averaging three percentiles otherwise squeezes everything toward the middle).
+  -- Fewer than 5 posts of a format on an account: nothing meaningful to rank against, so no score.
   SELECT c.*,
-         round(percent_rank() OVER (PARTITION BY social_account_id, format ORDER BY composite_raw)::numeric, 3)
+         CASE WHEN peers < 5 THEN NULL
+              ELSE round(percent_rank() OVER (PARTITION BY social_account_id, format ORDER BY composite_raw)::numeric, 3) END
            AS performance_score
   FROM composite c
 )
 SELECT s.*,
        CASE
          WHEN hours_since_publish < 48 THEN 'too_early'::verdict_t
+         WHEN peers < 5 THEN 'not_enough'
          WHEN performance_score >= 0.85 THEN 'winner'
          WHEN performance_score >= 0.65 THEN 'above_avg'
          WHEN performance_score >= 0.35 THEN 'average'

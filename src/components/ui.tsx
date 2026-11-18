@@ -29,13 +29,19 @@ export function Kpi({ label, value, sub }: { label: string; value: string; sub?:
   );
 }
 
-const VERDICT: Record<string, { label: string; color: string; bg: string }> = {
+const VERDICT: Record<string, { label: string; color: string; bg: string; hint?: string }> = {
   winner: { label: "Winner", color: "var(--win)", bg: "var(--win-bg)" },
   above_avg: { label: "Above avg", color: "var(--good)", bg: "var(--good-bg)" },
   average: { label: "Average", color: "var(--avg)", bg: "var(--avg-bg)" },
   below_avg: { label: "Below avg", color: "var(--weak)", bg: "var(--weak-bg)" },
   underperformer: { label: "Underperformer", color: "var(--bad)", bg: "var(--bad-bg)" },
   too_early: { label: "Too early", color: "var(--early)", bg: "var(--early-bg)" },
+  not_enough: {
+    label: "Too few to compare",
+    color: "var(--early)",
+    bg: "var(--early-bg)",
+    hint: "Not enough posts yet to compare: a score appears once this account has 5 posts of this type.",
+  },
 };
 
 export function VerdictChip({ verdict }: { verdict: string }) {
@@ -43,6 +49,7 @@ export function VerdictChip({ verdict }: { verdict: string }) {
   return (
     <span
       className="stamp"
+      title={v.hint}
       style={{ color: v.color, background: v.bg }}
     >
       {v.label}

@@ -66,14 +66,14 @@ async function buildContext(userId: string, days: number) {
             f.hook_type, s.name AS style, f.duration_bucket, f.has_face_in_first_2s, f.posted_hour
      FROM post_performance pp JOIN posts p ON p.id = pp.post_id JOIN post_features f ON f.post_id = pp.post_id
      LEFT JOIN editing_styles s ON s.id = f.editing_style_id
-     WHERE pp.user_id = ${userId} AND pp.verdict <> 'too_early' AND pp.published_at >= now() - make_interval(days => ${days})
+     WHERE pp.user_id = ${userId} AND pp.verdict NOT IN ('too_early', 'not_enough') AND pp.published_at >= now() - make_interval(days => ${days})
      ORDER BY pp.performance_score DESC LIMIT 8)
     UNION ALL
     (SELECT 'bottom', pp.post_id, pp.platform, pp.performance_score, pp.views, p.caption_text,
             f.hook_type, s.name, f.duration_bucket, f.has_face_in_first_2s, f.posted_hour
      FROM post_performance pp JOIN posts p ON p.id = pp.post_id JOIN post_features f ON f.post_id = pp.post_id
      LEFT JOIN editing_styles s ON s.id = f.editing_style_id
-     WHERE pp.user_id = ${userId} AND pp.verdict <> 'too_early' AND pp.published_at >= now() - make_interval(days => ${days})
+     WHERE pp.user_id = ${userId} AND pp.verdict NOT IN ('too_early', 'not_enough') AND pp.published_at >= now() - make_interval(days => ${days})
      ORDER BY pp.performance_score ASC LIMIT 8)`;
   return { window_days: days, platforms, breakdowns, top_and_bottom_posts: extremes };
 }

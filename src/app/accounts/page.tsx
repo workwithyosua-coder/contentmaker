@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { DisconnectDriveButton, RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
+import { CountFromForm, DisconnectDriveButton, RemoveAccountButton, RemoveDemoButton, SyncNowButton } from "@/components/account-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL, PlatformDot } from "@/components/ui";
 import { db } from "@/lib/db";
@@ -62,6 +62,7 @@ type AccountRow = {
   external_account_id: string;
   last_synced_at: Date | null;
   last_sync_error: string | null;
+  count_from: string | null;
   posts: number;
 };
 
@@ -79,7 +80,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
 
   const accounts = await db()<AccountRow[]>`
     SELECT sa.id, sa.platform, sa.handle, sa.display_name, sa.avatar_url, sa.external_account_id,
-           sa.last_synced_at, sa.last_sync_error, (SELECT count(*)::int FROM posts p WHERE p.social_account_id = sa.id) AS posts
+           sa.last_synced_at, sa.last_sync_error, to_char(sa.count_from, 'YYYY-MM-DD') AS count_from, (SELECT count(*)::int FROM posts p WHERE p.social_account_id = sa.id) AS posts
     FROM social_accounts sa WHERE sa.user_id = ${owner.id} ORDER BY sa.platform, sa.created_at`;
   const drive = await getDriveConnection(owner.id).catch(() => null);
   const real = accounts.filter((a) => !a.external_account_id.startsWith("demo-"));
@@ -145,6 +146,7 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
                       {a.last_sync_error && (
                         <div className="mt-1 text-[11px]" style={{ color: "var(--bad)" }}>Last sync failed: {a.last_sync_error}</div>
                       )}
+                      <CountFromForm accountId={a.id} value={a.count_from} />
                     </div>
                     <RemoveAccountButton accountId={a.id} name={a.display_name ?? a.handle} />
                   </div>
@@ -153,7 +155,8 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
             );
           })}
         </ul>
-        <p className="mt-3 text-xs text-muted">Stats refresh automatically once a day. Use “Sync now” for an immediate update.</p>
+        <p className="mt-3 text-xs text-muted">Stats refresh once a day, and right after the app publishes a post. Use “Sync now” for an immediate update. The dashboard
+          counts videos only, from each account’s “Count posts from” date.</p>
       </Card>
 
       {demo.length > 0 && (

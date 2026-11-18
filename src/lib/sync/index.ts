@@ -11,6 +11,12 @@ const SYNCERS: Record<string, (id: string) => Promise<{ ok: boolean; videos?: nu
   youtube: syncYouTubeChannel,
 };
 
+/** Syncs one account (used right after the app publishes to it, so the new post shows on the dashboard). */
+export async function syncAccount(id: string, platform: string) {
+  const sync = SYNCERS[platform];
+  return sync ? sync(id) : { ok: false, error: `No sync for ${platform}` };
+}
+
 /** Syncs every connected (non-demo) account. Used by the daily cron and the "Sync now" button. */
 export async function syncAllAccounts(userId?: string) {
   const sql = db();
