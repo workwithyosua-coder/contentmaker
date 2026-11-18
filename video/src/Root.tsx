@@ -1,6 +1,7 @@
 import React from "react";
 import { Composition } from "remotion";
 import { Episode } from "./Episode";
+import { ComicEpisode } from "./comic/ComicEpisode";
 import { LipstickEffect } from "./lipstick/LipstickEffect";
 import lipstick from "./lipstick/data.json";
 import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeProps } from "./types";
@@ -76,6 +77,16 @@ export function Root() {
         calculateMetadata={({ props }) => ({
           durationInFrames: totalFrames(props.lines),
         })}
+      />
+      <Composition
+        id="EpisodeComic"
+        component={ComicEpisode}
+        fps={FPS}
+        width={WIDTH}
+        height={HEIGHT}
+        durationInFrames={300}
+        defaultProps={{ ...sample, reducedMotion: false }}
+        calculateMetadata={({ props }) => ({ durationInFrames: totalFrames(props.lines) })}
       />
       <Composition
         id="LipstickEffect"

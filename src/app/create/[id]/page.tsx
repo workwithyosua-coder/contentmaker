@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
 import { EpisodePreview } from "@/components/episode-preview";
+import { VideoStylePicker } from "@/components/video-style";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoUpload } from "@/components/video-upload";
 import { ScriptEditor, ScriptLine } from "@/components/script-editor";
@@ -34,6 +35,7 @@ import {
   reviseScriptAction,
   saveVideoToDriveAction,
   setAutoPublishAction,
+  setVideoStyleAction,
   startVideoUploadAction,
   finishVideoUploadAction,
   writePlatformCaptionsAction,
@@ -100,8 +102,8 @@ async function Episode({
   ]);
   const rendering = job?.status === "queued" || job?.status === "running";
   const [[pubProject], pubAccounts, pubs] = await Promise.all([
-    db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null }[]>`
-      SELECT platform_captions, publish_settings, auto_publish, publish_at FROM content_projects WHERE id = ${project.id}`,
+    db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null; video_style: string }[]>`
+      SELECT platform_captions, publish_settings, auto_publish, publish_at, video_style FROM content_projects WHERE id = ${project.id}`,
     publishAccounts(owner.id).catch(() => []),
     publicationsFor(project.id).catch(() => []),
   ]);
@@ -259,7 +261,9 @@ async function Episode({
       {booth?.script && progress.recorded > 0 && (
         <Card title="Animation">
           <div className="space-y-4">
+            <VideoStylePicker value={pubProject?.video_style === "comic" ? "comic" : "classic"} action={setVideoStyleAction.bind(null, project.id)} />
             <EpisodePreview
+              style={pubProject?.video_style === "comic" ? "comic" : "classic"}
               title={booth.script.title || project.title || "Episode"}
               lines={booth.lines.map((l) => ({
                 index: l.index,

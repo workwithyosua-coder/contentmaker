@@ -48,8 +48,9 @@ Science · Politics & society · Food · Academics & campus life · Everyday abs
 ## Visual identity
 
 - **Logo:** a cartoon version of the two characters (to be designed).
-- **Colors and art style:** see [`video/STYLE.md`](../video/STYLE.md). Uco golden orange `#F5A623`, Ocu slate teal
-  `#3A5859`, ink `#141619`, bolt yellow `#FFE600`, paper `#F8F6F0`. Characters follow the UCO & OCU badge.
+- **Video styles:** chosen per episode. **Classic** ([`video/STYLE.md`](../video/STYLE.md)) and **Comic**
+  ([`video/styles/comic.md`](../video/styles/comic.md): Uco `#F5A623`, Ocu `#3A5859`, ink `#141619`, bolt
+  yellow `#FFE600`, paper `#F8F6F0`; characters follow the UCO & OCU badge).
 
 ## Handles
 

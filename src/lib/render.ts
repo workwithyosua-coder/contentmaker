@@ -17,7 +17,7 @@ export const notFound = () => new Response("Not found", { status: 404 });
 /** The script that gets animated (the approved one, else the latest) and its selected takes. */
 export async function renderSource(projectId: string) {
   const sql = db();
-  const [project] = await sql<{ id: string; title: string | null }[]>`SELECT id, title FROM content_projects WHERE id = ${projectId}`;
+  const [project] = await sql<{ id: string; title: string | null; video_style: string }[]>`SELECT id, title, video_style FROM content_projects WHERE id = ${projectId}`;
   if (!project) return null;
   const [script] = await sql<(Script & { id: string; version: number })[]>`
     SELECT id, version, title, target_duration_s, lines, sources FROM scripts

@@ -1,7 +1,8 @@
 "use client";
 
 import { Player } from "@remotion/player";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ComicEpisode } from "../../video/src/comic/ComicEpisode";
 import { Episode } from "../../video/src/Episode";
 import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
 
@@ -13,8 +14,17 @@ export type PreviewLine = Omit<EpisodeLine, "audio" | "frames" | "envelope" | "t
 
 type State = { status: "idle" } | { status: "loading"; done: number } | { status: "ready"; props: EpisodeProps } | { status: "error"; message: string };
 
-export function EpisodePreview({ title, lines }: { title: string; lines: PreviewLine[] }) {
+export function EpisodePreview({ title, lines, style = "classic" }: { title: string; lines: PreviewLine[]; style?: "classic" | "comic" }) {
   const [state, setState] = useState<State>({ status: "idle" });
+  // Comic style: honour the viewer's reduced-motion setting (no shake, tilt wobble or speed-line pulses).
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const q = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(q.matches);
+    const on = (e: MediaQueryListEvent) => setReduced(e.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
 
   async function load() {
     setState({ status: "loading", done: 0 });
@@ -39,8 +49,9 @@ export function EpisodePreview({ title, lines }: { title: string; lines: Preview
       <div className="space-y-2">
         <div className="mx-auto w-full max-w-[360px] overflow-hidden rounded-control border border-border bg-black">
           <Player
-            component={Episode}
-            inputProps={state.props}
+            key={style}
+            component={(style === "comic" ? ComicEpisode : Episode) as typeof Episode}
+            inputProps={style === "comic" ? { ...state.props, reducedMotion: reduced } : state.props}
             durationInFrames={frames}
             compositionWidth={WIDTH}
             compositionHeight={HEIGHT}

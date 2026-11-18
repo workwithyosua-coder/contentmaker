@@ -405,3 +405,16 @@ export async function finishVideoUploadAction(projectId: string, path: string, d
     return { ok: false, message: message(err) };
   }
 }
+
+/** Video style for an episode: "classic" (default) or "comic". Used by the preview, Render video and the renderer. */
+export async function setVideoStyleAction(projectId: string, style: string): Promise<StepResult> {
+  try {
+    const o = await account();
+    const v = style === "comic" ? "comic" : "classic";
+    await db()`UPDATE content_projects SET video_style = ${v} WHERE id = ${projectId} AND user_id = ${o.id}`;
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: v === "comic" ? "Comic style selected." : "Classic style selected." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}

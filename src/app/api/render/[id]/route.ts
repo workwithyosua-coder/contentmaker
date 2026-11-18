@@ -10,6 +10,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]"
   return Response.json({
     projectId: src.project.id,
     title: src.script.title || src.project.title,
+    videoStyle: src.project.video_style === "comic" ? "comic" : "classic",
     scriptId: src.script.id,
     version: src.script.version,
     targetDurationS: src.script.target_duration_s,

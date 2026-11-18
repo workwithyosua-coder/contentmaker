@@ -1,6 +1,6 @@
 // Renders one Uco & Ocu episode to MP4 and uploads it to the app.
 //
-//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse] [--prep] [--no-tighten]
+//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse] [--prep] [--no-tighten] [--style classic|comic]
 //
 // Steps: fetch the script from the app → download each line's selected take → trim silence and even out
 // loudness (ffmpeg) → measure loudness per frame for the mouth movement → render with Remotion → upload.
@@ -46,6 +46,7 @@ async function get(url: string): Promise<Buffer> {
 
 const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) as {
   title: string;
+  videoStyle?: "classic" | "comic";
   version: number;
   lines: ManifestLine[];
 };
@@ -125,7 +126,11 @@ if (args.includes("--prep")) {
 log("bundling…");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });
 const browserExecutable = process.env.CHROME_PATH ?? (existsSync("/opt/pw-browsers") ? findChrome() : null);
-const composition = await selectComposition({ serveUrl, id: "Episode", inputProps: props, browserExecutable });
+// --style classic|comic overrides the episode's setting
+const style = args.includes("--style") ? args[args.indexOf("--style") + 1] : manifest.videoStyle ?? "classic";
+const compositionId = style === "comic" ? "EpisodeComic" : "Episode";
+log(`style: ${style} (${compositionId})`);
+const composition = await selectComposition({ serveUrl, id: compositionId, inputProps: props, browserExecutable });
 const out = path.join(work, `episode-v${manifest.version}.mp4`);
 log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);
 let last = -1;
