@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "../db";
+import { syncAccount } from "../sync";
 import { ADAPTERS, type PlatformSettings, type PublicationRow } from "./adapters";
 import { PUBLISH_PLATFORMS, defaultText, type PlatformCaptions, type PublishPlatform } from "./captions";
 
@@ -108,6 +109,13 @@ export async function tick(limit = 8) {
             UPDATE episode_publications SET status = 'published', step = ${sql.json(a.step as never)}, external_post_id = ${a.externalId},
               external_post_url = ${a.externalUrl}, error = NULL, published_at = now(), locked_until = NULL, updated_at = now()
             WHERE id = ${r.id}`;
+          // Pull the account's posts now so the new one is on the dashboard (and linked to its episode) within minutes,
+          // not after the nightly sync. Best effort: a failed sync never fails the publication.
+          await syncAccount(r.social_account_id, r.platform)
+            .then(() => sql`UPDATE posts SET project_id = ${r.project_id}
+                            WHERE social_account_id = ${r.social_account_id} AND project_id IS NULL
+                              AND (external_post_id = ${a.externalId} OR external_post_id LIKE ${"%_" + a.externalId})`)
+            .catch((err) => console.error(`[publish] sync after ${r.platform} post failed:`, err));
         } else if (a.status === "failed") {
           await sql`
             UPDATE episode_publications SET status = 'failed', step = ${sql.json(a.step as never)}, error = ${a.error.slice(0, 1000)},

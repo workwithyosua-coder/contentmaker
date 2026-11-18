@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { removeAccountAction, removeDemoDataAction, syncNowAction, disconnectDriveAction } from "@/app/accounts/actions";
+import { removeAccountAction, setCountFromAction, removeDemoDataAction, syncNowAction, disconnectDriveAction } from "@/app/accounts/actions";
 
 function Status({ state }: { state: { ok: boolean; message: string } | null }) {
   if (!state) return null;
@@ -14,6 +14,23 @@ export function SyncNowButton() {
     <form action={action} className="flex flex-col items-end gap-1">
       <button disabled={pending} className="btn btn-secondary">
         {pending ? "Syncing…" : "Sync now"}
+      </button>
+      <Status state={state} />
+    </form>
+  );
+}
+
+/** "Count posts from" date: the dashboard ignores this account's posts from before it (they stay on the platform). */
+export function CountFromForm({ accountId, value }: { accountId: string; value: string | null }) {
+  const [state, action, pending] = useActionState(setCountFromAction.bind(null, accountId), null);
+  return (
+    <form action={action} className="mt-2 flex flex-wrap items-end gap-2">
+      <label className="text-[11px] text-muted">
+        Count posts from
+        <input type="date" name="count_from" defaultValue={value ?? ""} className="field mt-1 block min-h-11 w-auto text-sm" />
+      </label>
+      <button disabled={pending} className="btn btn-secondary min-h-11">
+        {pending ? "Saving…" : "Save"}
       </button>
       <Status state={state} />
     </form>

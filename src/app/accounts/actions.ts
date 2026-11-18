@@ -47,6 +47,20 @@ export async function removeAccountAction(accountId: string): Promise<ActionResu
   return { ok: true, message: "Account removed." };
 }
 
+/** Sets the date the dashboard starts counting an account's posts from (older uploads are ignored, not deleted). */
+export async function setCountFromAction(accountId: string, _prev: ActionResult, form: FormData): Promise<ActionResult> {
+  const owner = await getOwner();
+  if (!owner) return { ok: false, message: "No user found." };
+  const raw = String(form.get("count_from") ?? "").trim();
+  if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { ok: false, message: "Pick a date." };
+  const sql = db();
+  const rows = await sql`UPDATE social_accounts SET count_from = ${raw || null} WHERE id = ${accountId} AND user_id = ${owner.id} RETURNING id`;
+  if (!rows.length) return { ok: false, message: "Account not found." };
+  await sql`REFRESH MATERIALIZED VIEW post_performance`;
+  revalidatePath("/", "layout");
+  return { ok: true, message: raw ? `Counting posts from ${raw}.` : "Counting all posts." };
+}
+
 /** Stops copying videos to Google Drive. Files already in Drive stay there. */
 export async function disconnectDriveAction(): Promise<ActionResult> {
   const owner = await getOwner();
