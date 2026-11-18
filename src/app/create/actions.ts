@@ -308,7 +308,20 @@ export async function publishAction(projectId: string, _prev: StepResult, form: 
         allowStitch: flag("allowStitch"),
         shareToFeed: flag("shareToFeed"),
         coverSecond: Number(form.get(`${p}.coverSecond`)) || 1,
+        discloseContent: flag("discloseContent"),
+        brandOrganic: flag("brandOrganic"),
+        brandContent: flag("brandContent"),
       };
+    }
+    // TikTok's posting rules: the creator picks the audience (no default); disclosure needs a choice;
+    // branded content can't be private.
+    const tt = settings.tiktok;
+    if (tt?.enabled && (mode === "now" || mode === "schedule")) {
+      if (!tt.privacy) return { ok: false, message: "TikTok: choose who can watch." };
+      if (tt.discloseContent && !tt.brandOrganic && !tt.brandContent) {
+        return { ok: false, message: "TikTok: you switched on content disclosure; choose Your brand, Branded content, or both." };
+      }
+      if (tt.brandContent && tt.privacy === "SELF_ONLY") return { ok: false, message: "TikTok: branded content can't be posted as Only me." };
     }
     // the schedule picker is WIB (Asia/Jakarta, UTC+7, no daylight saving)
     const local = String(form.get("at") ?? "");

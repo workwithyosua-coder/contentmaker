@@ -20,6 +20,7 @@ import { getDriveConnection } from "@/lib/drive";
 import { db } from "@/lib/db";
 import { publishAccounts } from "@/lib/publish/accounts";
 import { PUBLISH_PLATFORMS, defaultText, type PlatformCaptions } from "@/lib/publish/captions";
+import { tiktokCreatorInfo } from "@/lib/publish/adapters";
 import { publicationsFor } from "@/lib/publish/engine";
 import { getOwner } from "@/lib/queries";
 import {
@@ -104,6 +105,14 @@ async function Episode({
     publishAccounts(owner.id).catch(() => []),
     publicationsFor(project.id).catch(() => []),
   ]);
+  // TikTok requires its live account info (privacy options, interaction settings, max length) on the posting screen.
+  const ttAccount = pubAccounts.find((a) => a.platform === "tiktok" && a.health === "ok");
+  const tiktokLive = ttAccount
+    ? await tiktokCreatorInfo(ttAccount.id).then(
+        (info) => ({ info }),
+        (e: Error) => ({ error: e.message }),
+      )
+    : undefined;
   const publishing = pubs.some(
     (p) => p.status === "uploading" || p.status === "processing" || (p.status === "queued" && p.run_after.getTime() < Date.now() + 60_000),
   );
@@ -370,6 +379,8 @@ async function Episode({
             }
             action={publishAction.bind(null, project.id)}
             autoAction={setAutoPublishAction.bind(null, project.id)}
+            tiktok={tiktokLive}
+            videoSeconds={video?.duration_ms ? video.duration_ms / 1000 : null}
           />
         </Card>
       )}

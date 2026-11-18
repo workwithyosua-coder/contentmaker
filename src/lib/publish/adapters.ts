@@ -21,6 +21,10 @@ export type PlatformSettings = {
   allowStitch?: boolean;
   shareToFeed?: boolean;
   coverSecond?: number;
+  // TikTok commercial content disclosure
+  discloseContent?: boolean;
+  brandOrganic?: boolean; // "Your brand": promotional content
+  brandContent?: boolean; // "Branded content": paid partnership
 };
 
 export type PublicationRow = {
@@ -79,7 +83,8 @@ async function youtube(p: PublicationRow): Promise<Advance> {
 }
 
 // ------------------------------------------------------------------ TikTok (Content Posting API v2, Direct Post, FILE_UPLOAD)
-const TT = "https://open.tiktokapis.com/v2/post/publish";
+// TIKTOK_API_BASE only for local tests with a fake TikTok server.
+const TT = `${process.env.TIKTOK_API_BASE?.trim() || "https://open.tiktokapis.com"}/v2/post/publish`;
 async function tt<T>(path: string, token: string, body: unknown): Promise<T> {
   const res = await fetch(`${TT}${path}`, {
     method: "POST",
@@ -100,16 +105,37 @@ async function tt<T>(path: string, token: string, body: unknown): Promise<T> {
   return json.data as T;
 }
 
+export type TikTokCreatorInfo = {
+  creator_avatar_url?: string;
+  creator_username?: string;
+  creator_nickname?: string;
+  privacy_level_options: string[];
+  comment_disabled: boolean;
+  duet_disabled: boolean;
+  stitch_disabled: boolean;
+  max_video_post_duration_sec: number;
+};
+
+function tiktokCreatorInfoWith(token: string) {
+  return tt<TikTokCreatorInfo>("/creator_info/query/", token, {});
+}
+
+/** Live account info for the posting screen (TikTok requires showing it, and its privacy options, before each post). */
+export async function tiktokCreatorInfo(accountId: string) {
+  return tiktokCreatorInfoWith(await tiktokToken(accountId));
+}
+
 async function tiktok(p: PublicationRow): Promise<Advance> {
   const token = await tiktokToken(p.social_account_id);
   if (!p.step.publishId) {
-    const info = await tt<{ privacy_level_options: string[]; comment_disabled: boolean; duet_disabled: boolean; stitch_disabled: boolean; max_video_post_duration_sec: number }>(
-      "/creator_info/query/",
-      token,
-      {},
-    );
-    const wanted = p.settings.privacy ?? "PUBLIC_TO_EVERYONE";
-    const privacy = info.privacy_level_options.includes(wanted) ? wanted : info.privacy_level_options[info.privacy_level_options.length - 1];
+    const info = await tiktokCreatorInfoWith(token);
+    // The creator chose this in the panel from TikTok's own options; never substitute another level.
+    const privacy = p.settings.privacy;
+    if (!privacy) return { status: "failed", step: {}, error: "Choose who can watch on TikTok, then post again." };
+    if (!info.privacy_level_options.includes(privacy)) {
+      return { status: "failed", step: {}, error: `TikTok no longer allows "${privacy}" for this account. Choose again from the list, then retry.` };
+    }
+    if (p.settings.brandContent && privacy === "SELF_ONLY") return { status: "failed", step: {}, error: "Branded content can't be posted as Only me." };
     const bytes = await videoBytes(p.video.storage_path);
     const size = bytes.byteLength;
     // chunks: 5–64 MB each; under 5 MB the whole file is one chunk; the remainder joins the last chunk
@@ -119,9 +145,12 @@ async function tiktok(p: PublicationRow): Promise<Advance> {
       post_info: {
         title: p.caption.text.slice(0, 2200),
         privacy_level: privacy,
-        disable_comment: p.settings.allowComments === false || info.comment_disabled,
-        disable_duet: p.settings.allowDuet === false || info.duet_disabled,
-        disable_stitch: p.settings.allowStitch === false || info.stitch_disabled,
+        // interactions are off unless the creator switched them on (and TikTok allows them)
+        disable_comment: p.settings.allowComments !== true || info.comment_disabled,
+        disable_duet: p.settings.allowDuet !== true || info.duet_disabled,
+        disable_stitch: p.settings.allowStitch !== true || info.stitch_disabled,
+        brand_content_toggle: Boolean(p.settings.discloseContent && p.settings.brandContent),
+        brand_organic_toggle: Boolean(p.settings.discloseContent && p.settings.brandOrganic),
         video_cover_timestamp_ms: Math.round((p.settings.coverSecond ?? 1) * 1000),
       },
       source_info: { source: "FILE_UPLOAD", video_size: size, chunk_size: chunk, total_chunk_count: count },
@@ -136,7 +165,7 @@ async function tiktok(p: PublicationRow): Promise<Advance> {
       });
       if (!res.ok) return { status: "failed", step: {}, error: `TikTok upload failed on part ${i + 1}/${count} (${res.status}).` };
     }
-    return { status: "processing", step: { publishId: init.publish_id, privacy }, retryInSec: 15, note: privacy !== wanted ? `Posted as ${privacy}: TikTok didn't allow ${wanted} for this account.` : undefined };
+    return { status: "processing", step: { publishId: init.publish_id, privacy }, retryInSec: 15, note: "It can take a few minutes before the video shows on your TikTok profile." };
   }
   const s = await tt<{ status: string; fail_reason?: string; publicaly_available_post_id?: (string | number)[] }>("/status/fetch/", token, { publish_id: p.step.publishId });
   if (s.status === "PUBLISH_COMPLETE") {
