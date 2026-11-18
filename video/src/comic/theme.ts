@@ -1,11 +1,14 @@
-// Comic style tokens (video/styles/comic.md). Strict palette; flat colour only.
+import { UCO_OCU_2D_COMIC_STYLE } from "../styles/registry";
+
+// 2D Vertical Comic tokens (video/styles/comic.md). The six brand colours come from the style preset; flat colour only.
+const P = UCO_OCU_2D_COMIC_STYLE.palette;
 export const C = {
-  ink: "#141619",
-  uco: "#F5A623",
-  ocu: "#3A5859",
-  bolt: "#FFE600",
-  paper: "#F8F6F0",
-  muted: "#A3B1BC",
+  ink: P.ink,
+  uco: P.ucoOrange,
+  ocu: P.ocuTeal,
+  bolt: P.accentYellow,
+  paper: P.paperWhite,
+  muted: P.mutedSlate,
   // character fills (badge colours; used only inside the character drawings)
   ucoSkin: "#F2B98C",
   ucoHair: "#C8642B",

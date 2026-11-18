@@ -1,6 +1,6 @@
 // Renders one Uco & Ocu episode to MP4 and uploads it to the app.
 //
-//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse] [--prep] [--no-tighten] [--style classic|comic]
+//   RENDER_TOKEN=... npx tsx render.mts <episodeId> [--base https://contentmaker-lime.vercel.app] [--no-upload] [--reuse] [--prep] [--no-tighten] [--style classic|uco-ocu-2d-comic]
 //
 // Steps: fetch the script from the app → download each line's selected take → trim silence and even out
 // loudness (ffmpeg) → measure loudness per frame for the mouth movement → render with Remotion → upload.
@@ -11,6 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
+import { COMPOSITION_FOR, styleById } from "./src/styles/registry.ts";
 import { FPS, totalFrames, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 
 const args = process.argv.slice(2);
@@ -46,7 +47,7 @@ async function get(url: string): Promise<Buffer> {
 
 const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) as {
   title: string;
-  videoStyle?: "classic" | "comic";
+  videoStyle?: string;
   version: number;
   lines: ManifestLine[];
 };
@@ -126,10 +127,10 @@ if (args.includes("--prep")) {
 log("bundling…");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });
 const browserExecutable = process.env.CHROME_PATH ?? (existsSync("/opt/pw-browsers") ? findChrome() : null);
-// --style classic|comic overrides the episode's setting
-const style = args.includes("--style") ? args[args.indexOf("--style") + 1] : manifest.videoStyle ?? "classic";
-const compositionId = style === "comic" ? "EpisodeComic" : "Episode";
-log(`style: ${style} (${compositionId})`);
+// --style <id> overrides the episode's setting (ids in src/styles/registry.ts)
+const style = styleById(args.includes("--style") ? args[args.indexOf("--style") + 1] : manifest.videoStyle);
+const compositionId = COMPOSITION_FOR[style.id];
+log(`style: ${style.label} (${compositionId})`);
 const composition = await selectComposition({ serveUrl, id: compositionId, inputProps: props, browserExecutable });
 const out = path.join(work, `episode-v${manifest.version}.mp4`);
 log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);

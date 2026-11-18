@@ -8,6 +8,7 @@ import { factCheck, generateIdeas, writeCaptions, writeScript, type ConceptOutli
 import { db } from "@/lib/db";
 import { getOwner } from "@/lib/queries";
 import { recordingProgress } from "@/lib/recordings";
+import { styleById } from "../../../video/src/styles/registry";
 
 export type StepResult = { ok: boolean; message: string } | null;
 const ALL_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"];
@@ -406,14 +407,15 @@ export async function finishVideoUploadAction(projectId: string, path: string, d
   }
 }
 
-/** Video style for an episode: "classic" (default) or "comic". Used by the preview, Render video and the renderer. */
+/** Video style for an episode: an id from the style registry (unknown ids fall back to Classic). Used by the preview,
+ * shot prompts, Render video and the renderer. */
 export async function setVideoStyleAction(projectId: string, style: string): Promise<StepResult> {
   try {
     const o = await account();
-    const v = style === "comic" ? "comic" : "classic";
-    await db()`UPDATE content_projects SET video_style = ${v} WHERE id = ${projectId} AND user_id = ${o.id}`;
+    const v = styleById(style);
+    await db()`UPDATE content_projects SET video_style = ${v.id} WHERE id = ${projectId} AND user_id = ${o.id}`;
     revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: v === "comic" ? "Comic style selected." : "Classic style selected." };
+    return { ok: true, message: `${v.label} style selected.` };
   } catch (err) {
     return { ok: false, message: message(err) };
   }

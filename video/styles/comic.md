@@ -49,3 +49,18 @@ Official character design: the UCO & OCU badge.
 - Comic banners and headlines: heavy uppercase geometric sans-serif, weight 900, tight tracking, in `#F8F6F0`
   or `#FFE600` boxes with a 3px `#141619` border and a `4px 4px 0 #141619` shadow.
 - Monospace only for frame numbers (`f. 0000`), `MM:SS` timestamps and exported TypeScript.
+
+## Preset
+
+This style is registered as `uco-ocu-2d-comic` ("Uco & Ocu: 2D Vertical Comic") in `video/src/styles/registry.ts`, the
+single source for its palette, visual rules, character descriptions and shot layouts:
+
+| Layout | When |
+|---|---|
+| `uco-solo-orange` | Uco speaks (default) |
+| `ocu-solo-teal` | Ocu speaks (default) |
+| `split-screen-jagged-yellow` | a counter after the first line, a concession, or "split" in the visual note |
+| `two-shot-debate` | the button beat, or "two-shot"/"both"/"together" in the visual note |
+| `thought-dimmed-charcoal` | inner-thought lines |
+
+The same registry feeds the per-shot video prompts on the episode page (Animation → Video prompts).

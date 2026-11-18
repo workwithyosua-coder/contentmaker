@@ -71,6 +71,17 @@ export function ComicEpisode({ lines, reducedMotion = false }: ComicProps) {
   );
 }
 
+/** Two-shot debate: one shared room, both characters lit, no divider. Paper wall, halftone, ink floor line. */
+function DebateBackdrop() {
+  return (
+    <AbsoluteFill>
+      <AbsoluteFill style={{ backgroundColor: C.paper }} />
+      <AbsoluteFill style={halftone(0.12)} />
+      <div style={{ position: "absolute", left: 0, right: 0, top: 1200, bottom: 0, backgroundColor: C.muted, borderTop: `${INK_PX}px solid ${C.ink}` }} />
+    </AbsoluteFill>
+  );
+}
+
 function mouthAt(l: EpisodeLine, f: number) {
   const e = l.envelope;
   if (!e.length || f >= e.length) return 0;
@@ -120,8 +131,9 @@ function Stage({
       })
     : 1;
 
-  if (shot.layout === "split" || shot.layout === "thought") {
-    const thought = shot.layout === "thought";
+  if (shot.layout !== "uco-solo-orange" && shot.layout !== "ocu-solo-teal") {
+    const thought = shot.layout === "thought-dimmed-charcoal";
+    const debate = shot.layout === "two-shot-debate";
     const side = (who: "uco" | "ocu") => {
       const speaking = who === shot.speaker;
       return (
@@ -132,7 +144,7 @@ function Stage({
             width: 540,
             height: 740,
             [who === "uco" ? "left" : "right"]: 10,
-            filter: !thought && !speaking ? "brightness(0.65)" : undefined,
+            filter: !thought && !debate && !speaking ? "brightness(0.65)" : undefined,
           }}
         >
           {thought && <RimLight who={who} />}
@@ -169,6 +181,8 @@ function Stage({
       <AbsoluteFill style={{ transform: `translate(${sx}px, ${sy}px)` }}>
         {thought ? (
           <AbsoluteFill style={{ backgroundColor: C.ink }} />
+        ) : debate ? (
+          <DebateBackdrop />
         ) : (
           <SplitBackdrop speaker={shot.speaker} />
         )}
@@ -594,7 +608,7 @@ function Caption({ shot }: { shot: Shot }) {
             fontSize: 46,
             lineHeight: 1.15,
             color: C.ink,
-            fontStyle: shot.layout === "thought" ? "italic" : "normal",
+            fontStyle: shot.layout === "thought-dimmed-charcoal" ? "italic" : "normal",
           }}
         >
           {chunks[at]}

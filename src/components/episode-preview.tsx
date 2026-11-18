@@ -1,9 +1,10 @@
 "use client";
 
 import { Player } from "@remotion/player";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ComicEpisode } from "../../video/src/comic/ComicEpisode";
 import { Episode } from "../../video/src/Episode";
+import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/styles/registry";
 import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
 
 // Live preview of the episode animation (the same Remotion composition the renderer uses), built in the browser
@@ -14,17 +15,12 @@ export type PreviewLine = Omit<EpisodeLine, "audio" | "frames" | "envelope" | "t
 
 type State = { status: "idle" } | { status: "loading"; done: number } | { status: "ready"; props: EpisodeProps } | { status: "error"; message: string };
 
-export function EpisodePreview({ title, lines, style = "classic" }: { title: string; lines: PreviewLine[]; style?: "classic" | "comic" }) {
+export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID }: { title: string; lines: PreviewLine[]; style?: string }) {
   const [state, setState] = useState<State>({ status: "idle" });
-  // Comic style: honour the viewer's reduced-motion setting (no shake, tilt wobble or speed-line pulses).
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const q = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(q.matches);
-    const on = (e: MediaQueryListEvent) => setReduced(e.matches);
-    q.addEventListener("change", on);
-    return () => q.removeEventListener("change", on);
-  }, []);
+  const preset = styleById(style);
+  const comic = COMPOSITION_FOR[preset.id] === "EpisodeComic";
+  // 2D Vertical Comic: honour the viewer's reduced-motion setting (no shake, tilt wobble or speed-line pulses).
+  const reduced = useSyncExternalStore(subscribeReduced, () => window.matchMedia(REDUCED).matches, () => false);
 
   async function load() {
     setState({ status: "loading", done: 0 });
@@ -49,13 +45,13 @@ export function EpisodePreview({ title, lines, style = "classic" }: { title: str
       <div className="space-y-2">
         <div className="mx-auto w-full max-w-[360px] overflow-hidden rounded-control border border-border bg-black">
           <Player
-            key={style}
-            component={(style === "comic" ? ComicEpisode : Episode) as typeof Episode}
-            inputProps={style === "comic" ? { ...state.props, reducedMotion: reduced } : state.props}
+            key={preset.id}
+            component={(comic ? ComicEpisode : Episode) as typeof Episode}
+            inputProps={comic ? { ...state.props, reducedMotion: reduced } : state.props}
             durationInFrames={frames}
-            compositionWidth={WIDTH}
-            compositionHeight={HEIGHT}
-            fps={FPS}
+            compositionWidth={preset.resolution.width ?? WIDTH}
+            compositionHeight={preset.resolution.height ?? HEIGHT}
+            fps={preset.fps ?? FPS}
             controls
             style={{ width: "100%", aspectRatio: "9 / 16" }}
             acknowledgeRemotionLicense
@@ -82,6 +78,13 @@ export function EpisodePreview({ title, lines, style = "classic" }: { title: str
       )}
     </div>
   );
+}
+
+const REDUCED = "(prefers-reduced-motion: reduce)";
+function subscribeReduced(cb: () => void) {
+  const q = window.matchMedia(REDUCED);
+  q.addEventListener("change", cb);
+  return () => q.removeEventListener("change", cb);
 }
 
 /** One line → timing, trim and lip-sync data. Falls back to the take's length (no lip-sync) if the audio can't be read. */
