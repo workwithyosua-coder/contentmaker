@@ -33,7 +33,7 @@ export async function saveYouTubeAccount(userId: string, token: GoogleToken) {
   return row.id;
 }
 
-async function accessTokenFor(accountId: string) {
+export async function accessTokenFor(accountId: string) {
   const sql = db();
   const [a] = await sql<{ access_token_enc: Buffer; refresh_token_enc: Buffer | null; token_expires_at: Date | null }[]>`
     SELECT access_token_enc, refresh_token_enc, token_expires_at FROM social_accounts WHERE id = ${accountId}`;

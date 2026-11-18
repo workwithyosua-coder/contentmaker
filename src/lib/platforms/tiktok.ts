@@ -2,6 +2,8 @@ import "server-only";
 
 // TikTok Login Kit (web) + Display API, v2. Docs: developers.tiktok.com/doc/login-kit-web
 export const TIKTOK_SCOPES = ["user.info.basic", "user.info.stats", "video.list"];
+/** Added only by "Reconnect for publishing": TikTok rejects the whole login if the app hasn't enabled Content Posting yet. */
+export const TIKTOK_PUBLISH_SCOPE = "video.publish";
 const API = "https://open.tiktokapis.com/v2";
 
 export function tiktokConfigured() {
@@ -19,10 +21,10 @@ export function tiktokRedirectUri(origin: string) {
   return `${origin}/api/connect/tiktok/callback`;
 }
 
-export function tiktokAuthorizeUrl(origin: string, state: string) {
+export function tiktokAuthorizeUrl(origin: string, state: string, publish = false) {
   const u = new URL("https://www.tiktok.com/v2/auth/authorize/");
   u.searchParams.set("client_key", creds().clientKey);
-  u.searchParams.set("scope", TIKTOK_SCOPES.join(","));
+  u.searchParams.set("scope", [...TIKTOK_SCOPES, ...(publish ? [TIKTOK_PUBLISH_SCOPE] : [])].join(","));
   u.searchParams.set("response_type", "code");
   u.searchParams.set("redirect_uri", tiktokRedirectUri(origin));
   u.searchParams.set("state", state);

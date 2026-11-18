@@ -225,11 +225,28 @@ Rules:
 }
 
 // ---------- 4. Captions ----------
+// Platform-native publishing metadata for Indonesian audiences. Saved to content_projects.platform_captions (used by the
+// publisher) and mirrored into caption_options (shown on the episode page).
 const CaptionsSchema = z.object({
-  tiktok: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
-  instagram: z.object({ caption: z.string(), hashtags: z.array(z.string()) }),
-  facebook: z.object({ caption: z.string() }),
-  youtube: z.object({ title: z.string(), description: z.string(), hashtags: z.array(z.string()) }),
+  youtube: z.object({
+    title: z.string().describe("Punchy Indonesian hook title, max 80 characters, WITHOUT #Shorts (added automatically)"),
+    description: z.string().describe("SEO-friendly Indonesian description: 1–2 line episode summary, a comment CTA, and 'Sumber:' URLs if any"),
+    tags: z.array(z.string()).describe("8–12 search tags, Indonesian and English, no # symbol"),
+  }),
+  tiktok: z.object({
+    caption: z.string().describe("Conversational Jakarta-Indonesian hook caption, 1–2 short lines"),
+    hashtags: z.array(z.string()).describe("4–6 hashtags: niche + Indonesian, no # symbol"),
+  }),
+  instagram: z.object({
+    hook: z.string().describe("One engaging hook line"),
+    context: z.string().describe("Short context paragraph, 1–3 sentences"),
+    comment_prompt: z.string().describe("A question that invites comments, e.g. Tim Uco atau Tim Ocu?"),
+    hashtags: z.array(z.string()).describe("6–10 hashtags, Indonesian and English mix, no # symbol"),
+  }),
+  facebook: z.object({
+    title: z.string().describe("Short Reel title, max 60 characters"),
+    description: z.string().describe("Conversational 2–3 line description that invites shares and comments"),
+  }),
 });
 
 export async function writeCaptions(p: { userId: string; projectId: string; script: Script }) {
@@ -237,11 +254,11 @@ export async function writeCaptions(p: { userId: string; projectId: string; scri
   const c = await structured({
     agent: "copywriter",
     projectId: p.projectId,
-    promptVersion: "captions-v2",
+    promptVersion: "captions-v3",
     effort: "medium",
     system: systemFor("the Copywriter", brand),
     schema: CaptionsSchema,
-    prompt: `Write platform captions for this finished episode.
+    prompt: `Write publishing metadata for this finished Uco & Ocu episode, one set per platform, each native to that platform.
 
 Title: ${p.script.title}
 Script:
@@ -249,25 +266,42 @@ ${p.script.lines.map((l) => `${l.speaker.toUpperCase()}: ${l.text}`).join("\n")}
 Sources: ${p.script.sources.map((s) => s.url).join(", ") || "none"}
 
 Rules:
-- Indonesian first, with one short English line for international viewers.
-- First line = a hook that makes people want to watch (question or provocative claim). Tag the debate: "Tim Uco atau Tim Ocu?"
-- TikTok: ≤150 characters + 3–5 hashtags. Instagram: 2–4 short lines + 5–8 hashtags (mix Indonesian/English, niche + broad).
-- Facebook: conversational, 2–3 lines, invite comments. YouTube Shorts: title ≤60 characters incl. #Shorts; description 2–3 lines
-  + a "Sumber/Sources:" line with the URLs if any.
-- Hashtags without the # symbol in the arrays; no banned or spammy tags.`,
+- Written for Indonesian audiences in casual Jakarta Indonesian; the opening hook works without watching (a question or a provocative claim).
+- Frame the debate so people pick a side ("Tim Uco atau Tim Ocu?") somewhere in each platform's text.
+- YouTube Shorts: title max 80 characters (no #Shorts, it is added), description with summary + comment CTA + "Sumber:" URLs when there are sources, tags for search.
+- TikTok: short hook caption + 4–6 hashtags. Instagram Reels: hook line, short context paragraph, comment prompt, clean hashtags.
+- Facebook Reels: short title + conversational description made for shares and comments.
+- Hashtags and tags without the # symbol; no banned or spammy tags; never invent facts or numbers.`,
   });
+  const clean = (s: string) => stripEmDashes(s, ". ");
+  const captions = {
+    youtube: { title: clean(c.youtube.title), description: clean(c.youtube.description), tags: c.youtube.tags.map((t) => t.replace(/^#/, "")) },
+    tiktok: { caption: clean(c.tiktok.caption), hashtags: c.tiktok.hashtags.map((h) => h.replace(/^#/, "")) },
+    instagram: {
+      hook: clean(c.instagram.hook),
+      context: clean(c.instagram.context),
+      comment_prompt: clean(c.instagram.comment_prompt),
+      hashtags: c.instagram.hashtags.map((h) => h.replace(/^#/, "")),
+    },
+    facebook: { title: clean(c.facebook.title), description: clean(c.facebook.description) },
+  };
   const sql = db();
+  await sql`UPDATE content_projects SET platform_captions = ${sql.json(captions)} WHERE id = ${p.projectId}`;
   await sql`DELETE FROM caption_options WHERE project_id = ${p.projectId}`;
   const rows: { platform: string; caption: string; hashtags: string[]; title: string | null }[] = [
-    { platform: "tiktok", caption: c.tiktok.caption, hashtags: c.tiktok.hashtags, title: null },
-    { platform: "instagram", caption: c.instagram.caption, hashtags: c.instagram.hashtags, title: null },
-    { platform: "facebook", caption: c.facebook.caption, hashtags: [], title: null },
-    { platform: "youtube", caption: c.youtube.description, hashtags: c.youtube.hashtags, title: c.youtube.title },
+    { platform: "tiktok", caption: captions.tiktok.caption, hashtags: captions.tiktok.hashtags, title: null },
+    {
+      platform: "instagram",
+      caption: `${captions.instagram.hook}\n\n${captions.instagram.context}\n\n${captions.instagram.comment_prompt}`,
+      hashtags: captions.instagram.hashtags,
+      title: null,
+    },
+    { platform: "facebook", caption: captions.facebook.description, hashtags: [], title: captions.facebook.title },
+    { platform: "youtube", caption: captions.youtube.description, hashtags: captions.youtube.tags, title: `${captions.youtube.title} #Shorts` },
   ];
   for (const r of rows) {
     await sql`
       INSERT INTO caption_options (project_id, platform, caption, hashtags, title, is_selected, rank)
-      VALUES (${p.projectId}, ${r.platform}, ${stripEmDashes(r.caption, ". ")}, ${r.hashtags.map((h) => h.replace(/^#/, ""))},
-              ${r.title === null ? null : stripEmDashes(r.title)}, true, 1)`;
+      VALUES (${p.projectId}, ${r.platform}, ${r.caption}, ${r.hashtags}, ${r.title}, true, 1)`;
   }
 }

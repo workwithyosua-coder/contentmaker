@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/accounts?error=tiktok_not_configured", origin));
   }
   const state = randomBytes(16).toString("hex");
-  const res = NextResponse.redirect(tiktokAuthorizeUrl(origin, state));
+  const res = NextResponse.redirect(tiktokAuthorizeUrl(origin, state, request.nextUrl.searchParams.get("publish") === "1"));
   res.cookies.set("tiktok_oauth_state", state, {
     httpOnly: true,
     secure: true,

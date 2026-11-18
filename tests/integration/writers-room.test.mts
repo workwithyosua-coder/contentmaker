@@ -11,7 +11,7 @@ globalThis.fetch = (async (input: any, init?: any) => {
   }
   if (prompt.startsWith("Direction from the creator")) return msg(JSON.stringify({ ideas: Array.from({ length: 5 }, (_, i) => ({ title: `Kopi ${i}`, pillar: "science", topic: "Is coffee bad?", hook_line: "Kopi itu racun!", hook_speaker: "ocu", uco_take: "Kopi bikin produktif!", ocu_take: "Jantung kita taruhannya.", enlightening_fact: "400 mg/day is fine", why_it_works: "relatable", needs_fact_check: i === 0 })) }));
   if (prompt.startsWith("Write the full dialogue")) return msg(JSON.stringify({ title: prompt.includes("Previous version") ? "Kopi v2" : "Kopi: Racun atau Bensin?", target_duration_s: 45, lines: [{ beat: "hook", speaker: "ocu", text: "Kopi itu racun — pelan-pelan.", subtitle: "Coffee is poison—slowly.", expression: "deadpan", thought_bubble: false, visual: "Ocu holding a cup", on_screen_text: "RACUN?", delivery: "flat" }, { beat: "concession", speaker: "uco", text: "Dia ada benarnya sih...", subtitle: "He has a point...", expression: "thinking", thought_bubble: true, visual: "thought bubble", on_screen_text: null, delivery: null }], sources: [{ claim: "400 mg/day", url: "https://www.fda.gov/x" }] }));
-  if (prompt.startsWith("Write platform captions")) return msg(JSON.stringify({ tiktok: { caption: "Kopi bikin melek — Tim Uco atau Tim Ocu?", hashtags: ["#kopi", "fyp"] }, instagram: { caption: "Kopi: racun atau bensin?", hashtags: ["kopi"] }, facebook: { caption: "Kalian tim mana?" }, youtube: { title: "Kopi itu racun? #Shorts", description: "Sumber: fda.gov", hashtags: ["shorts"] } }));
+  if (prompt.startsWith("Write publishing metadata")) return msg(JSON.stringify({ youtube: { title: "Kopi itu racun?", description: "Uco vs Ocu soal kopi. Sumber: fda.gov", tags: ["kopi", "ucoocu"] }, tiktok: { caption: "Kopi bikin melek — Tim Uco atau Tim Ocu?", hashtags: ["#kopi", "fyp", "ucoocu", "komedi"] }, instagram: { hook: "Kopi: racun atau bensin?", context: "Uco bilang bensin, Ocu bilang racun.", comment_prompt: "Tim Uco atau Tim Ocu?", hashtags: ["kopi"] }, facebook: { title: "Kopi itu racun?", description: "Kalian tim mana?" } }));
   throw new Error("unexpected prompt: " + prompt.slice(0, 60));
 }) as typeof fetch;
 
@@ -30,7 +30,10 @@ const s2 = await writeScript({ userId: owner.id, projectId: p.id, title: c.title
 console.log("em-dash cleaned:", JSON.stringify([s1.lines[0].text, s1.lines[0].subtitle])); console.log("scripts:", s1.title, "→", s2.title, "| lines:", s1.lines.length, "| thought bubble:", s1.lines[1].thought_bubble);
 await sql`INSERT INTO scripts (project_id, version, title, lines, sources) VALUES (${p.id}, 1, ${s1.title}, ${sql.json(s1.lines)}, ${sql.json(s1.sources)})`;
 await writeCaptions({ userId: owner.id, projectId: p.id, script: s1 });
-console.table(await sql`SELECT platform, caption, hashtags FROM caption_options WHERE project_id = ${p.id}`);
+console.table(await sql`SELECT platform, caption, hashtags, title FROM caption_options WHERE project_id = ${p.id}`);
+const [pc] = await sql<{ platform_captions: { youtube: { title: string }; tiktok: { hashtags: string[] } } }[]>`SELECT platform_captions FROM content_projects WHERE id = ${p.id}`;
+if (pc.platform_captions.youtube.title !== "Kopi itu racun?" || pc.platform_captions.tiktok.hashtags[0] !== "kopi") throw new Error("platform_captions not saved: " + JSON.stringify(pc));
+console.log("platform_captions saved: ok");
 console.table(await sql`SELECT agent, prompt_version, status, input_tokens, output_tokens, cost_usd::float FROM agent_runs WHERE project_id = ${p.id} ORDER BY started_at`);
 console.log("system prompt cached:", reqs.find(r => r.system?.[0]?.cache_control)?.system[0].cache_control.type, "| fallbacks:", reqs[0].fallbacks, "| effort(script):", reqs.find(r => r.messages[0].content.startsWith("Write the full"))?.output_config.effort);
 await sql`DELETE FROM content_projects WHERE id = ${p.id}`; await sql`DELETE FROM brand_kits WHERE name = 'Uco Ocu test'`; await sql.end();

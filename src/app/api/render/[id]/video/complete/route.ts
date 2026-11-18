@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { copyVideoToDrive } from "@/lib/drive";
+import { autoPublishAfterRender, drain } from "@/lib/publish/engine";
 import { db } from "@/lib/db";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
 import { deleteObjects, getObject, putObject } from "@/lib/storage";
@@ -44,6 +45,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/render/[id]
   revalidatePath(`/create/${id}`);
   revalidatePath("/create");
   // Copy to Google Drive in the background when it's connected (errors are saved on the video).
+  // Auto-post on render complete (when the episode has it switched on and captions are approved).
+  after(async () => {
+    try {
+      const queued = await autoPublishAfterRender(id);
+      if (queued.length) await drain();
+    } catch (err) {
+      console.error("[publish] auto-publish failed:", err instanceof Error ? err.message : err);
+    }
+  });
   after(() =>
     copyVideoToDrive(row.id)
       .then(() => revalidatePath(`/create/${id}`))

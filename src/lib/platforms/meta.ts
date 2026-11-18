@@ -124,3 +124,29 @@ export async function insightsBestEffort(
     return out;
   }
 }
+
+/** POST to a Graph API path (form-encoded) with appsecret_proof. */
+export async function graphPost<T>(path: string, token: string, params: Record<string, string> = {}): Promise<T> {
+  const body = new URLSearchParams(params);
+  body.set("access_token", token);
+  body.set("appsecret_proof", createHmac("sha256", creds().appSecret).update(token).digest("hex"));
+  const res = await fetch(`${GRAPH}${path}`, { method: "POST", body, cache: "no-store" });
+  const json = (await res.json()) as T & { error?: { message: string; code?: number; error_subcode?: number; error_user_msg?: string } };
+  if (!res.ok || json.error) {
+    throw new GraphError(json.error?.error_user_msg || json.error?.message || `Graph API ${res.status}`, json.error?.code, json.error?.error_subcode);
+  }
+  return json;
+}
+
+/** Validity and granted permissions of a (Page) token, via the app token. */
+export async function debugToken(token: string) {
+  const { appId, appSecret } = creds();
+  const u = new URL(`${GRAPH}/debug_token`);
+  u.searchParams.set("input_token", token);
+  u.searchParams.set("access_token", `${appId}|${appSecret}`);
+  const res = await fetch(u, { cache: "no-store" });
+  const json = (await res.json()) as { data?: { is_valid?: boolean; scopes?: string[]; expires_at?: number } };
+  return { valid: Boolean(json.data?.is_valid), scopes: json.data?.scopes ?? [], expiresAt: json.data?.expires_at || null };
+}
+
+export const GRAPH_VERSION = VERSION;
