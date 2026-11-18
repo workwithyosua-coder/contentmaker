@@ -2,3 +2,7 @@ node_modules/
 out/
 public/*
 !public/.gitkeep
+
+# Voice recordings stay out of git (the repository is public). Put source audio here locally.
+assets/*
+!assets/.gitkeep

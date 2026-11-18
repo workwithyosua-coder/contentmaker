@@ -4,6 +4,9 @@ Prepares the "Lipstick Effect" episode for Remotion from one ElevenLabs dialogue
 
   python3 scripts/lipstick_prepare.py            (run from video/; needs ffmpeg, numpy)
 
+The source MP3 is not in git (the repository is public and it is the creator's cloned voice). Put the ElevenLabs
+export at video/assets/lipstick-dialogue.mp3 before running (keep the original outside git, e.g. in Google Drive).
+
 1. Cuts the 12 lines out of assets/lipstick-dialogue.mp3 at the boundaries found by silence + pitch analysis
    (see SOURCE below: Uco ~160-290 Hz and loud, Ocu ~110-130 Hz; every boundary is a speaker change).
 2. Re-spaces them: Uco interrupting Ocu 0.2 s, Ocu's deadpan beats 0.42 s, same speaker 0.3 s.
