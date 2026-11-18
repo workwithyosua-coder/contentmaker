@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { FullVoiceover } from "@/components/full-voiceover";
 import { RecordingBooth } from "@/components/recording-booth";
 import { AiVoicePanel } from "@/components/voice-ui";
 import { elevenLabsConfigured } from "@/lib/voice/elevenlabs";
@@ -87,6 +88,9 @@ async function Booth({
                 missing={missing}
               />
             )}
+          </Card>
+          <Card title="Full voice-over">
+            <FullVoiceover projectId={project.id} scriptId={script.id} lines={lines} />
           </Card>
           <RecordingBooth
             // remount when takes change on the server (e.g. AI takes), so the list shows them
