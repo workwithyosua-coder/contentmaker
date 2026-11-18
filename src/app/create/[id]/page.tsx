@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
+import { AutoRefresh, CopyButton, RenderProgress, StepButton } from "@/components/episode-ui";
 import { EpisodePreview } from "@/components/episode-preview";
 import { VideoStylePicker } from "@/components/video-style";
 import { ShotPrompts } from "@/components/shot-prompts";
@@ -297,10 +297,11 @@ async function Episode({
               ) : (
                 <p className="text-xs text-muted">The Render button needs GITHUB_DISPATCH_TOKEN in Vercel.</p>
               )}
+              {job && (job.status === "queued" || job.status === "running") && <RenderProgress job={job} />}
               {job && (
                 <p className="text-xs" style={{ color: job.status === "failed" ? "var(--bad)" : undefined }}>
                   {job.status === "queued" && "Render queued on GitHub… "}
-                  {job.status === "running" && `Rendering since ${job.updated_at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Usually 15–20 minutes; this page updates by itself. `}
+                  {job.status === "running" && `Started ${(job.started_at ?? job.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Usually 15–20 minutes; this page updates by itself. `}
                   {job.status === "done" && "Last render finished; the video is below. "}
                   {job.status === "failed" && `Last render failed: ${job.error ?? "unknown error"} `}
                   {job.run_url && (

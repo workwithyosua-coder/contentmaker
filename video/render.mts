@@ -30,6 +30,25 @@ const work = path.join(here, "out", episodeId);
 const auth = { Authorization: `Bearer ${token}` };
 const log = (s: string) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${s}`);
 
+// Progress for the episode page (JOB_ID is set when the app started this render). Overall percentage:
+// audio 2–12 %, bundling 13 %, frames 15–92 %, upload 93–99 % (the workflow reports 100 % when it's done).
+// Sent at most every 10 s (or on a new stage); a failed report never stops the render.
+const jobId = process.env.JOB_ID?.trim();
+let lastSent = { at: 0, pct: -1, stage: "" };
+function progress(pct: number, stage: string) {
+  if (!jobId || !/^[0-9a-f-]{36}$/.test(jobId)) return;
+  const p = Math.round(pct);
+  const now = Date.now();
+  if (stage === lastSent.stage && (p === lastSent.pct || now - lastSent.at < 10_000)) return;
+  lastSent = { at: now, pct: p, stage };
+  fetch(`${base}/api/render/${episodeId}/job`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({ jobId, status: "running", progress: p, stage }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => {});
+}
+
 /** GET from the app, returning the body bytes; retries a stalled or failed request a few times. */
 async function get(url: string): Promise<Buffer> {
   for (let attempt = 1; ; attempt++) {
@@ -75,7 +94,9 @@ const LEVEL = "highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:releas
 const THOUGHT = "highpass=f=300,lowpass=f=3400,aecho=0.8:0.55:45|90:0.25|0.15,";
 
 const lines: EpisodeProps["lines"] = [];
+progress(2, "Preparing the voices");
 for (const line of manifest.lines) {
+  progress(2 + (10 * line.index) / Math.max(1, manifest.lines.length), "Preparing the voices");
   const n = String(line.index + 1).padStart(2, "0");
   if (!line.hasAudio) {
     // No take yet: show the subtitle for a reading-speed duration, silent.
@@ -125,6 +146,7 @@ if (args.includes("--prep")) {
 }
 
 log("bundling…");
+progress(13, "Getting the animation ready");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });
 const browserExecutable = process.env.CHROME_PATH ?? (existsSync("/opt/pw-browsers") ? findChrome() : null);
 // --style <id> overrides the episode's setting (ids in src/styles/registry.ts)
@@ -146,9 +168,10 @@ if (!(args.includes("--reuse") && existsSync(out))) await renderMedia({
   inputProps: props,
   browserExecutable,
   concurrency: Number(process.env.CONCURRENCY) || null,
-  onProgress: ({ progress }) => {
-    const pct = Math.floor(progress * 10) * 10;
+  onProgress: ({ progress: done }) => {
+    const pct = Math.floor(done * 10) * 10;
     if (pct !== last) log(`  ${pct}%`), (last = pct);
+    progress(15 + done * 77, "Rendering frames");
   },
 });
 const size = statSync(out).size;
@@ -163,6 +186,7 @@ if (upload) {
   const PART = 4 * 1024 * 1024;
   const parts = Math.ceil(bytes.length / PART);
   for (let n = 0; n < parts; n++) {
+    progress(93 + (6 * n) / parts, "Uploading the video");
     await post(`/api/render/${episodeId}/video/part?upload=${id}&n=${n}`, bytes.subarray(n * PART, (n + 1) * PART), "application/octet-stream");
     log(`  part ${n + 1}/${parts}`);
   }
