@@ -41,9 +41,16 @@ export async function publishAccounts(userId: string): Promise<PublishAccount[]>
       }
       let scopes = r.scopes ?? [];
       if ((r.platform === "instagram" || r.platform === "facebook") && r.access_token_enc && metaConfigured()) {
-        const d = await debugToken(decrypt(r.access_token_enc)).catch(() => null);
-        if (d && !d.valid) return { ...base, health: "expired" as const, problem: "Token expired. Reconnect.", reconnect };
-        scopes = d?.scopes ?? scopes;
+        const d = await debugToken(decrypt(r.access_token_enc)).catch((err) => ({ valid: null, scopes: null, error: String(err) }));
+        if (d.valid === false) {
+          return { ...base, health: "expired" as const, problem: `Meta says this login is no longer valid${d.error ? ` (${d.error})` : ""}. Reconnect.`, reconnect };
+        }
+        if (d.valid === null) {
+          // Couldn't check (Meta's check failed, not the login): allow posting; a real login problem shows on the post.
+          console.warn(`[publish] Meta token check failed for ${r.platform}: ${d.error}`);
+          return { ...base, health: "ok" as const, problem: null, reconnect };
+        }
+        scopes = d.scopes ?? scopes;
       }
       const missing = NEEDS[r.platform].filter((s) => !scopes.includes(s));
       return missing.length

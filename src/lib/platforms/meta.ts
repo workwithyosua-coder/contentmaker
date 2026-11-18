@@ -144,9 +144,22 @@ export async function debugToken(token: string) {
   const u = new URL(`${GRAPH}/debug_token`);
   u.searchParams.set("input_token", token);
   u.searchParams.set("access_token", `${appId}|${appSecret}`);
-  const res = await fetch(u, { cache: "no-store" });
-  const json = (await res.json()) as { data?: { is_valid?: boolean; scopes?: string[]; expires_at?: number } };
-  return { valid: Boolean(json.data?.is_valid), scopes: json.data?.scopes ?? [], expiresAt: json.data?.expires_at || null };
+  const res = await fetch(u, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: { is_valid?: boolean; scopes?: string[]; expires_at?: number; error?: { message?: string } };
+    error?: { message?: string; code?: number };
+  };
+  // Only Meta saying is_valid: false means the login is bad. An error from the check itself (rate limit, app token
+  // problem, outage) says nothing about the login, so it's reported as unknown rather than "expired".
+  if (!res.ok || json.error || typeof json.data?.is_valid !== "boolean") {
+    return { valid: null, scopes: null, expiresAt: null, error: json.error?.message ?? `debug_token HTTP ${res.status}` };
+  }
+  return {
+    valid: json.data.is_valid,
+    scopes: json.data.scopes ?? [],
+    expiresAt: json.data.expires_at || null,
+    error: json.data.is_valid ? null : (json.data.error?.message ?? null),
+  };
 }
 
 export const GRAPH_VERSION = VERSION;
