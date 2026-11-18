@@ -42,7 +42,7 @@ jobs:
         if: env.JOB_ID != ''
         run: |
           curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
-            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"running\",\"runUrl\":\"$RUN_URL\"}"
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"running\",\"runUrl\":\"$RUN_URL\",\"progress\":0,\"stage\":\"Setting up the renderer\"}"
 
       - uses: actions/checkout@v4
 

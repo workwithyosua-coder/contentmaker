@@ -696,6 +696,9 @@ CREATE TABLE IF NOT EXISTS render_jobs (
   status      text NOT NULL DEFAULT 'queued',   -- queued | running | done | failed
   error       text,
   run_url     text,                              -- the GitHub Actions run
+  progress    smallint,                          -- 0..100 while running (reported by video/render.mts)
+  stage       text,                              -- what the renderer is doing now ("Rendering frames")
+  started_at  timestamptz,                       -- when the run started (status became running)
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );

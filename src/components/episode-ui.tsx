@@ -123,3 +123,28 @@ export function AutoRefresh({ active, everyMs = 4000 }: { active: boolean; every
   }, [active, everyMs, router]);
   return null;
 }
+
+/** Render progress bar: the percentage and stage the renderer last reported (the page refreshes every few seconds). */
+export function RenderProgress({ job }: { job: { status: string; progress: number | null; stage: string | null } }) {
+  const pct = job.status === "queued" ? 0 : (job.progress ?? 0);
+  const stage = job.status === "queued" ? "Waiting for GitHub to start the render" : (job.stage ?? "Starting");
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="font-semibold">{stage}…</span>
+        <span className="font-mono tabular-nums">{pct}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Rendering progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`${pct}%, ${stage}`}
+        className="h-3 overflow-hidden rounded-control border border-border bg-surface-2"
+      >
+        <div className="h-full bg-accent transition-[width] duration-700 ease-out motion-reduce:transition-none" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
