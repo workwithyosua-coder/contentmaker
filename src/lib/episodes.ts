@@ -40,5 +40,5 @@ export async function getEpisode(userId: string, id: string) {
     sql<CaptionRow[]>`SELECT platform, caption, hashtags, title FROM caption_options WHERE project_id = ${id}
                       ORDER BY array_position(ARRAY['tiktok','instagram','youtube','facebook']::platform_t[], platform)`,
   ]);
-  return { project, concepts, latestScript: scripts[0] ?? null, scriptVersions: scripts.length, captions };
+  return { project, concepts, scripts, latestScript: scripts[0] ?? null, scriptVersions: scripts.length, captions };
 }
