@@ -147,6 +147,10 @@ export async function unpickIdeaAction(projectId: string): Promise<StepResult> {
 export async function reviseScriptAction(projectId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
   const feedback = String(form.get("feedback") ?? "").trim();
   if (!feedback) return { ok: false, message: "Write what you'd like changed." };
+  // A full script pasted here would be read as a note; send it to the import tab instead.
+  if ((feedback.match(/^\s*(?:[#\d]+[.)]?\s*)?(?:\*\*)?\s*(UCO|OCU)\b/gim) ?? []).length >= 3) {
+    return { ok: false, message: "This looks like a full script. Use the Paste / Import script tab so your lines are kept as written." };
+  }
   try {
     const o = await owner();
     await setStatus(projectId, "scripting");
@@ -211,6 +215,54 @@ export async function saveVideoToDriveAction(projectId: string, videoId: string)
     return done ? { ok: true, message: "Saved to Google Drive." } : { ok: false, message: "Connect Google Drive on the Accounts page first." };
   } catch (err) {
     revalidatePath(`/create/${projectId}`);
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Paste / import a pre-written script as the next version ("exact" keeps the Indonesian lines word for word). */
+export async function importScriptAction(projectId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
+  try {
+    const o = await owner();
+    const { importScript } = await import("@/lib/script-import");
+    const r = await importScript({
+      ownerId: o.id,
+      projectId,
+      mode: form.get("mode") === "adapt" ? "adapt" : "exact",
+      paste: String(form.get("script") ?? ""),
+      notes: String(form.get("notes") ?? ""),
+    });
+    revalidatePath(`/create/${projectId}`);
+    revalidatePath(`/create/${projectId}/record`);
+    revalidatePath("/create");
+    return { ok: true, message: `Saved as script v${r.version}: ${r.lines} lines.` };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Edits one line of a script in place, without creating a new version. */
+export async function updateLineAction(projectId: string, scriptId: string, index: number, _prev: StepResult, form: FormData): Promise<StepResult> {
+  try {
+    const o = await owner();
+    const { updateScriptLine } = await import("@/lib/script-import");
+    await updateScriptLine({
+      ownerId: o.id,
+      projectId,
+      scriptId,
+      index,
+      patch: {
+        text: String(form.get("text") ?? ""),
+        subtitle: String(form.get("subtitle") ?? ""),
+        expression: String(form.get("expression") ?? "calm"),
+        visual: String(form.get("visual") ?? ""),
+        on_screen_text: String(form.get("on_screen_text") ?? "") || null,
+        thought_bubble: form.get("thought_bubble") === "on",
+      },
+    });
+    revalidatePath(`/create/${projectId}`);
+    revalidatePath(`/create/${projectId}/record`);
+    return { ok: true, message: "Saved." };
+  } catch (err) {
     return { ok: false, message: message(err) };
   }
 }
