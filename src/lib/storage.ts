@@ -68,6 +68,39 @@ export async function getObject(objectPath: string): Promise<ArrayBuffer | null>
   return res.arrayBuffer();
 }
 
+/**
+ * A one-time URL the browser can PUT a file to directly (bypasses the 4.5 MB request limit of our functions).
+ * Supabase: storage "upload/sign". Local driver: /api/media/<path> with a signature (dev/tests only).
+ */
+export async function signedUploadUrl(objectPath: string): Promise<string> {
+  if (local()) {
+    const exp = Math.floor(Date.now() / 1000) + 900;
+    return `/api/media/${objectPath}?exp=${exp}&sig=${localSig(`put:${objectPath}`, exp)}`;
+  }
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/upload/sign/${BUCKET}/${objectPath}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const json = (await res.json()) as { url?: string; message?: string; error?: string };
+  if (!res.ok || !json.url) throw new Error(`Couldn't prepare the upload: ${json.message ?? json.error ?? res.status}`);
+  return `${url}/storage/v1${json.url}`;
+}
+
+/** Size of a stored object, or null if it doesn't exist. */
+export async function objectSize(objectPath: string): Promise<number | null> {
+  if (local()) {
+    const { stat } = await import("node:fs/promises");
+    return stat(path.join(LOCAL_DIR, objectPath)).then((s) => s.size, () => null);
+  }
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/info/authenticated/${BUCKET}/${objectPath}`, { headers });
+  if (!res.ok) return null;
+  const j = (await res.json()) as { size?: number; metadata?: { size?: number } };
+  return j.size ?? j.metadata?.size ?? 0;
+}
+
 export async function deleteObjects(paths: string[]) {
   if (!paths.length) return;
   if (local()) {
@@ -93,4 +126,15 @@ export async function readLocalObject(objectPath: string, exp: number, sig: stri
   const file = path.join(LOCAL_DIR, objectPath);
   if (!file.startsWith(LOCAL_DIR + path.sep)) return null; // no path traversal
   return readFile(file).catch(() => null);
+}
+
+/** Local driver: accepts a browser upload for a path signed by signedUploadUrl() (dev/tests only). */
+export async function writeLocalUpload(objectPath: string, exp: number, sig: string, data: ArrayBuffer) {
+  if (!local()) return false;
+  if (exp < Date.now() / 1000 || sig !== localSig(`put:${objectPath}`, exp)) return false;
+  const file = path.join(LOCAL_DIR, objectPath);
+  if (!file.startsWith(LOCAL_DIR + path.sep)) return false;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, Buffer.from(data));
+  return true;
 }

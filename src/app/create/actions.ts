@@ -347,3 +347,48 @@ export async function writePlatformCaptionsAction(projectId: string): Promise<St
     return { ok: false, message: message(err) };
   }
 }
+
+/** Upload a finished video, step 1: a one-time URL the browser uploads the MP4 to directly. */
+export async function startVideoUploadAction(projectId: string, size: number, type: string): Promise<{ ok: true; url: string; path: string } | { ok: false; message: string }> {
+  try {
+    const o = await account();
+    const [p] = await db()<{ id: string }[]>`SELECT id FROM content_projects WHERE id = ${projectId} AND user_id = ${o.id}`;
+    if (!p) return { ok: false, message: "Episode not found." };
+    if (type !== "video/mp4") return { ok: false, message: "Upload an MP4 file (export it as MP4 from CapCut, Gemini or your phone)." };
+    if (size > 49 * 1024 * 1024) return { ok: false, message: "That file is over 49 MB. Export it at 1080p (or a lower bitrate) and try again." };
+    const path = `${projectId}/video/upload-${new Date().toISOString().replace(/[:.]/g, "-")}.mp4`;
+    const { signedUploadUrl } = await import("@/lib/storage");
+    return { ok: true, url: await signedUploadUrl(path), path };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
+
+/** Upload a finished video, step 2: register the uploaded file as the episode's video (publishable like a render). */
+export async function finishVideoUploadAction(projectId: string, path: string, durationMs: number | null): Promise<StepResult> {
+  try {
+    const o = await account();
+    if (!path.startsWith(`${projectId}/video/upload-`) || !path.endsWith(".mp4")) return { ok: false, message: "Unknown upload." };
+    const sql = db();
+    const [s] = await sql<{ id: string }[]>`
+      SELECT s.id FROM scripts s JOIN content_projects p ON p.id = s.project_id
+      WHERE s.project_id = ${projectId} AND p.user_id = ${o.id} ORDER BY s.version DESC LIMIT 1`;
+    if (!s) return { ok: false, message: "This episode has no script yet. Write or import one first." };
+    const { objectSize } = await import("@/lib/storage");
+    const size = await objectSize(path);
+    if (size === null) return { ok: false, message: "The upload didn't arrive. Try again." };
+    await sql`
+      INSERT INTO episode_videos (project_id, script_id, storage_path, size_bytes, duration_ms, renderer)
+      VALUES (${projectId}, ${s.id}, ${path}, ${size}, ${durationMs}, 'upload')`;
+    await sql`UPDATE content_projects SET status = 'awaiting_approval', updated_at = now() WHERE id = ${projectId}`;
+    after(async () => {
+      const { autoPublishAfterRender, drain } = await import("@/lib/publish/engine");
+      const queued = await autoPublishAfterRender(projectId).catch(() => []);
+      if (queued.length) await drain().catch(() => {});
+    });
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Video added. It's now the episode video; publish it below." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}
