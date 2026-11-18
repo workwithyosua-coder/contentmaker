@@ -5,6 +5,9 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
 import { EpisodePreview } from "@/components/episode-preview";
+import { VideoStylePicker } from "@/components/video-style";
+import { ShotPrompts } from "@/components/shot-prompts";
+import { shotPrompts } from "@/lib/shot-prompts";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoUpload } from "@/components/video-upload";
 import { ScriptEditor, ScriptLine } from "@/components/script-editor";
@@ -34,6 +37,7 @@ import {
   reviseScriptAction,
   saveVideoToDriveAction,
   setAutoPublishAction,
+  setVideoStyleAction,
   startVideoUploadAction,
   finishVideoUploadAction,
   writePlatformCaptionsAction,
@@ -100,8 +104,8 @@ async function Episode({
   ]);
   const rendering = job?.status === "queued" || job?.status === "running";
   const [[pubProject], pubAccounts, pubs] = await Promise.all([
-    db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null }[]>`
-      SELECT platform_captions, publish_settings, auto_publish, publish_at FROM content_projects WHERE id = ${project.id}`,
+    db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null; video_style: string }[]>`
+      SELECT platform_captions, publish_settings, auto_publish, publish_at, video_style FROM content_projects WHERE id = ${project.id}`,
     publishAccounts(owner.id).catch(() => []),
     publicationsFor(project.id).catch(() => []),
   ]);
@@ -259,7 +263,9 @@ async function Episode({
       {booth?.script && progress.recorded > 0 && (
         <Card title="Animation">
           <div className="space-y-4">
+            <VideoStylePicker value={pubProject?.video_style ?? "classic"} action={setVideoStyleAction.bind(null, project.id)} />
             <EpisodePreview
+              style={pubProject?.video_style ?? "classic"}
               title={booth.script.title || project.title || "Episode"}
               lines={booth.lines.map((l) => ({
                 index: l.index,
@@ -273,6 +279,12 @@ async function Episode({
                 thought_bubble: l.thought_bubble,
                 take: booth.recorded[l.index]?.url ?? null,
               }))}
+            />
+            <ShotPrompts
+              prompts={shotPrompts(
+                booth.lines.map((l) => ({ index: l.index, speaker: l.speaker, beat: l.beat, expression: l.expression, subtitle: l.subtitle, visual: l.visual, thought_bubble: l.thought_bubble })),
+                pubProject?.video_style ?? "classic",
+              )}
             />
             <div className="space-y-2 border-t border-border pt-4">
               {renderButtonConfigured() ? (
@@ -348,6 +360,14 @@ async function Episode({
 
       {latestScript && (
         <Card title="Publish to social media">
+          {!latestScript.approved_at && !pubProject?.platform_captions && (
+            <div className="mb-4 space-y-2">
+              <p className="text-sm text-muted">
+                Titles and captions are written when you approve the script (v{latestScript.version}). Approve it here or in the script step above.
+              </p>
+              <StepButton action={approveScriptAction.bind(null, project.id)} label="Approve script & write captions" pendingLabel="Starting…" />
+            </div>
+          )}
           {latestScript.approved_at && !pubProject?.platform_captions && (
             <div className="mb-4 space-y-2">
               <p className="text-sm text-muted">This episode was approved before platform captions existed. Write them once to start posting.</p>

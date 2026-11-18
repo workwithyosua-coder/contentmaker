@@ -1,3 +1,4 @@
+import { styleById } from "../../../../../video/src/styles/registry";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
 
 // GET /api/render/:id → everything the renderer needs to animate an episode (script lines + which lines have audio).
@@ -10,6 +11,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]"
   return Response.json({
     projectId: src.project.id,
     title: src.script.title || src.project.title,
+    videoStyle: styleById(src.project.video_style).id,
     scriptId: src.script.id,
     version: src.script.version,
     targetDurationS: src.script.target_duration_s,

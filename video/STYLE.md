@@ -1,4 +1,6 @@
-# Uco & Ocu: visual style bible
+# Uco & Ocu: Classic style (default)
+
+One of the selectable video styles; the Comic style is in `video/styles/comic.md`.
 
 The animation code in `video/src` follows this. Change it here first, then in code.
 
