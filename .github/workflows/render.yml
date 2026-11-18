@@ -1,0 +1,74 @@
+# Renders one Uco & Ocu episode to MP4 and uploads it to the app.
+# Started by the app's "Render video" button (src/lib/render-jobs.ts) or by hand from the Actions tab.
+# Needs the repository secret RENDER_TOKEN (same value as RENDER_TOKEN in Vercel).
+name: Render episode
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode_id:
+        description: Episode id (the uuid in /create/<id>)
+        required: true
+      job_id:
+        description: Render job id (set by the app; leave empty when starting by hand)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-${{ github.event.inputs.episode_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      APP_URL: https://contentmaker-lime.vercel.app
+      RENDER_TOKEN: ${{ secrets.RENDER_TOKEN }}
+      EPISODE_ID: ${{ github.event.inputs.episode_id }}
+      JOB_ID: ${{ github.event.inputs.job_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check inputs
+        run: |
+          [[ "$EPISODE_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "episode_id must be a uuid"; exit 1; }
+          [[ -z "$JOB_ID" || "$JOB_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "job_id must be a uuid"; exit 1; }
+          [[ -n "$RENDER_TOKEN" ]] || { echo "Add the RENDER_TOKEN repository secret"; exit 1; }
+
+      - name: Report running
+        if: env.JOB_ID != ''
+        run: |
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"running\",\"runUrl\":\"$RUN_URL\"}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Render and upload
+        working-directory: video
+        run: npx tsx render.mts "$EPISODE_ID" --base "$APP_URL"
+
+      - name: Report done
+        if: success() && env.JOB_ID != ''
+        run: |
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"done\"}"
+
+      - name: Report failure
+        if: failure() && env.JOB_ID != ''
+        run: |
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"failed\",\"error\":\"The render failed. Open the run on GitHub for the log.\",\"runUrl\":\"$RUN_URL\"}"

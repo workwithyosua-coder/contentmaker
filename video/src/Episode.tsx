@@ -42,7 +42,7 @@ export function Episode({ lines }: EpisodeProps) {
         (line, i) =>
           line.audio && (
             <Sequence key={`a${line.index}`} from={starts[i]} durationInFrames={line.frames} name={`voice ${line.index + 1}`} layout="none">
-              <Audio src={staticFile(line.audio)} />
+              <Audio src={/^(https?:|blob:|\/)/.test(line.audio) ? line.audio : staticFile(line.audio)} trimBefore={line.trimFrom ?? 0} />
             </Sequence>
           ),
       )}
