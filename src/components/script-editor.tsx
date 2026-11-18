@@ -53,7 +53,7 @@ function ImportForm({ action }: { action: Action }) {
           placeholder={`1. UCO (0:00–0:06 | Hook, loud, holding phone): "Semua ngaku bokek, tapi kafe penuh!"\n[EN] Everyone says they're broke, but cafes are packed!\n2. OCU: "Justru itu tanda kita lagi bokek."\nUCO (thought): Sial, masuk akal.`}
         />
         <p className="text-xs text-muted">
-          One line per row starting with UCO: or OCU:. Numbers, timestamps, cues in brackets, (thought) and [EN] lines are all fine.
+          Each line starts with UCO: or OCU:, with the words after it or on the row below. Numbers, timestamps, cues in brackets, (thought) and [EN] lines are all fine.
         </p>
       </div>
       <div className="space-y-1">

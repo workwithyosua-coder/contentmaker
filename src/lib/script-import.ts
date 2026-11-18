@@ -62,16 +62,38 @@ export function parsePastedScript(input: string): { lines: ParsedLine[]; context
   const lines: ParsedLine[] = [];
   const context: string[] = [];
   let heading: string | null = null;
+  // A speaker header with the words on the next row:  18. OCU (1:57–2:00 | Punchline):  ⏎  "Iya, sampai…"
+  let pending: { speaker: "uco" | "ocu"; cues: string[]; thought: boolean; row: string } | null = null;
   for (const rawLine of input.replace(/\r/g, "").split("\n")) {
     const row = rawLine.trim();
     if (!row) continue;
     if (EN_LINE.test(row) && lines.length) {
+      pending = null;
       const en = row.replace(EN_LINE, "").replace(QUOTES, "").trim();
+      // one [EN] row for a shared line: [EN] UCO: "…" OCU: "…" → each speaker's own translation
+      const parts = [...en.matchAll(/\b(UCO|OCU)\s*:\s*(.+?)(?=\s*\b(?:UCO|OCU)\s*:|$)/gi)];
+      if (parts.length > 1) {
+        const recent = lines.slice(-parts.length);
+        if (recent.every((l, i) => l.speaker === parts[i][1].toLowerCase())) {
+          recent.forEach((l, i) => (l.en = parts[i][2].replace(QUOTES, "").trim()));
+          continue;
+        }
+      }
       const last = lines[lines.length - 1];
       last.en = last.en ? `${last.en} ${en}` : en;
       continue;
     }
     const m = SPEAKER.exec(row);
+    if (!m && pending && !/^[\[(#]/.test(row)) {
+      const { text, cues, en } = cleanSpoken(row);
+      if (text) {
+        context.pop(); // the header row was parked as context
+        lines.push({ speaker: pending.speaker, text, en, cues: [...pending.cues, ...cues], thought: pending.thought, heading });
+        pending = null;
+        continue;
+      }
+    }
+    pending = null;
     if (m) {
       let rest = row.slice(m[0].length);
       // cues between the tag and the colon: UCO (0:00–0:06 | Hook, loud): "…"
@@ -98,6 +120,9 @@ export function parsePastedScript(input: string): { lines: ParsedLine[]; context
       rest = sep ? rest.slice(sep[0].length) : rest;
       const { text, cues, en } = cleanSpoken(rest);
       if (!text) {
+        // header only: the words should be on the next row
+        const thought = THOUGHT.test(row) || pre.some((c) => THOUGHT.test(c));
+        pending = { speaker: m[1].toLowerCase() as "uco" | "ocu", cues: [...pre, ...cues], thought, row };
         context.push(row);
         continue;
       }
@@ -161,6 +186,13 @@ export async function mapImportedScript(p: {
   currentTitle: string | null;
 }): Promise<{ script: Script; parsed: number; note: string }> {
   const { lines, context } = parsePastedScript(p.paste);
+  // Numbered scripts ("18. OCU …") say how many lines to expect; stop rather than quietly save a shorter script.
+  const numbered = new Set([...p.paste.matchAll(/^\s*(\d{1,3})[.)]\s*\**\s*(?:UCO|OCU)\b/gim)].map((m) => m[1])).size;
+  if (numbered > lines.length) {
+    throw new Error(
+      `Only ${lines.length} of the ${numbered} numbered lines could be read. Put each line's words right after its speaker (UCO: "…") or on the row below the speaker header, then import again.`,
+    );
+  }
   const exact = p.mode === "exact";
   const parsedBlock = lines.length
     ? lines
