@@ -29,8 +29,8 @@ export function youtubeAuthorizeUrl(origin: string, state: string, scopes: strin
   u.searchParams.set("scope", scopes.join(" "));
   u.searchParams.set("access_type", "offline"); // we need a refresh token for daily syncs
   u.searchParams.set("prompt", "consent"); // always return a refresh token, also on reconnect
-  // Only for YouTube: Google refuses to mix earlier YouTube grants with Drive in one request.
-  if (scopes === YOUTUBE_SCOPES) u.searchParams.set("include_granted_scopes", "true");
+  // No include_granted_scopes: Google refuses to combine earlier Drive grants with YouTube scopes (and vice versa)
+  // in one request. Each sign-in asks for everything it needs anyway.
   u.searchParams.set("state", state);
   return u.toString();
 }
