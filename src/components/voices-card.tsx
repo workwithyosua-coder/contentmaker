@@ -41,6 +41,12 @@ export async function VoicesCard({ ownerId }: { ownerId: string }) {
               episode is about 700).
             </p>
           )}
+          {!plan && (
+            <p role="status" className="mb-2 text-xs text-muted">
+              ElevenLabs isn&apos;t answering right now, so your plan and the voice list couldn&apos;t load. Your saved voices still work;
+              reload in a minute to change them.
+            </p>
+          )}
           <ul className="divide-y divide-border">
             {(["uco", "ocu"] as const).map((sp) => {
               const v = voices[sp];
@@ -60,7 +66,7 @@ export async function VoicesCard({ ownerId }: { ownerId: string }) {
                     sampleSeconds={
                       (sp === "uco" ? ucoSamples : ocuSamples).seconds
                     }
-                    canClone={Boolean(plan?.canClone)}
+                    canClone={plan ? plan.canClone : Boolean(v)}
                     voices={voiceOptions}
                     currentId={v?.voice_id}
                   />
