@@ -24,6 +24,20 @@ const NEEDS = {
   facebook: ["pages_manage_posts"],
 } as const;
 
+// Meta allows an app only ~200 requests an hour per user, and the episode page refreshes every few seconds while
+// posting. So each account's login check is remembered: 30 min when Meta answered, 10 min when the check failed.
+type TokenCheck = Awaited<ReturnType<typeof debugToken>>;
+const checked = new Map<string, { until: number; result: Promise<TokenCheck> }>();
+function checkToken(accountId: string, token: string): Promise<TokenCheck> {
+  const key = `${accountId}:${token.slice(-16)}`; // a reconnect (new token) is checked afresh
+  const hit = checked.get(key);
+  if (hit && hit.until > Date.now()) return hit.result;
+  const result = debugToken(token).catch((err) => ({ valid: null, scopes: null, expiresAt: null, error: String(err) }) as TokenCheck);
+  checked.set(key, { until: Date.now() + 10 * 60_000, result });
+  result.then((r) => r.valid !== null && checked.set(key, { until: Date.now() + 30 * 60_000, result }));
+  return result;
+}
+
 export async function publishAccounts(userId: string): Promise<PublishAccount[]> {
   const rows = await db()<
     { id: string; platform: PublishPlatform; handle: string; display_name: string | null; avatar_url: string | null; scopes: string[] | null; access_token_enc: Buffer | null; refresh_expires_at: Date | null }[]
@@ -41,7 +55,7 @@ export async function publishAccounts(userId: string): Promise<PublishAccount[]>
       }
       let scopes = r.scopes ?? [];
       if ((r.platform === "instagram" || r.platform === "facebook") && r.access_token_enc && metaConfigured()) {
-        const d = await debugToken(decrypt(r.access_token_enc)).catch((err) => ({ valid: null, scopes: null, error: String(err) }));
+        const d = await checkToken(r.id, decrypt(r.access_token_enc));
         if (d.valid === false) {
           return { ...base, health: "expired" as const, problem: `Meta says this login is no longer valid${d.error ? ` (${d.error})` : ""}. Reconnect.`, reconnect };
         }
