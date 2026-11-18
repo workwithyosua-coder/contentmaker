@@ -2,7 +2,7 @@ import "server-only";
 
 // ElevenLabs: instant voice clones of the owner (one per character) + expressive text-to-speech.
 // Key: ELEVENLABS_API_KEY in Vercel (never in code or chat). Starter plan or higher is needed for cloning.
-const API = "https://api.elevenlabs.io/v1";
+const API = process.env.ELEVENLABS_API_BASE?.trim() || "https://api.elevenlabs.io/v1"; // override only for tests
 export const DEFAULT_MODEL = "eleven_v3"; // supports inline delivery tags like [angry] [whispers] [sighs]
 
 export const elevenLabsConfigured = () => Boolean(process.env.ELEVENLABS_API_KEY?.trim());
@@ -37,8 +37,32 @@ export async function cloneVoice(name: string, description: string, samples: { n
   return ((await res.json()) as { voice_id: string }).voice_id;
 }
 
+// Read-only lookups that pages wait on get a time limit, so a slow ElevenLabs can't hold a page open. The abort signal
+// alone isn't enough: Next's cached fetch (listVoices) can keep waiting, so the result is also raced against a timer.
+const LOOKUP_TIMEOUT_MS = 8000;
+function limited<T>(work: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`ElevenLabs ${what} took over ${LOOKUP_TIMEOUT_MS / 1000} s`)), LOOKUP_TIMEOUT_MS);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+// Pages that refresh every few seconds (while an episode is being written) would otherwise ask ElevenLabs again on
+// every refresh. Answers are kept briefly per server instance, failures too, so a slow or down ElevenLabs costs one
+// wait per minute instead of blocking every refresh.
+const memo = new Map<string, { until: number; value: Promise<unknown> }>();
+function remembered<T>(name: string, okMs: number, load: () => Promise<T>): Promise<T> {
+  const hit = memo.get(name);
+  if (hit && hit.until > Date.now()) return hit.value as Promise<T>;
+  const value = load();
+  memo.set(name, { until: Date.now() + okMs, value });
+  value.catch(() => memo.set(name, { until: Date.now() + 60_000, value }));
+  return value;
+}
+
 export async function voiceExists(voiceId: string) {
-  const res = await fetch(`${API}/voices/${voiceId}`, { headers: { "xi-api-key": key() } });
+  const res = await fetch(`${API}/voices/${voiceId}`, { headers: { "xi-api-key": key() }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
   return res.ok;
 }
 
@@ -64,7 +88,10 @@ export type LibraryVoice = { voice_id: string; name: string; category: string; l
 
 /** Voices on the account: ready-made ones (free plan) plus any you added or cloned. */
 export async function listVoices(): Promise<LibraryVoice[]> {
-  const res = await fetch(`${API}/voices`, { headers: { "xi-api-key": key() }, next: { revalidate: 3600 } });
+  return remembered("voices", 10 * 60_000, () => limited(listVoicesNow(), "voice list"));
+}
+async function listVoicesNow(): Promise<LibraryVoice[]> {
+  const res = await fetch(`${API}/voices`, { headers: { "xi-api-key": key() }, next: { revalidate: 3600 }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
   if (!res.ok) await fail(res, "voice list failed");
   const json = (await res.json()) as { voices: LibraryVoice[] };
   return json.voices.sort((a, b) => a.name.localeCompare(b.name));
@@ -72,7 +99,10 @@ export async function listVoices(): Promise<LibraryVoice[]> {
 
 /** Plan facts the UI needs: tier, whether instant cloning is allowed, characters left this month. */
 export async function subscription() {
-  const res = await fetch(`${API}/user/subscription`, { headers: { "xi-api-key": key() }, cache: "no-store" });
+  return remembered("subscription", 60_000, () => limited(subscriptionNow(), "plan check"));
+}
+async function subscriptionNow() {
+  const res = await fetch(`${API}/user/subscription`, { headers: { "xi-api-key": key() }, cache: "no-store", signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
   if (!res.ok) await fail(res, "plan check failed");
   const j = (await res.json()) as { tier: string; can_use_instant_voice_cloning?: boolean; character_count: number; character_limit: number };
   return { tier: j.tier, canClone: Boolean(j.can_use_instant_voice_cloning), used: j.character_count, limit: j.character_limit };

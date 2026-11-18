@@ -70,7 +70,7 @@ async function Episodes() {
           Type a topic above and the writers&apos; room pitches 5 ideas. Pick
           one and it fact-checks and writes the script.
         </EmptyState>
-        <VoicesCard ownerId={owner.id} />
+        <Voices ownerId={owner.id} />
       </>
     );
   }
@@ -104,7 +104,16 @@ async function Episodes() {
           ))}
         </ul>
       </Card>
-      <VoicesCard ownerId={owner.id} />
+      <Voices ownerId={owner.id} />
     </>
+  );
+}
+
+/** The voices card waits on ElevenLabs; it streams in separately so the episode list never waits for it. */
+function Voices({ ownerId }: { ownerId: string }) {
+  return (
+    <Suspense fallback={<div className="h-32 animate-pulse rounded-card bg-surface-2" aria-label="Loading AI voices" />}>
+      <VoicesCard ownerId={ownerId} />
+    </Suspense>
   );
 }
