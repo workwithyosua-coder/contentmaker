@@ -1,12 +1,12 @@
 // Splits one full voice-over recording into one clip per script line. Pure functions (no DOM, no audio APIs), so
 // the browser runs them on the decoded samples and the tests run them on synthetic ones.
 //
-// 1. Loudness per 10 ms frame → the pauses between phrases (quiet runs of at least 0.25 s).
+// 1. Loudness per 10 ms frame → the pauses between phrases (quiet runs of at least 0.12 s).
 // 2. Where each line should end if the lines were spoken at an even pace (from each line's word count).
 // 3. Pick the pauses that best match those positions, preferring long pauses (dynamic programming over the pauses).
 
 export const HOP_S = 0.01;
-const MIN_GAP_S = 0.25;
+const MIN_GAP_S = 0.12; // short enough to catch a quick reply; the line-length fit keeps breaths inside a line from winning
 const EDGE_PAD_S = 0.15;
 
 export type Gap = { start: number; end: number }; // seconds

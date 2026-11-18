@@ -44,6 +44,16 @@ assert.equal(s2.cuts.length, 2);
 assert.ok(s2.cuts[0] < s2.cuts[1]);
 assert.equal(s2.chosen.filter((c) => c === null).length, 1);
 
+// a quick reply: only 0.15 s between line 2 and line 3 ("Ya udah" right after Ocu), and a 0.2 s breath inside line 1
+const quick = build([
+  ["pause", 0.5], ["speech", 1.5], ["pause", 0.2], ["speech", 1.6], ["pause", 0.7],
+  ["speech", 3.0], ["pause", 0.15],
+  ["speech", 2.4], ["pause", 0.5],
+]);
+const s3 = splitLines(frameLoudness(quick, SR), [10, 10, 8]);
+assert.ok(near(s3.cuts[0], 4.05), `quick: cut 1 at ${s3.cuts[0]}`); // the 0.7 s pause (3.7–4.4), not the breath
+assert.ok(near(s3.cuts[1], 7.475), `quick: cut 2 at ${s3.cuts[1]}`); // the 0.15 s gap (7.4–7.55)
+
 const wav = new Uint8Array(encodeWav(new Float32Array([0, 0.5, -0.5]), SR));
 assert.equal(String.fromCharCode(...wav.slice(0, 4)), "RIFF");
 assert.equal(wav.length, 44 + 6);

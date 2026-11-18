@@ -65,17 +65,28 @@ export function FullVoiceover({ projectId, scriptId, lines }: { projectId: strin
     setPlaying(i);
   }
 
-  /** Moves cut k to the previous/next pause (or by 0.3 s when there is none), staying between its neighbours. */
-  function move(k: number, dir: -1 | 1) {
+  /** Range cut k may move in: between its neighbouring cuts (or the start/end of the speech). */
+  function bounds(r: Ready, k: number) {
+    const lo = k === 0 ? Math.max(0, r.split.speechStart - 0.2) : r.cuts[k - 1];
+    const hi = k === r.cuts.length - 1 ? r.buffer.duration : r.cuts[k + 1];
+    return { lo: lo + 0.1, hi: hi - 0.1 };
+  }
+
+  function setCut(k: number, t: number) {
     if (state.status !== "ready") return;
-    const { cuts, split, buffer } = state;
-    const lo = k === 0 ? split.speechStart : cuts[k - 1];
-    const hi = k === cuts.length - 1 ? Math.min(buffer.duration, split.speechEnd) : cuts[k + 1];
-    const mids = split.gaps.map((g) => (g.start + g.end) / 2).filter((m) => m > lo + 0.05 && m < hi - 0.05);
-    const target = dir < 0 ? [...mids].reverse().find((m) => m < cuts[k] - 0.01) : mids.find((m) => m > cuts[k] + 0.01);
-    const next = target ?? Math.min(hi - 0.1, Math.max(lo + 0.1, cuts[k] + dir * 0.3));
+    const { lo, hi } = bounds(state, k);
     stop();
-    setState({ ...state, cuts: cuts.map((c, i) => (i === k ? next : c)) });
+    setState({ ...state, cuts: state.cuts.map((c, i) => (i === k ? Math.round(Math.min(hi, Math.max(lo, t)) * 100) / 100 : c)) });
+  }
+
+  /** Moves cut k to the previous/next pause; stays put when there is none in range (the 0.1 s nudges cover that). */
+  function jump(k: number, dir: -1 | 1) {
+    if (state.status !== "ready") return;
+    const { lo, hi } = bounds(state, k);
+    const cut = state.cuts[k];
+    const mids = state.split.gaps.map((g) => (g.start + g.end) / 2).filter((m) => m >= lo && m <= hi);
+    const target = dir < 0 ? [...mids].reverse().find((m) => m < cut - 0.01) : mids.find((m) => m > cut + 0.01);
+    if (target !== undefined) setCut(k, target);
   }
 
   async function save() {
@@ -134,8 +145,8 @@ export function FullVoiceover({ projectId, scriptId, lines }: { projectId: strin
       {ready && (
         <div className="space-y-3">
           <p className="text-xs text-muted">
-            {ready.name} · {ready.buffer.duration.toFixed(1)} s. Play each line and check it starts and ends in the right place; move a cut with the
-            arrows (it jumps to the next pause).
+            {ready.name} · {ready.buffer.duration.toFixed(1)} s. Play each line and check it starts and ends in the right place; nudge a cut by 0.1 s or jump
+            it to the previous or next pause, and use “Listen at the cut” to hear both sides of it.
           </p>
           {guessed > 0 && (
             <p role="status" className="rounded-control border border-border p-2 text-xs">
@@ -164,16 +175,41 @@ export function FullVoiceover({ projectId, scriptId, lines }: { projectId: strin
                   </div>
                 </div>
                 {i < lines.length - 1 && (
-                  <div className="flex items-center gap-2 text-xs text-muted">
-                    <span>
-                      Cut at {ready.cuts[i].toFixed(2)} s{ready.split.chosen[i] === null && ready.cuts[i] === ready.split.cuts[i] ? " (guess)" : ""}
-                    </span>
-                    <button type="button" onClick={() => move(i, -1)} className="btn btn-quiet min-h-11 min-w-11" aria-label={`Move the cut after line ${i + 1} earlier`}>
-                      ◀
-                    </button>
-                    <button type="button" onClick={() => move(i, 1)} className="btn btn-quiet min-h-11 min-w-11" aria-label={`Move the cut after line ${i + 1} later`}>
-                      ▶
-                    </button>
+                  <div className="space-y-1 text-xs text-muted">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="mr-1 tabular-nums">
+                        Cut at {ready.cuts[i].toFixed(2)} s{ready.split.chosen[i] === null && ready.cuts[i] === ready.split.cuts[i] ? " (guess)" : ""}
+                      </span>
+                      <button type="button" onClick={() => jump(i, -1)} className="btn btn-quiet min-h-11 px-2" aria-label={`Move the cut after line ${i + 1} to the previous pause`}>
+                        ⏮ pause
+                      </button>
+                      <button type="button" onClick={() => setCut(i, ready.cuts[i] - 0.1)} className="btn btn-quiet min-h-11 px-2" aria-label={`Move the cut after line ${i + 1} 0.1 seconds earlier`}>
+                        −0.1 s
+                      </button>
+                      <button type="button" onClick={() => setCut(i, ready.cuts[i] + 0.1)} className="btn btn-quiet min-h-11 px-2" aria-label={`Move the cut after line ${i + 1} 0.1 seconds later`}>
+                        +0.1 s
+                      </button>
+                      <button type="button" onClick={() => jump(i, 1)} className="btn btn-quiet min-h-11 px-2" aria-label={`Move the cut after line ${i + 1} to the next pause`}>
+                        pause ⏭
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="mr-1">Listen at the cut:</span>
+                      <button
+                        type="button"
+                        onClick={() => (playing === 1000 + i ? stop() : play(1000 + i, Math.max(0, ready.cuts[i] - 1.5), ready.cuts[i]))}
+                        className="btn btn-quiet min-h-11 px-2"
+                      >
+                        {playing === 1000 + i ? "■" : "▶"} end of {i + 1}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => (playing === 2000 + i ? stop() : play(2000 + i, ready.cuts[i], Math.min(ready.buffer.duration, ready.cuts[i] + 1.5)))}
+                        className="btn btn-quiet min-h-11 px-2"
+                      >
+                        {playing === 2000 + i ? "■" : "▶"} start of {i + 2}
+                      </button>
+                    </div>
                   </div>
                 )}
               </li>
