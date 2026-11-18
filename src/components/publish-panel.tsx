@@ -43,6 +43,8 @@ export function PublishPanel({
   ready,
   action,
   autoAction,
+  tiktok,
+  videoSeconds,
 }: {
   accounts: Account[];
   defaults: Partial<Record<Platform, { title?: string; text: string }>>;
@@ -54,12 +56,18 @@ export function PublishPanel({
   ready: string | null;
   action: (prev: StepResult, form: FormData) => Promise<StepResult>;
   autoAction: (on: boolean) => Promise<StepResult>;
+  /** Live TikTok account info (creator_info), required on TikTok's posting screen. */
+  tiktok?: { info?: TikTokInfo; error?: string };
+  videoSeconds: number | null;
 }) {
   const [state, run, pending] = useActionState(action, null);
   const [auto, setAuto] = useState(autoPublish);
   const [autoState, setAutoState] = useState<StepResult>(null);
   const [autoPending, startAuto] = useTransition();
   const failed = publications.some((p) => p.status === "failed");
+  const tt = useTikTokChoices();
+  const ttAccount = accounts.find((a) => a.platform === "tiktok" && a.health === "ok");
+  const ttProblem = ttAccount && tt.enabled ? tiktokProblem(tt, tiktok, videoSeconds) : null;
 
   if (!accounts.length) {
     return <p className="text-sm text-muted">No social accounts connected yet. Connect them on the Accounts page.</p>;
@@ -70,12 +78,41 @@ export function PublishPanel({
       <form action={run} className="space-y-4">
         <ul className="divide-y divide-border">
           {accounts.map((a) => (
-            <AccountRow key={a.id} account={a} preview={defaults[a.platform]} saved={saved[a.platform] ?? {}} pub={publications.find((p) => p.platform === a.platform)} />
+            <AccountRow
+              key={a.id}
+              account={a}
+              preview={defaults[a.platform]}
+              saved={saved[a.platform] ?? {}}
+              pub={publications.find((p) => p.platform === a.platform)}
+              tt={a.platform === "tiktok" ? { choices: tt, live: tiktok, videoSeconds } : undefined}
+            />
           ))}
         </ul>
 
+        {ttAccount && tt.enabled && (
+          <p className="text-xs text-muted">
+            By posting to TikTok, you agree to TikTok&apos;s{" "}
+            {tt.disclose && tt.branded && (
+              <>
+                <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noreferrer" className="text-link underline">
+                  Branded Content Policy
+                </a>{" "}
+                and{" "}
+              </>
+            )}
+            <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noreferrer" className="text-link underline">
+              Music Usage Confirmation
+            </a>
+            .
+          </p>
+        )}
+        {ttProblem && (
+          <p className="text-xs" style={{ color: "var(--bad)" }}>
+            {ttProblem}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-          <button name="mode" value="now" disabled={pending || Boolean(ready)} className="btn btn-primary">
+          <button name="mode" value="now" disabled={pending || Boolean(ready) || Boolean(ttProblem)} className="btn btn-primary">
             {pending ? "Starting…" : "Post now to selected"}
           </button>
           {failed && (
@@ -89,7 +126,7 @@ export function PublishPanel({
             Schedule (WIB)
             <input type="datetime-local" name="at" className="field mt-1 w-auto" />
           </label>
-          <button name="mode" value="schedule" disabled={pending || Boolean(ready)} className="btn btn-secondary">
+          <button name="mode" value="schedule" disabled={pending || Boolean(ready) || Boolean(ttProblem)} className="btn btn-secondary">
             Schedule post
           </button>
           {publishAt && (
@@ -125,23 +162,39 @@ export function PublishPanel({
   );
 }
 
-function AccountRow({ account: a, preview, saved, pub }: { account: Account; preview?: { title?: string; text: string }; saved: Settings; pub?: Pub }) {
+function AccountRow({
+  account: a,
+  preview,
+  saved,
+  pub,
+  tt,
+}: {
+  account: Account;
+  preview?: { title?: string; text: string };
+  saved: Settings;
+  pub?: Pub;
+  tt?: { choices: TikTokChoices; live?: { info?: TikTokInfo; error?: string }; videoSeconds: number | null };
+}) {
   const ok = a.health === "ok";
-  const [on, setOn] = useState(ok && saved.enabled !== false);
+  const [onLocal, setOnLocal] = useState(ok && saved.enabled !== false);
+  const on = tt ? tt.choices.enabled : onLocal;
+  const setOn = tt ? tt.choices.setEnabled : setOnLocal;
   const p = a.platform;
   return (
     <li className="space-y-2 py-3">
       <input type="hidden" name={`${p}.present`} value="1" />
       <div className="flex items-center gap-3">
-        {a.avatar_url ? (
+        {(tt?.live?.info?.creator_avatar_url ?? a.avatar_url) ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={a.avatar_url} alt="" className="h-9 w-9 rounded-full" referrerPolicy="no-referrer" />
+          <img src={tt?.live?.info?.creator_avatar_url ?? a.avatar_url ?? ""} alt="" className="h-9 w-9 rounded-full" referrerPolicy="no-referrer" />
         ) : (
           <span className="h-9 w-9 rounded-full" style={{ background: COLOR[p] }} />
         )}
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold">{LABEL[p]}</div>
-          <div className="truncate text-xs text-muted">{a.display_name ?? a.handle}</div>
+          <div className="truncate text-xs text-muted">
+            {tt?.live?.info ? `Posting as ${tt.live.info.creator_nickname ?? a.display_name ?? a.handle}` : (a.display_name ?? a.handle)}
+          </div>
         </div>
         <span className="stamp" style={{ color: ok ? "var(--win)" : "var(--bad)" }}>
           {ok ? "Connected" : a.health === "expired" ? "Login expired" : "Needs permission"}
@@ -160,7 +213,7 @@ function AccountRow({ account: a, preview, saved, pub }: { account: Account; pre
         </p>
       )}
       {pub && <PubStatus pub={pub} />}
-      <details>
+      <details open={p === "tiktok" && on}>
         <summary className="cursor-pointer text-xs font-semibold text-muted">Caption and settings</summary>
         <div className="mt-2 space-y-2">
           {(p === "youtube" || p === "facebook") && (
@@ -183,32 +236,7 @@ function AccountRow({ account: a, preview, saved, pub }: { account: Account; pre
               </select>
             </label>
           )}
-          {p === "tiktok" && (
-            <>
-              <label className="block text-xs font-semibold">
-                Who can watch{" "}
-                <select name="tiktok.privacy" defaultValue={saved.privacy ?? "PUBLIC_TO_EVERYONE"} className="field mt-1 w-auto">
-                  <option value="PUBLIC_TO_EVERYONE">Everyone</option>
-                  <option value="MUTUAL_FOLLOW_FRIENDS">Friends</option>
-                  <option value="FOLLOWER_OF_CREATOR">Followers</option>
-                  <option value="SELF_ONLY">Only me</option>
-                </select>
-              </label>
-              <div className="flex flex-wrap gap-4 text-xs font-semibold">
-                {(
-                  [
-                    ["allowComments", "Comments"],
-                    ["allowDuet", "Duet"],
-                    ["allowStitch", "Stitch"],
-                  ] as const
-                ).map(([k, l]) => (
-                  <label key={k} className="flex min-h-11 items-center gap-2">
-                    <input type="checkbox" name={`tiktok.${k}`} defaultChecked={saved[k] !== false} /> {l}
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
+          {p === "tiktok" && tt && <TikTokSettings tt={tt} />}
           {p === "instagram" && (
             <label className="flex min-h-11 items-center gap-2 text-xs font-semibold">
               <input type="checkbox" name="instagram.shareToFeed" defaultChecked={saved.shareToFeed !== false} /> Also share to the feed
@@ -242,6 +270,108 @@ function PubStatus({ pub }: { pub: Pub }) {
       )}
       {pub.note && <p className="text-muted">{pub.note}</p>}
       {pub.status === "failed" && pub.error && <p style={{ color: "var(--bad)" }}>{pub.error}</p>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ TikTok posting rules (Content Sharing Guidelines)
+type TikTokInfo = {
+  creator_avatar_url?: string;
+  creator_nickname?: string;
+  privacy_level_options: string[];
+  comment_disabled: boolean;
+  duet_disabled: boolean;
+  stitch_disabled: boolean;
+  max_video_post_duration_sec: number;
+};
+type TikTokChoices = ReturnType<typeof useTikTokChoices>;
+
+const PRIVACY_LABEL: Record<string, string> = {
+  PUBLIC_TO_EVERYONE: "Everyone",
+  MUTUAL_FOLLOW_FRIENDS: "Friends",
+  FOLLOWER_OF_CREATOR: "Followers",
+  SELF_ONLY: "Only me",
+};
+
+function useTikTokChoices() {
+  const [enabled, setEnabled] = useState(true);
+  const [privacy, setPrivacy] = useState(""); // no default: the creator must choose
+  const [disclose, setDisclose] = useState(false);
+  const [organic, setOrganic] = useState(false);
+  const [branded, setBranded] = useState(false);
+  return { enabled, setEnabled, privacy, setPrivacy, disclose, setDisclose, organic, setOrganic, branded, setBranded };
+}
+
+function tiktokProblem(c: TikTokChoices, live: { info?: TikTokInfo; error?: string } | undefined, videoSeconds: number | null) {
+  if (live?.error) return `TikTok: ${live.error}`;
+  if (!live?.info) return null;
+  if (videoSeconds && videoSeconds > live.info.max_video_post_duration_sec) {
+    return `TikTok: this video is ${Math.round(videoSeconds)} s; your account can post up to ${live.info.max_video_post_duration_sec} s. Switch TikTok off or upload a shorter cut.`;
+  }
+  if (!c.privacy) return "TikTok: choose who can watch before posting.";
+  if (c.disclose && !c.organic && !c.branded) return "TikTok: you switched on content disclosure; choose Your brand, Branded content, or both.";
+  if (c.branded && c.privacy === "SELF_ONLY") return "TikTok: branded content can't be posted as Only me.";
+  return null;
+}
+
+function TikTokSettings({ tt }: { tt: { choices: TikTokChoices; live?: { info?: TikTokInfo; error?: string }; videoSeconds: number | null } }) {
+  const c = tt.choices;
+  const info = tt.live?.info;
+  if (!info) return <p className="text-xs" style={{ color: "var(--bad)" }}>{tt.live?.error ?? "Couldn't load your TikTok account settings."}</p>;
+  const interactions = [
+    ["allowComments", "Allow comments", info.comment_disabled],
+    ["allowDuet", "Allow Duet", info.duet_disabled],
+    ["allowStitch", "Allow Stitch", info.stitch_disabled],
+  ] as const;
+  return (
+    <div className="space-y-3">
+      <label className="block text-xs font-semibold">
+        Who can watch this video
+        <select name="tiktok.privacy" value={c.privacy} onChange={(e) => c.setPrivacy(e.target.value)} required={c.enabled} className="field mt-1 w-auto">
+          <option value="" disabled>
+            Choose…
+          </option>
+          {info.privacy_level_options.map((o) => (
+            <option key={o} value={o} disabled={o === "SELF_ONLY" && c.disclose && c.branded}>
+              {PRIVACY_LABEL[o] ?? o}
+              {o === "SELF_ONLY" && c.disclose && c.branded ? " (not for branded content)" : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="flex flex-wrap gap-4 text-xs font-semibold">
+        {interactions.map(([k, l, off]) => (
+          <label key={k} className={`flex min-h-11 items-center gap-2 ${off ? "text-muted" : ""}`}>
+            <input type="checkbox" name={`tiktok.${k}`} defaultChecked={false} disabled={off} /> {l}
+            {off ? " (off in your TikTok settings)" : ""}
+          </label>
+        ))}
+      </div>
+      <div className="space-y-2 rounded-control border border-border p-3">
+        <label className="flex min-h-11 items-center gap-2 text-xs font-semibold">
+          <input type="checkbox" name="tiktok.discloseContent" checked={c.disclose} onChange={(e) => c.setDisclose(e.target.checked)} /> Disclose video content
+        </label>
+        <p className="text-xs text-muted">Turn on if this video promotes goods or services in exchange for something of value: yourself, a third party, or both.</p>
+        {c.disclose && (
+          <div className="space-y-2 pl-6">
+            <label className="flex min-h-11 items-start gap-2 text-xs">
+              <input type="checkbox" name="tiktok.brandOrganic" checked={c.organic} onChange={(e) => c.setOrganic(e.target.checked)} className="mt-0.5" />
+              <span>
+                <span className="font-semibold">Your brand.</span> You are promoting yourself or your own business. TikTok labels it &quot;Promotional content&quot;.
+              </span>
+            </label>
+            <label className="flex min-h-11 items-start gap-2 text-xs">
+              <input type="checkbox" name="tiktok.brandContent" checked={c.branded} onChange={(e) => c.setBranded(e.target.checked)} className="mt-0.5" />
+              <span>
+                <span className="font-semibold">Branded content.</span> You are promoting another brand or a third party. TikTok labels it &quot;Paid partnership&quot;.
+              </span>
+            </label>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-muted">
+        Max video length for your account: {info.max_video_post_duration_sec} s{tt.videoSeconds ? ` · this video: ${Math.round(tt.videoSeconds)} s` : ""}.
+      </p>
     </div>
   );
 }
