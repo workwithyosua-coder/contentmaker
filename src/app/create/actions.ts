@@ -214,3 +214,16 @@ export async function saveVideoToDriveAction(projectId: string, videoId: string)
     return { ok: false, message: message(err) };
   }
 }
+
+/** "Render video": asks GitHub Actions to render the episode; the page shows progress and the video when it lands. */
+export async function renderVideoAction(projectId: string): Promise<StepResult> {
+  try {
+    await owner();
+    const { startRender } = await import("@/lib/render-jobs");
+    await startRender(projectId);
+    revalidatePath(`/create/${projectId}`);
+    return { ok: true, message: "Render started. It takes about 15–20 minutes; this page updates by itself." };
+  } catch (err) {
+    return { ok: false, message: message(err) };
+  }
+}

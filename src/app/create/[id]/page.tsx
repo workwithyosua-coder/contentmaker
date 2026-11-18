@@ -4,10 +4,12 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { AutoRefresh, CopyButton, ReviseForm, StepButton } from "@/components/episode-ui";
+import { EpisodePreview } from "@/components/episode-preview";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
-import { recordingProgress } from "@/lib/recordings";
+import { getBooth, recordingProgress } from "@/lib/recordings";
+import { latestRenderJob, renderButtonConfigured } from "@/lib/render-jobs";
 import { latestVideo } from "@/lib/render";
 import { getDriveConnection } from "@/lib/drive";
 import { getOwner } from "@/lib/queries";
@@ -17,6 +19,7 @@ import {
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
+  renderVideoAction,
   saveVideoToDriveAction,
   unpickIdeaAction,
 } from "../actions";
@@ -64,18 +67,21 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
   const ep = await getEpisode(owner.id, id);
   if (!ep) notFound();
   const { project, concepts, latestScript, captions } = ep;
-  const [progress, video, drive] = await Promise.all([
+  const [progress, video, drive, booth, job] = await Promise.all([
     recordingProgress(project.id),
     latestVideo(project.id).catch(() => null),
     getDriveConnection(owner.id).catch(() => null),
+    getBooth(owner.id, project.id).catch(() => null),
+    latestRenderJob(project.id).catch(() => null),
   ]);
+  const rendering = job?.status === "queued" || job?.status === "running";
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
 
   return (
     <div className="space-y-4">
-      <AutoRefresh active={working} />
+      <AutoRefresh active={working || rendering} />
       <header>
         <h1 className="text-2xl font-semibold">{project.title ?? "New episode"}</h1>
         {project.direction && <p className="text-sm text-muted">Direction: {project.direction}</p>}
@@ -194,6 +200,53 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
               );
             })}
           </ul>
+        </Card>
+      )}
+
+      {booth?.script && progress.recorded > 0 && (
+        <Card title="Animation">
+          <div className="space-y-4">
+            <EpisodePreview
+              title={booth.script.title || project.title || "Episode"}
+              lines={booth.lines.map((l) => ({
+                index: l.index,
+                beat: l.beat,
+                speaker: l.speaker,
+                text: l.text,
+                subtitle: l.subtitle,
+                expression: l.expression,
+                visual: l.visual,
+                on_screen_text: l.on_screen_text,
+                thought_bubble: l.thought_bubble,
+                take: booth.recorded[l.index]?.url ?? null,
+              }))}
+            />
+            <div className="space-y-2 border-t border-border pt-4">
+              {renderButtonConfigured() ? (
+                <StepButton
+                  action={renderVideoAction.bind(null, project.id)}
+                  label={video ? "Render a new video" : "Render video"}
+                  pendingLabel="Starting…"
+                  variant={video ? "secondary" : "primary"}
+                />
+              ) : (
+                <p className="text-xs text-muted">The Render button needs GITHUB_DISPATCH_TOKEN in Vercel.</p>
+              )}
+              {job && (
+                <p className="text-xs" style={{ color: job.status === "failed" ? "var(--bad)" : undefined }}>
+                  {job.status === "queued" && "Render queued on GitHub… "}
+                  {job.status === "running" && `Rendering since ${job.updated_at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Usually 15–20 minutes; this page updates by itself. `}
+                  {job.status === "done" && "Last render finished; the video is below. "}
+                  {job.status === "failed" && `Last render failed: ${job.error ?? "unknown error"} `}
+                  {job.run_url && (
+                    <a href={job.run_url} target="_blank" rel="noreferrer" className="text-link underline">
+                      Open on GitHub
+                    </a>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
         </Card>
       )}
 

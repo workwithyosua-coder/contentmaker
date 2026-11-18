@@ -31,6 +31,8 @@ export type EpisodeLine = ManifestLine & {
   frames: number;
   /** Loudness per frame, 0..1, drives the mouth. */
   envelope: number[];
+  /** Frames to skip at the start of the audio (silence), when it isn't pre-trimmed. Used by the in-app preview. */
+  trimFrom?: number;
 };
 
 export type EpisodeProps = { title: string; lines: EpisodeLine[] };
