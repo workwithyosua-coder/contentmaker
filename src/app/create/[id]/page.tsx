@@ -3,10 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import { AutoRefresh, CopyButton, ReviseForm, StepButton } from "@/components/episode-ui";
+import { AutoRefresh, CopyButton, StepButton } from "@/components/episode-ui";
+import { ScriptEditor, ScriptLine } from "@/components/script-editor";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, PLATFORM_LABEL } from "@/components/ui";
+import { EXPRESSIONS } from "@/lib/agents/writers-room";
 import { getEpisode, type ScriptRow } from "@/lib/episodes";
+import { estimateSeconds, formatDuration } from "@/lib/script-import";
 import { recordingProgress } from "@/lib/recordings";
 import { latestVideo } from "@/lib/render";
 import { getDriveConnection } from "@/lib/drive";
@@ -14,11 +17,13 @@ import { getOwner } from "@/lib/queries";
 import {
   approveScriptAction,
   deleteEpisodeAction,
+  importScriptAction,
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
   saveVideoToDriveAction,
   unpickIdeaAction,
+  updateLineAction,
 } from "../actions";
 
 export const maxDuration = 300;
@@ -50,15 +55,22 @@ export default function EpisodePage(props: PageProps<"/create/[id]">) {
         ← All episodes
       </Link>
       <Suspense fallback={<div className="h-64 animate-pulse rounded-card bg-surface-2" />}>
-        <Episode params={props.params} />
+        <Episode params={props.params} searchParams={props.searchParams} />
       </Suspense>
     </>
   );
 }
 
-async function Episode({ params }: { params: PageProps<"/create/[id]">["params"] }) {
+async function Episode({
+  params,
+  searchParams,
+}: {
+  params: PageProps<"/create/[id]">["params"];
+  searchParams: PageProps<"/create/[id]">["searchParams"];
+}) {
   await connection();
   const { id } = await params;
+  const wantVersion = Number((await searchParams).v) || null;
   const owner = await getOwner().catch(() => null);
   if (!owner) return <SetupNotice />;
   const ep = await getEpisode(owner.id, id);
@@ -160,17 +172,29 @@ async function Episode({ params }: { params: PageProps<"/create/[id]">["params"]
       )}
 
       {/* Step 2: script */}
-      {latestScript && <ScriptView script={latestScript} versions={ep.scriptVersions} />}
+      {latestScript && (
+        <ScriptView
+          script={ep.scripts.find((x) => x.version === wantVersion) ?? latestScript}
+          versions={ep.scripts.map((x) => x.version)}
+          projectId={project.id}
+          latestVersion={latestScript.version}
+        />
+      )}
 
-      {latestScript && !latestScript.approved_at && !working && (
-        <Card title="Happy with it?">
+      {latestScript && !working && (
+        <Card title={latestScript.approved_at ? "Change the script" : "Happy with it?"}>
           <div className="space-y-4">
-            <StepButton
-              action={approveScriptAction.bind(null, project.id)}
-              label="Approve script & write captions"
-              pendingLabel="Starting…"
+            {!latestScript.approved_at && (
+              <StepButton
+                action={approveScriptAction.bind(null, project.id)}
+                label="Approve script & write captions"
+                pendingLabel="Starting…"
+              />
+            )}
+            <ScriptEditor
+              reviseAction={reviseScriptAction.bind(null, project.id)}
+              importAction={importScriptAction.bind(null, project.id)}
             />
-            <ReviseForm action={reviseScriptAction.bind(null, project.id)} />
           </div>
         </Card>
       )}
@@ -273,47 +297,69 @@ function Progress({ text }: { text: string }) {
   );
 }
 
-function ScriptView({ script, versions }: { script: ScriptRow; versions: number }) {
+function ScriptView({
+  script,
+  versions,
+  projectId,
+  latestVersion,
+}: {
+  script: ScriptRow;
+  versions: number[];
+  projectId: string;
+  latestVersion: number;
+}) {
   const plain = script.lines
     .map((l) => `${l.speaker === "uco" ? "UCO" : "OCU"}${l.thought_bubble ? " (thought)" : ""}: ${l.text}\n   [EN] ${l.subtitle}`)
     .join("\n");
+  const isLatest = script.version === latestVersion;
+  // Length from the lines themselves, not the writer's estimate.
+  const duration = formatDuration(estimateSeconds(script.lines));
+  const imported = script.feedback?.startsWith("Imported ");
+  const note = script.feedback
+    ? imported
+      ? script.feedback
+      : `Revised for: “${script.feedback.length > 160 ? `${script.feedback.slice(0, 157)}…` : script.feedback}”`
+    : null;
   return (
     <Card
-      title={`Script v${script.version}${versions > 1 ? ` of ${versions}` : ""} · ~${script.target_duration_s ?? "?"} s`}
+      title={`Script v${script.version}${versions.length > 1 ? ` of ${versions.length}` : ""} · ${script.lines.length} lines · ~${duration}`}
       action={<CopyButton text={`${script.title}\n\n${plain}`} label="Copy script" />}
     >
-      {script.feedback && <p className="mb-3 text-xs text-muted">Revised for: “{script.feedback}”</p>}
+      {versions.length > 1 && (
+        <nav aria-label="Script versions" className="mb-3 flex flex-wrap gap-1 text-xs">
+          {[...versions].sort((a, b) => a - b).map((v) => (
+            <Link
+              key={v}
+              href={v === latestVersion ? `/create/${projectId}` : `/create/${projectId}?v=${v}`}
+              aria-current={v === script.version ? "page" : undefined}
+              className={`inline-flex min-h-9 items-center rounded-control border px-2 font-semibold ${v === script.version ? "border-text text-text" : "border-border text-muted hover:text-text"}`}
+            >
+              v{v}
+            </Link>
+          ))}
+        </nav>
+      )}
+      {!isLatest && <p className="mb-3 text-xs text-muted">An older version, view only. The newest version is v{latestVersion}.</p>}
+      {note && <p className="mb-3 text-xs text-muted">{note}</p>}
       <ol className="space-y-2">
         {script.lines.map((l, i) => {
           const showBeat = i === 0 || script.lines[i - 1].beat !== l.beat;
-          const uco = l.speaker === "uco";
           return (
             <li key={i}>
-              {showBeat && (
-                <div className="mb-1 mt-4 text-xs font-bold text-muted">{BEAT_LABEL[l.beat] ?? l.beat}</div>
-              )}
-              <div className={`flex ${uco ? "justify-start" : "justify-end"}`}>
-                <div
-                  className={`max-w-[88%] rounded-card px-3 py-2 ${l.thought_bubble ? "border-2 border-dashed" : ""}`}
-                  style={{
-                    background: uco ? "var(--uco-bg)" : "var(--ocu-bg)",
-                    borderColor: uco ? "var(--uco)" : "var(--ocu)",
-                  }}
-                >
-                  <div className="mb-0.5 flex items-center gap-2 text-[11px]">
-                    <span className="font-bold" style={{ color: uco ? "var(--uco)" : "var(--ocu)" }}>{uco ? "Uco" : "Ocu"}</span>
-                    <span className="text-muted">{l.thought_bubble ? "💭 thinking" : l.expression}</span>
-                  </div>
-                  <p className="text-sm">{l.text}</p>
-                  <p className="mt-0.5 text-xs italic text-muted">{l.subtitle}</p>
-                  {(l.on_screen_text || l.visual) && (
-                    <p className="mt-1 text-[11px] text-muted">
-                      🎬 {l.visual}
-                      {l.on_screen_text ? ` · on screen: “${l.on_screen_text}”` : ""}
-                    </p>
-                  )}
-                </div>
-              </div>
+              {showBeat && <div className="mb-1 mt-4 text-xs font-bold text-muted">{BEAT_LABEL[l.beat] ?? l.beat}</div>}
+              <ScriptLine
+                line={{
+                  speaker: l.speaker,
+                  text: l.text,
+                  subtitle: l.subtitle,
+                  expression: l.expression,
+                  thought_bubble: l.thought_bubble,
+                  visual: l.visual,
+                  on_screen_text: l.on_screen_text,
+                }}
+                expressions={EXPRESSIONS}
+                editAction={isLatest ? updateLineAction.bind(null, projectId, script.id, i) : undefined}
+              />
             </li>
           );
         })}
