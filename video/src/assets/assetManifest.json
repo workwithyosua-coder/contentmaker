@@ -17,5 +17,17 @@
     "uco/triumphant-closed.png",
     "uco/triumphant-open.png"
   ],
-  "sfx": []
+  "sfx": [
+    "ding.mp3",
+    "pop.mp3",
+    "record-scratch.mp3",
+    "stamp.mp3",
+    "whoosh.mp3"
+  ],
+  "props": [
+    "bubur-kerupuk.png",
+    "bubur-mixed.png",
+    "bubur-unmixed.png",
+    "nasi-padang-blender.png"
+  ]
 }

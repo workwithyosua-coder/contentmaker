@@ -22,7 +22,7 @@ export function GrainVignette({ reduced, tone }: { reduced: boolean; tone: "pape
   );
 }
 
-export type SfxCue = { name: "whoosh" | "stamp" | "pop"; frame: number; volume?: number };
+export type SfxCue = { name: "whoosh" | "stamp" | "pop" | "ding" | "record-scratch"; frame: number; volume?: number };
 
 /** Sound-effect cues. Each plays only if public/sfx/{name}.mp3 (or .wav) has been added; otherwise nothing. */
 export function SfxCues({ cues }: { cues: SfxCue[] }) {

@@ -1,6 +1,7 @@
 // Lists the optional animation assets that exist, so the video can use them and fall back when they don't:
 //   public/cast/{uco|ocu}/{emotion}-{closed|open}.png   illustrated puppet sprites (see video/src/cast/README.md)
 //   public/sfx/{whoosh|stamp|pop}.mp3                     sound effects
+//   public/props/{name}.png                              illustrated props (see video/src/props/library.ts)
 // Writes video/src/assets/assetManifest.json. Runs before `next build` (prebuild) and before every render, so files
 // added straight to GitHub are picked up on the next deploy / render without touching code.
 import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -24,12 +25,12 @@ function list(dir: string, ext: RegExp): string[] {
 }
 
 export function writeAssetManifest() {
-  const manifest = { cast: list("cast", /\.png$/i), sfx: list("sfx", /\.(mp3|wav)$/i) };
+  const manifest = { cast: list("cast", /\.png$/i), sfx: list("sfx", /\.(mp3|wav)$/i), props: list("props", /\.png$/i) };
   writeFileSync(path.join(root, "video/src/assets/assetManifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   return manifest;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
   const m = writeAssetManifest();
-  console.log(`asset manifest: ${m.cast.length} cast sprites, ${m.sfx.length} sound effects`);
+  console.log(`asset manifest: ${m.cast.length} cast sprites, ${m.sfx.length} sound effects, ${m.props.length} props`);
 }

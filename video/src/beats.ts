@@ -1,4 +1,7 @@
-import { END_FRAMES, timeline, type EpisodeLine } from "./types";
+import { propFile, sfxFile } from "./assets";
+import { KINETIC_SLAM, sfxCuesFor } from "./shared/sfxCues";
+import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
+import { END_FRAMES, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
 // The shared beat timeline. Every style can read an episode as a list of beats; the cue-based styles (Koran Kinetik,
 // Diagram Taktis) render only from it. One beat per spoken line (same start frames as the audio, from timeline()),
@@ -32,8 +35,22 @@ export type Beat = {
   cameraShot: CameraShot;
   emotion: Emotion;
   propTag: PropTag;
+  /** illustrated prop from public/props ({name}.png), shown instead of the coded propTag; null when none fits or
+   *  the file isn't there yet */
+  propImage: string | null;
+  /** callout labels pointing at parts of propImage (ids from props/library.ts), in the order they appear */
+  callouts: string[];
+  /** explainer card on the visual stage, with its 1-word title */
+  overlay: { kind: Overlay; title: string } | null;
+  /** inner thought: dimmed backdrop, comic thought bubble with the prop inside, italic subtitle */
+  thought: boolean;
+  /** 2–4 word floating kinetic text on emphasis beats (hook, insight, button, close-ups) and the CTA; else null */
+  kinetic: string | null;
   sceneImageUrl: string | null;
 };
+
+export const OVERLAYS = ["wave-graph", "brain-badge"] as const;
+export type Overlay = (typeof OVERLAYS)[number];
 
 export type SubtitleChunk = { text: string; startFrame: number; endFrame: number };
 
@@ -94,10 +111,10 @@ function defaultEmotion(l: EpisodeLine, prev: Emotion | null): Emotion {
   return prev === "deadpan" ? "explaining" : "deadpan";
 }
 
-/** Punchlines and big reactions get an extreme close-up, inner thoughts a two-shot, everything else a solo shot. */
+/** Punchlines and big reactions get an extreme close-up; everything else (inner thoughts too) the speaker's solo. */
 function defaultShot(l: EpisodeLine, emotion: Emotion, prevShot: CameraShot | null): CameraShot {
+  if (l.thought_bubble) return l.speaker === "uco" ? "solo-uco" : "solo-ocu";
   if (l.beat === "button") return "closeup-punch";
-  if (l.thought_bubble) return "two-shot";
   if (emotion === "shocked" && prevShot !== "closeup-punch" && /\?!|!\?|!!/.test(`${l.text} ${l.subtitle ?? ""}`)) return "closeup-punch";
   return l.speaker === "uco" ? "solo-uco" : "solo-ocu";
 }
@@ -126,6 +143,91 @@ function defaultProp(l: EpisodeLine): PropTag {
   if (/struk|receipt|biaya|fee|admin|bunga|interest|denda/i.test(v)) return "receipt-magnifier";
   if (/cash|tunai|paylater|cicil|kredit|bnpl/i.test(v)) return "cash-vs-paylater";
   return "none";
+}
+
+// ------------------------------------------------------------------ visual stage: props, explainer cards, kinetic text
+type PropLine = Pick<ManifestLine, "text" | "subtitle" | "visual" | "on_screen_text" | "prop_tag">;
+const propText = (l: PropLine) => `${l.visual ?? ""} ${l.text} ${l.subtitle ?? ""} ${l.on_screen_text ?? ""}`;
+
+/**
+ * The illustrated prop a line asks for: an explicit prop_tag naming a PNG prop, else the first library prop whose
+ * words appear in the line. `file` is null when that PNG hasn't been added to public/props yet.
+ */
+export function wantedPropImage(l: PropLine): { name: string; explicit: boolean } | null {
+  const tag = l.prop_tag?.trim() ?? "";
+  if (isPropName(tag) && tag !== "none" && !(PROP_TAGS as readonly string[]).includes(tag)) return { name: tag, explicit: true };
+  if ((PROP_TAGS as readonly string[]).includes(tag) && tag !== "none") return null; // a coded prop was asked for
+  const hit = PNG_PROPS.find((p) => p.rx.test(propText(l)));
+  return hit ? { name: hit.name, explicit: false } : null;
+}
+
+const OVERLAY_RX: Record<Overlay, RegExp> = {
+  "wave-graph": /\b(emulsi\w*|emulsion|emulsify|tekstur|texture|kental|creamy|krimi|homogen\w*|viscos\w*|gelombang|waves?|grafik|graph|lumer|menyatu|blends? together)\b/i,
+  "brain-badge": /\b(otak|brain|psikolog\w*|psycholog\w*|dopamin\w*|dopamine|mental|bias|sugesti|placebo|persepsi|perception|nostalgi\w*|kebiasaan|habit|emosi\w*|emotion\w*|ilusi|illusion|kognitif|cognitive)\b/i,
+};
+
+const OVERLAY_TITLES: Record<Overlay, [RegExp, string][]> = {
+  "wave-graph": [[/emulsi|emulsion|emulsify/i, "EMULSI"], [/tekstur|texture/i, "TEKSTUR"], [/kental|creamy|krimi|viscos/i, "KEKENTALAN"], [/homogen|menyatu|lumer|blend/i, "MENYATU"]],
+  "brain-badge": [[/dopamin/i, "DOPAMIN"], [/nostalgi/i, "NOSTALGIA"], [/kebiasaan|habit/i, "KEBIASAAN"], [/placebo|sugesti/i, "SUGESTI"], [/persepsi|perception|ilusi|illusion/i, "PERSEPSI"], [/\bbias\b/i, "BIAS"], [/emosi|emotion/i, "EMOSI"]],
+};
+
+function overlayFor(l: EpisodeLine): { kind: Overlay; title: string } | null {
+  const tag = (l as { overlay?: string | null }).overlay;
+  if (tag === "none") return null;
+  const v = `${l.visual ?? ""} ${l.text} ${l.subtitle ?? ""}`;
+  const kind = oneOf(OVERLAYS, tag) ?? OVERLAYS.find((o) => OVERLAY_RX[o].test(v)) ?? null;
+  if (!kind) return null;
+  const title = OVERLAY_TITLES[kind].find(([rx]) => rx.test(v))?.[1] ?? (kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI");
+  return { kind, title };
+}
+
+/** Parts of the prop the line names (in the order spoken), or up to 3 parts when the speaker is explaining it. */
+function calloutsFor(l: EpisodeLine, name: string | null, emotion: Emotion): string[] {
+  const prop = name ? pngPropByName(name) : null;
+  if (!prop) return [];
+  const v = `${l.text} ${l.subtitle ?? ""} ${l.visual ?? ""}`;
+  const named = prop.parts
+    .map((p) => ({ id: p.id, at: v.search(p.rx) }))
+    .filter((p) => p.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map((p) => p.id);
+  if (named.length) return named.slice(0, 3);
+  return emotion === "explaining" || emotion === "inspecting" ? prop.parts.slice(0, 3).map((p) => p.id) : [];
+}
+
+const EMPHASIS_BEATS = new Set(["hook", "insight", "button"]);
+/** Floating kinetic text: only on emphasis beats and close-ups, 2–4 words (the stamp, else a short headline). */
+function kineticFor(beatType: string, shot: CameraShot, cue: ImportantMessage): string | null {
+  if (!EMPHASIS_BEATS.has(beatType) && shot !== "closeup-punch") return null;
+  const pick = [cue.stamp, cue.headline].map((t) => (t ?? "").trim()).find((t) => t && t.split(/\s+/).length <= 4);
+  if (pick) return pick;
+  const w = cue.headline.trim().split(/\s+/);
+  return w.length >= 2 ? w.slice(0, 3).join(" ") : null;
+}
+
+export type AssetCheck = { name: string; file: string; ready: boolean; lines: number[] };
+
+/**
+ * What an episode needs from public/props and public/sfx (for the pre-render checklist): the PNG props its lines
+ * call for and the sound effects the cue styles cue. `lines` are 1-based line numbers that need the prop.
+ */
+export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { stamp?: boolean } = {}) {
+  const props = new Map<string, AssetCheck>();
+  lines.forEach((l, i) => {
+    const w = wantedPropImage(l);
+    if (!w) return;
+    const file = propFile(w.name);
+    const c = props.get(w.name) ?? { name: w.name, file: file ?? `props/${w.name}.png`, ready: Boolean(file), lines: [] };
+    c.lines.push(i + 1);
+    props.set(w.name, c);
+  });
+  const beats = buildBeats(lines.map((l, i) => ({ ...l, index: l.index ?? i, hasAudio: false, audio: null, frames: 90, envelope: [] }) as EpisodeLine));
+  const sfx = new Map<string, AssetCheck>();
+  for (const cue of new Set(sfxCuesFor(beats, { stampAt: opts.stamp ? KINETIC_SLAM : undefined }).map((c) => c.name))) {
+    const file = sfxFile(cue);
+    sfx.set(cue, { name: cue, file: file ?? `sfx/${cue}.mp3`, ready: Boolean(file), lines: [] });
+  }
+  return { props: [...props.values()], sfx: [...sfx.values()] };
 }
 
 // ------------------------------------------------------------------ movie-style subtitle chunks
@@ -245,6 +347,19 @@ function englishOf(l: Pick<EpisodeLine, "subtitle" | "text">) {
 
 export const CTA_CUE: ImportantMessage = { kicker: "UCO & OCU", headline: "FOLLOW KONTEN PINTER ANTI ZONK", stamp: "FOLLOW +" };
 
+function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot }) {
+  const want = wantedPropImage(l);
+  const propImage = want && propFile(want.name) ? want.name : null;
+  const cue = clampCue(l.important_message, fallbackCue(l));
+  return {
+    propImage,
+    callouts: calloutsFor(l, propImage, d.emotion),
+    overlay: overlayFor(l),
+    thought: Boolean(l.thought_bubble),
+    kinetic: l.thought_bubble ? null : kineticFor(l.beat, d.cameraShot, cue),
+  };
+}
+
 export function buildBeats(lines: EpisodeLine[]): Beat[] {
   const { starts, end } = timeline(lines);
   const directed = directLines(lines);
@@ -261,6 +376,7 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     cameraShot: directed[i].cameraShot,
     emotion: directed[i].emotion,
     propTag: oneOf(PROP_TAGS, l.prop_tag) ?? defaultProp(l),
+    ...stageFor(l, directed[i]),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
   }));
   beats.push({
@@ -276,6 +392,11 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     cameraShot: "cta-stinger",
     emotion: "cta",
     propTag: "none",
+    propImage: null,
+    callouts: [],
+    overlay: null,
+    thought: false,
+    kinetic: CTA_CUE.stamp ?? null,
     sceneImageUrl: null,
   });
   return beats;

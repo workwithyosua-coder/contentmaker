@@ -4,6 +4,7 @@ import manifest from "./assetManifest.json";
 // file mid-render, so the video asks this list instead and falls back (SVG cast, silent SFX) when a file isn't here.
 const cast = new Set<string>(manifest.cast);
 const sfx = new Set<string>(manifest.sfx);
+const props = new Set<string>(manifest.props);
 
 /** Each character's default sprite emotion, used when the beat's emotion hasn't been drawn yet. */
 const DEFAULT_EMOTION: Record<"uco" | "ocu", string[]> = {
@@ -30,4 +31,9 @@ export function sfxFile(name: string): string | null {
   if (sfx.has(`${name}.mp3`)) return `sfx/${name}.mp3`;
   if (sfx.has(`${name}.wav`)) return `sfx/${name}.wav`;
   return null;
+}
+
+/** `props/{name}.png` when that illustrated prop has been added, else null. */
+export function propFile(name: string): string | null {
+  return props.has(`${name}.png`) ? `props/${name}.png` : null;
 }

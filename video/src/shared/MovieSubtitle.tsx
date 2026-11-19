@@ -9,7 +9,7 @@ import type { SubtitleChunk } from "../beats";
 
 const BAND = { left: 60, width: 880, top: 1120, bottom: 1250 } as const;
 
-export function MovieSubtitle({ chunks, frame, reduced }: { chunks: SubtitleChunk[]; frame: number; reduced: boolean }) {
+export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chunks: SubtitleChunk[]; frame: number; reduced: boolean; italic?: boolean }) {
   const c = chunks.find((x) => frame >= x.startFrame && frame < x.endFrame);
   if (!c) return null;
   const local = frame - c.startFrame;
@@ -33,6 +33,7 @@ export function MovieSubtitle({ chunks, frame, reduced }: { chunks: SubtitleChun
         style={{
           fontFamily: "Montserrat, 'Arial Black', sans-serif",
           fontWeight: 800,
+          fontStyle: italic ? "italic" : "normal",
           fontSize: size,
           lineHeight: 1.12,
           textAlign: "center",
