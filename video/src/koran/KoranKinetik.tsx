@@ -6,7 +6,7 @@ import { CARD_BOTTOM, FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTr
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
-// "Koran Kinetik" (editorial-paper-cutout), ported from _refs/UcoOcuStyleLabWithCast.jsx. Frame-driven only:
+// "Koran Kinetik" (editorial-paper-cutout), ported from the Uco & Ocu Style Lab reference (PR #28). Frame-driven only:
 // paper-slide entrance (6 frames), slow 1.00→1.04 push-in, highlighter sweep, red stamp slam, cut-out cast.
 // On-screen text is only each beat's important message; there are no subtitles.
 

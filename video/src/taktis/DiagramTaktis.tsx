@@ -7,7 +7,7 @@ import type { CueProps } from "../koran/KoranKinetik";
 import { TACTICAL_VECTOR_HUD_STYLE } from "../styles/registry";
 import type { EpisodeLine } from "../types";
 
-// "Diagram Taktis" (tactical-vector-hud), ported from _refs/UcoOcuStyleLabWithCast.jsx. Frame-driven only:
+// "Diagram Taktis" (tactical-vector-hud), ported from the Uco & Ocu Style Lab reference (PR #28). Frame-driven only:
 // panels spring-snap in (mass 0.7, damping 14, stiffness 200), indicator lines retract before each cut, voice meters
 // follow the recorded loudness. On-screen text is only each beat's important message; there are no subtitles.
 

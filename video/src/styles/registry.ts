@@ -74,7 +74,7 @@ export const UCO_OCU_2D_COMIC_STYLE = {
   shotLayouts: ["uco-solo-orange", "ocu-solo-teal", "split-screen-jagged-yellow", "two-shot-debate", "thought-dimmed-charcoal"],
 } as const;
 
-// Cue-based styles (from _refs/UcoOcuStyleLabWithCast.jsx). They show only each beat's important message
+// Cue-based styles (from the Uco & Ocu Style Lab reference (PR #28)). They show only each beat's important message
 // (kicker ≤ 2 words, headline ≤ 5 words), never full-sentence subtitles. Beat timeline: video/src/beats.ts.
 export const EDITORIAL_PAPER_CUTOUT_STYLE = {
   id: "editorial-paper-cutout",

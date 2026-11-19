@@ -1,6 +1,6 @@
 import React from "react";
 
-// Uco & Ocu busts from _refs/UcoOcuStyleLabWithCast.jsx (viewBox 180×200), ported for Remotion: pure props, no
+// Uco & Ocu busts from the Uco & Ocu Style Lab reference (PR #28) (viewBox 180×200), ported for Remotion: pure props, no
 // state or timers. Two variants: "paper" (Koran Kinetik: white cut-out border + ink drop shadow) and "hud" (Diagram
 // Taktis: darker wardrobe tones). The chalk variant from the reference is intentionally not ported.
 
