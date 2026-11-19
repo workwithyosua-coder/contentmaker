@@ -21,6 +21,9 @@ const MEASURED: Record<string, HeadBox> = {
   "uco/defensive": { hairTop: 150, chin: 720, faceX: 410 },
   "uco/shocked": { hairTop: 150, chin: 720, faceX: 410 },
   "ocu/cta": { hairTop: 150, chin: 720, faceX: 493, fingertip: { x: 816, y: 721 } },
+  "uco/phone": { hairTop: 150, chin: 720, faceX: 410 },
+  "ocu/explaining": { hairTop: 150, chin: 720, faceX: 493 },
+  "ocu/inspecting": { hairTop: 150, chin: 720, faceX: 493 },
 };
 
 export const headBoxFor = (who: "uco" | "ocu", emotion: string): HeadBox => MEASURED[`${who}/${emotion}`] ?? TARGET_HEAD;

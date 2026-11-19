@@ -47,23 +47,75 @@ export type PropTag = (typeof PROP_TAGS)[number];
 const oneOf = <T extends string>(list: readonly T[], v: string | null | undefined): T | null => (v && (list as readonly string[]).includes(v) ? (v as T) : null);
 
 // ------------------------------------------------------------------ director defaults (when the script didn't set them)
-/** Single-speaker lines get a solo shot, punchlines an extreme close-up, inner thoughts a two-shot. */
-function defaultShot(l: EpisodeLine): CameraShot {
+// Older and imported scripts have no emotion/shot tags. These defaults read the line itself (punctuation, keywords in
+// the Indonesian text, the English subtitle and the visual note) and only pick poses each character has sprites for:
+// Uco triumphant / defensive / shocked / phone, Ocu deadpan / explaining / inspecting (cta is the end card's).
+// When nothing in the line decides, the pose alternates from that speaker's previous line so it never sits still.
+
+const UCO_POSES = ["triumphant", "defensive", "shocked", "phone"] as const satisfies readonly Emotion[];
+const OCU_POSES = ["deadpan", "explaining", "inspecting"] as const satisfies readonly Emotion[];
+
+const RX = {
+  phone: /\b(phone|hp|handphone|smartphone|checkout|check out|keranjang|cart|scroll(ing)?|app|apps|aplikasi|paylater|pay later|spaylater|gopaylater|klik|click|tap|order|pesan online|flash ?sale|e-?wallet|ovo|gopay|shopee|tokopedia|tiktok shop|notif\w*)\b/i,
+  shockWord: /\b(hah|hah\?|loh|lho|serius|astaga|astagfirullah|waduh|wah|anjir|anjay|gila|kok bisa|what the|wait|seriously|no way)\b/i,
+  defendWord: /\b(tapi|cuma|cuman|doang|emang|emangnya|gapapa|nggak papa|gak papa|biarin|but|only|just|it's fine|whatever)\b/i,
+  bragWord: /\b(pasti|dong|gampang|santai|worth it|hemat|untung|cuan|menang|easy|smart|genius|deal)\b/i,
+  // fine print, hidden costs, checking: Ocu leans in with the magnifier
+  inspect: /\b(magnif\w*|struk|receipt|fine print|zoom|detail|syarat|ketentuan|terms|hidden|tersembunyi|biaya admin|admin fee|denda|late fee|cek|check|baca|read|teliti|lihat lagi|look closer)\b/i,
+  // prices, fees and arithmetic: Ocu walks through the numbers with an open hand
+  math: /(\d|\brp\.?\b|%|\b(ribu|rb|juta|jt|k|harga|price|biaya|fee|fees|bunga|interest|\w*cicil\w*|nyicil\w*|installments?|tenor|total|hitung\w*|calculat\w*|times|per bulan|a month|per month|setahun|a year|artinya)\b)/i,
+};
+
+function cueText(l: EpisodeLine) {
+  return `${l.visual ?? ""} ${l.text} ${l.subtitle ?? ""} ${l.on_screen_text ?? ""}`;
+}
+
+function defaultEmotion(l: EpisodeLine, prev: Emotion | null): Emotion {
+  const v = cueText(l);
+  const said = `${l.text} ${l.subtitle ?? ""}`;
+  const e = String(l.expression ?? "").toLowerCase();
+  const exclaim = /!/.test(said);
+  const question = /\?/.test(said);
+  const loud = /\?!|!\?|!!/.test(said);
+
+  if (l.speaker === "uco") {
+    if (RX.phone.test(v)) return "phone";
+    if (loud || e === "shocked" || e === "worried" || RX.shockWord.test(said)) return "shocked";
+    if (question || e === "thinking" || RX.defendWord.test(said)) return "defensive";
+    if (["angry", "furious", "excited", "smug"].includes(e) || RX.bragWord.test(said)) return "triumphant";
+    if (exclaim) return "shocked";
+    return prev === "triumphant" ? "defensive" : "triumphant";
+  }
+  if (/magnif|struk|receipt|fine print|zoom/i.test(l.visual ?? "")) return "inspecting";
+  if (RX.inspect.test(v)) return "inspecting";
+  if (RX.math.test(said) || l.beat === "insight") return "explaining";
+  if (question) return "inspecting"; // Ocu's questions are skeptical: he looks closer
+  if (exclaim || e === "smug" || e === "calm") return "explaining";
+  return prev === "deadpan" ? "explaining" : "deadpan";
+}
+
+/** Punchlines and big reactions get an extreme close-up, inner thoughts a two-shot, everything else a solo shot. */
+function defaultShot(l: EpisodeLine, emotion: Emotion, prevShot: CameraShot | null): CameraShot {
   if (l.beat === "button") return "closeup-punch";
   if (l.thought_bubble) return "two-shot";
+  if (emotion === "shocked" && prevShot !== "closeup-punch" && /\?!|!\?|!!/.test(`${l.text} ${l.subtitle ?? ""}`)) return "closeup-punch";
   return l.speaker === "uco" ? "solo-uco" : "solo-ocu";
 }
 
-function defaultEmotion(l: EpisodeLine): Emotion {
-  const v = `${l.visual ?? ""} ${l.text}`;
-  if (/\b(phone|hp|checkout|keranjang|scroll)\b/i.test(v)) return "phone";
-  if (l.speaker === "ocu" && /magnif|receipt|struk|fine print|zoom/i.test(v)) return "inspecting";
-  const e = l.expression;
-  if (["shocked", "worried"].includes(e)) return "shocked";
-  if (e === "thinking") return "defensive";
-  if (l.speaker === "uco") return ["angry", "furious", "excited", "smug"].includes(e) ? "triumphant" : "defensive";
-  if (l.beat === "insight") return "explaining";
-  return e === "smug" || e === "calm" ? "explaining" : "deadpan";
+/** Emotion and shot for every line: explicit tags win, the defaults above fill the gaps in script order. */
+function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: CameraShot }[] {
+  const prev: Record<string, Emotion | null> = { uco: null, ocu: null };
+  let prevShot: CameraShot | null = null;
+  return lines.map((l) => {
+    const poses: readonly Emotion[] = l.speaker === "uco" ? UCO_POSES : OCU_POSES;
+    const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
+    const cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
+    // an explicit emotion the character has no sprite for still renders (castSprites falls back); the alternation
+    // memory only tracks poses that show
+    prev[l.speaker] = poses.includes(emotion) ? emotion : prev[l.speaker];
+    prevShot = cameraShot;
+    return { emotion, cameraShot };
+  });
 }
 
 function defaultProp(l: EpisodeLine): PropTag {
@@ -195,6 +247,7 @@ export const CTA_CUE: ImportantMessage = { kicker: "UCO & OCU", headline: "FOLLO
 
 export function buildBeats(lines: EpisodeLine[]): Beat[] {
   const { starts, end } = timeline(lines);
+  const directed = directLines(lines);
   const beats: Beat[] = lines.map((l, i) => ({
     id: `b${i + 1}`,
     line: i,
@@ -205,8 +258,8 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     importantMessage: clampCue(l.important_message, fallbackCue(l)),
     subtitleEn: englishOf(l),
     subtitleChunks: timeSubtitle(englishOf(l), l.envelope ?? [], Math.max(1, (starts[i + 1] ?? end) - starts[i])),
-    cameraShot: oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l),
-    emotion: oneOf(EMOTIONS.filter((e) => e !== "cta"), l.emotion) ?? defaultEmotion(l),
+    cameraShot: directed[i].cameraShot,
+    emotion: directed[i].emotion,
     propTag: oneOf(PROP_TAGS, l.prop_tag) ?? defaultProp(l),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
   }));
