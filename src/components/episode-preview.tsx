@@ -7,6 +7,7 @@ import { KoranKinetik } from "../../video/src/koran/KoranKinetik";
 import { DiagramTaktis } from "../../video/src/taktis/DiagramTaktis";
 import { Episode } from "../../video/src/Episode";
 import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/styles/registry";
+import { parseDirection } from "../../video/src/direction";
 import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
 
 // Live preview of the episode animation (the same Remotion composition the renderer uses), built in the browser
@@ -25,7 +26,7 @@ export type PreviewLine = Omit<EpisodeLine, "audio" | "frames" | "envelope" | "t
 
 type State = { status: "idle" } | { status: "loading"; done: number } | { status: "ready"; props: EpisodeProps } | { status: "error"; message: string };
 
-export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID }: { title: string; lines: PreviewLine[]; style?: string }) {
+export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID, direction = null }: { title: string; lines: PreviewLine[]; style?: string; direction?: string | null }) {
   const [state, setState] = useState<State>({ status: "idle" });
   const preset = styleById(style);
   const composition = COMPOSITION_FOR[preset.id] ?? "Episode";
@@ -45,14 +46,14 @@ export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID }: { tit
         setState({ status: "loading", done: ++done });
       }
       await ctx.close();
-      setState({ status: "ready", props: { title, lines: out } });
+      setState({ status: "ready", props: { title, lines: out, direction: parseDirection(direction) } });
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }
 
   if (state.status === "ready") {
-    const frames = totalFrames(state.props.lines);
+    const frames = totalFrames(state.props.lines, state.props.direction);
     return (
       <div className="space-y-2">
         <div className="mx-auto w-full max-w-[360px] overflow-hidden rounded-control border border-border bg-black">
@@ -103,7 +104,10 @@ function subscribeReduced(cb: () => void) {
 async function analyse(ctx: AudioContext, l: PreviewLine): Promise<EpisodeLine> {
   const base = { ...l, hasAudio: Boolean(l.take) };
   if (!l.take) {
-    const frames = Math.max(2 * FPS, Math.round((l.subtitle.split(/\s+/).length / 2.6) * FPS));
+    // silent, like the renderer: the script's own start–end when it has one, else ~2.6 words a second (≥ 1.5 s)
+    const timed = l.start_s != null && l.end_s != null && l.end_s > l.start_s ? l.end_s - l.start_s : null;
+    const words = (l.text || l.subtitle).split(/\s+/).filter(Boolean).length;
+    const frames = Math.round((timed ?? Math.max(1.5, words / 2.6 + 0.4)) * FPS);
     return { ...base, audio: null, frames, envelope: [] };
   }
   try {

@@ -1,6 +1,8 @@
 import React from "react";
 import { AbsoluteFill, Audio, Sequence, staticFile, useCurrentFrame } from "remotion";
 import { sfxFile } from "../assets";
+import type { Beat } from "../beats";
+import type { EpisodeLine } from "../types";
 
 // Finishing layers shared by the cue styles.
 
@@ -22,7 +24,8 @@ export function GrainVignette({ reduced, tone }: { reduced: boolean; tone: "pape
   );
 }
 
-export type SfxCue = { name: "whoosh" | "stamp" | "pop" | "ding" | "record-scratch"; frame: number; volume?: number };
+/** Built-in cues are whoosh / stamp / pop / ding / record-scratch; scripts may name any other public/sfx file. */
+export type SfxCue = { name: string; frame: number; volume?: number };
 
 /** Sound-effect cues. Each plays only if public/sfx/{name}.mp3 (or .wav) has been added; otherwise nothing. */
 export function SfxCues({ cues }: { cues: SfxCue[] }) {
@@ -39,4 +42,22 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
       })}
     </>
   );
+}
+
+/**
+ * Background music bed (public/sfx/bgm.mp3, looped) when the direction turns it on: at the bed level, ducked to a
+ * third while someone talks, and to `thoughtDuck` of the bed under (thought) lines. Silent without the file.
+ */
+export function BackgroundMusic({ volume, thoughtDuck, beats, lines }: { volume: number; thoughtDuck: number; beats: Beat[]; lines: EpisodeLine[] }) {
+  const file = sfxFile("bgm");
+  if (!file) return null;
+  const level = (f: number) => {
+    const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);
+    if (!b || b.line === null) return volume; // end card: full bed
+    const l = lines[b.line];
+    const talking = (l.envelope?.[f - b.startFrame] ?? 0) > 0.08;
+    const duck = b.thought ? thoughtDuck : 1;
+    return volume * duck * (talking ? 0.35 : 1);
+  };
+  return <Audio src={staticFile(file)} loop volume={level} />;
 }

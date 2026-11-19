@@ -9,6 +9,8 @@ import { Card, EmptyState } from "@/components/ui";
 import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
 import { createEpisodeAction } from "./actions";
+import { CustomScriptForm } from "@/components/custom-script-form";
+import { createCustomEpisodeAction } from "./studio-actions";
 
 export const maxDuration = 300;
 
@@ -40,6 +42,9 @@ export default function CreatePage() {
       <div className="space-y-4">
         <Card title="New episode">
           <NewEpisodeForm action={createEpisodeAction} />
+        </Card>
+        <Card title="Your own script (no AI)">
+          <CustomScriptForm action={createCustomEpisodeAction} />
         </Card>
         <Suspense
           fallback={

@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { buildBeats, type Beat } from "../beats";
 import { HEAVY, SafeFrame, VoiceTrack } from "../cast/CueShared";
-import { GrainVignette, SfxCues } from "../shared/Compositing";
+import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
 import { KINETIC_SLAM, sfxCuesFor } from "../shared/sfxCues";
@@ -30,8 +30,8 @@ const SKIN: DirectorSkin = {
   arrow: { color: P.accent, outline: P.ink, ring: P.primary },
 };
 
-export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
-  const beats = buildBeats(lines);
+export function KoranKinetik({ lines, direction, reducedMotion = false }: CueProps) {
+  const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill
       style={{
@@ -48,6 +48,7 @@ export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="paper" />
       <SfxCues cues={sfxCuesFor(beats, { stampAt: KINETIC_SLAM })} />
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );
 }

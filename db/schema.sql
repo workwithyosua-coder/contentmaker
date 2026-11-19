@@ -234,6 +234,8 @@ CREATE TABLE IF NOT EXISTS scripts (
   fact_sheet      text,             -- research notes the script was written from
   sources         jsonb DEFAULT '[]', -- [{claim, url}]
   feedback        text,             -- the owner's notes that produced this version
+  direction       text,             -- custom scripts: direction / pacing notes (video/src/direction.ts), 016
+  custom          boolean NOT NULL DEFAULT false, -- written by the user, parsed without AI (016)
   approved_at     timestamptz,
   created_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (project_id, version)

@@ -101,6 +101,27 @@ export async function objectSize(objectPath: string): Promise<number | null> {
   return j.size ?? j.metadata?.size ?? 0;
 }
 
+/** File names directly under a folder ("assets/props" → ["sate-padang.png", …]), sorted. Empty when there's none. */
+export async function listObjects(prefix: string): Promise<string[]> {
+  const clean = prefix.replace(/^\/+|\/+$/g, "");
+  if (local()) {
+    const { readdir } = await import("node:fs/promises");
+    const dir = path.join(LOCAL_DIR, clean);
+    if (!dir.startsWith(LOCAL_DIR + path.sep)) return [];
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    return entries.filter((e) => e.isFile()).map((e) => e.name).sort();
+  }
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/list/${BUCKET}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ prefix: clean, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } }),
+  });
+  if (!res.ok) throw new Error(`Couldn't list ${clean} (${res.status})`);
+  const rows = (await res.json()) as { name: string; id: string | null }[];
+  return rows.filter((r) => r.id && !r.name.startsWith(".")).map((r) => r.name);
+}
+
 export async function deleteObjects(paths: string[]) {
   if (!paths.length) return;
   if (local()) {

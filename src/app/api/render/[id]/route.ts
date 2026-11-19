@@ -15,6 +15,9 @@ export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]"
     scriptId: src.script.id,
     version: src.script.version,
     targetDurationS: src.script.target_duration_s,
+    // custom scripts: direction / pacing notes, parsed by the renderer (video/src/direction.ts)
+    direction: src.script.direction ?? null,
+    custom: src.script.custom ?? false,
     lines: src.script.lines.map((l, index) => ({ ...l, index, hasAudio: recorded.has(index) })),
   });
 }

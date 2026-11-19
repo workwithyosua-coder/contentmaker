@@ -19,8 +19,8 @@ export async function renderSource(projectId: string) {
   const sql = db();
   const [project] = await sql<{ id: string; title: string | null; video_style: string }[]>`SELECT id, title, video_style FROM content_projects WHERE id = ${projectId}`;
   if (!project) return null;
-  const [script] = await sql<(Script & { id: string; version: number })[]>`
-    SELECT id, version, title, target_duration_s, lines, sources FROM scripts
+  const [script] = await sql<(Script & { id: string; version: number; direction: string | null; custom: boolean })[]>`
+    SELECT id, version, title, target_duration_s, lines, sources, direction, custom FROM scripts
     WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
   if (!script) return { project, script: null, takes: [] };
   const takes = await sql<{ line_index: number; storage_path: string; mime_type: string; duration_ms: number | null }[]>`

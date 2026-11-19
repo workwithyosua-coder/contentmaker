@@ -1,3 +1,4 @@
+import type { RenderDirection } from "./direction";
 export const FPS = 30;
 export const WIDTH = 1080;
 export const HEIGHT = 1920;
@@ -29,6 +30,15 @@ export type ManifestLine = {
   emotion?: string | null;
   prop_tag?: string | null;
   scene_image_url?: string | null;
+  /** explicit timing from a custom script ("0:24–0:28"), in seconds of the finished video; the line starts there */
+  start_s?: number | null;
+  end_s?: number | null;
+  /** sound effects that play as the line starts (names of public/sfx files, without the extension) */
+  sfx?: string[] | null;
+  /** explainer card: wave-graph / brain-badge / none (rules pick one when omitted) */
+  overlay?: string | null;
+  /** callout labels on the line's prop (part ids from video/src/props/library.ts) */
+  callouts?: string[] | null;
   hasAudio: boolean;
 };
 
@@ -42,7 +52,7 @@ export type EpisodeLine = ManifestLine & {
   trimFrom?: number;
 };
 
-export type EpisodeProps = { title: string; lines: EpisodeLine[] };
+export type EpisodeProps = { title: string; lines: EpisodeLine[]; direction?: RenderDirection | null };
 
 // Uco & Ocu style bible: high-contrast split on charcoal.
 export const COLORS = {
@@ -68,22 +78,28 @@ export const COLORS = {
  * - Ocu answers: 4 frames (~0.13 s); his punchlines (button beat) and answers to a question get a 12-frame (0.4 s) deadpan beat.
  * - Inner thoughts: 8 frames to let the room dim.
  */
-export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubble" | "text">[]) {
+export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubble" | "text" | "start_s">[], direction?: RenderDirection | null) {
   const starts: number[] = [];
+  const pause = direction?.pauseS != null ? Math.round(direction.pauseS * FPS) : null;
+  const thoughtPause = direction?.thoughtPauseS != null ? Math.round(direction.thoughtPauseS * FPS) : null;
   let t = 0;
   lines.forEach((l, i) => {
     if (i > 0) {
       const prev = lines[i - 1];
       let gap = 4;
-      if (l.thought_bubble || prev.thought_bubble) gap = 8;
+      if (l.thought_bubble || prev.thought_bubble) gap = thoughtPause ?? Math.max(8, pause ?? 0);
+      else if (pause !== null) gap = pause; // the direction's pause replaces the comedic defaults (no cut-ins)
       else if (l.speaker === "uco" && prev.speaker === "ocu") gap = -3;
       else if (l.speaker === "ocu" && (l.beat === "button" || /\?\s*$|\?!\s*$/.test(prev.text))) gap = 12;
       t = Math.max(starts[i - 1] + 10, t + gap);
     }
+    // an explicit timestamp wins (never earlier than 10 frames after the previous line's start)
+    if (l.start_s != null && Number.isFinite(l.start_s)) t = Math.max(i > 0 ? starts[i - 1] + 10 : 0, Math.round(l.start_s * FPS));
     starts.push(t);
     t += l.frames;
   });
   return { starts, end: t };
 }
 
-export const totalFrames = (lines: EpisodeLine[]) => timeline(lines).end + END_FRAMES;
+/** Video length: the lines, plus the 3-second end card unless the direction turns the CTA off. */
+export const totalFrames = (lines: EpisodeLine[], direction?: RenderDirection | null) => timeline(lines, direction).end + (direction?.cta === false ? 0 : END_FRAMES);

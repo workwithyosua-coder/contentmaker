@@ -8,10 +8,8 @@ import { research, structured } from "./claude";
 // The writers' room: ideas → fact check → Uco & Ocu dialogue script → platform captions.
 
 export const PILLARS = ["science", "politics_society", "food", "academics", "everyday_absurdities", "trending_news"] as const;
-export const BEATS = ["hook", "counter", "escalation", "insight", "concession", "button"] as const;
-export const EXPRESSIONS = [
-  "neutral", "excited", "angry", "furious", "smug", "calm", "worried", "deadpan", "thinking", "laughing", "shocked",
-] as const;
+import { BEATS, EXPRESSIONS } from "../script-parse";
+export { BEATS, EXPRESSIONS };
 
 async function brandGuide(userId: string) {
   const [b] = await db()<{ voice_guide: string | null }[]>`

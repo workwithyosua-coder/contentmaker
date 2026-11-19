@@ -33,6 +33,15 @@ export function sfxFile(name: string): string | null {
   return null;
 }
 
+/**
+ * Adds assets that live outside the repo (props and SFX attached in the app, kept in private storage) to what
+ * the beats and the checklist treat as available. File names as in the manifest: "sate-padang.png", "bgm.mp3".
+ */
+export function addAvailableAssets(extra: { props?: string[]; sfx?: string[] }) {
+  for (const p of extra.props ?? []) props.add(p);
+  for (const s of extra.sfx ?? []) sfx.add(s);
+}
+
 /** `props/{name}.png` when that illustrated prop has been added, else null. */
 export function propFile(name: string): string | null {
   return props.has(`${name}.png`) ? `props/${name}.png` : null;

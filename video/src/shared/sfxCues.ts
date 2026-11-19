@@ -17,6 +17,8 @@ export function sfxCuesFor(beats: Beat[], opts: { stampAt?: number } = {}): SfxC
     if (solo && (b.propImage || b.propTag !== "none" || b.sceneImageUrl)) cues.push({ name: "pop", frame: b.startFrame + 6, volume: 0.55 });
     if (b.overlay || b.callouts.length) cues.push({ name: "ding", frame: b.startFrame + 16, volume: 0.45 });
     if (b.cameraShot === "closeup-punch" && b.emotion === "shocked") cues.push({ name: "record-scratch", frame: b.startFrame, volume: 0.5 });
+    // sound effects the script names for this line, as the line starts
+    b.sfx.forEach((name, k) => cues.push({ name, frame: b.startFrame + 2 + k * 6, volume: 0.6 }));
     if (opts.stampAt !== undefined && b.kinetic && b.durationInFrames > opts.stampAt) cues.push({ name: "stamp", frame: b.startFrame + opts.stampAt, volume: 0.7 });
   });
   return cues;

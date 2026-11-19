@@ -144,7 +144,7 @@ export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt =
           filter: skin === "paper" ? `drop-shadow(8px 8px 0 rgba(20,22,25,0.9))` : "drop-shadow(0 0 16px rgba(56,189,248,0.45))",
         }}
       >
-        <Img src={staticFile(`props/${name}.png`)} style={{ width: "100%", height: "100%" }} />
+        <Img src={staticFile(`props/${name}.png`)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
       </div>
       {prop && n > 0 && <Callouts rect={rect} col={box} mode={labels} ids={callouts} prop={prop} k={k} skin={skin} frame={frame} reduced={reduced} driftY={driftY} />}
     </>

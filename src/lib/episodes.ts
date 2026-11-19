@@ -20,7 +20,17 @@ export type ConceptRow = {
   rationale: string | null;
   is_selected: boolean;
 };
-export type ScriptRow = Script & { id: string; version: number; fact_sheet: string | null; feedback: string | null; approved_at: Date | null };
+export type ScriptRow = Script & {
+  id: string;
+  version: number;
+  fact_sheet: string | null;
+  feedback: string | null;
+  approved_at: Date | null;
+  /** custom (no-AI) scripts: direction / pacing notes */
+  direction: string | null;
+  /** written by the user in the script studio and parsed without AI */
+  custom: boolean;
+};
 export type CaptionRow = { platform: string; caption: string; hashtags: string[]; title: string | null };
 
 export async function getEpisode(userId: string, id: string) {
@@ -35,7 +45,7 @@ export async function getEpisode(userId: string, id: string) {
   const [concepts, scripts, captions] = await Promise.all([
     sql<ConceptRow[]>`SELECT id, title, hook, hook_type, outline, rationale, is_selected FROM concepts
                       WHERE project_id = ${id} ORDER BY is_selected DESC, rank`,
-    sql<ScriptRow[]>`SELECT id, version, title, target_duration_s, lines, sources, fact_sheet, feedback, approved_at
+    sql<ScriptRow[]>`SELECT id, version, title, target_duration_s, lines, sources, fact_sheet, feedback, approved_at, direction, custom
                      FROM scripts WHERE project_id = ${id} ORDER BY version DESC`,
     sql<CaptionRow[]>`SELECT platform, caption, hashtags, title FROM caption_options WHERE project_id = ${id}
                       ORDER BY array_position(ARRAY['tiktok','instagram','youtube','facebook']::platform_t[], platform)`,

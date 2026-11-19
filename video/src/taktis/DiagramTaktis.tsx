@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { buildBeats, type Beat } from "../beats";
 import { MONO, SafeFrame, VoiceTrack } from "../cast/CueShared";
-import { GrainVignette, SfxCues } from "../shared/Compositing";
+import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
 import { sfxCuesFor } from "../shared/sfxCues";
@@ -35,8 +35,8 @@ const SKIN: DirectorSkin = {
   ),
 };
 
-export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
-  const beats = buildBeats(lines);
+export function DiagramTaktis({ lines, direction, reducedMotion = false }: CueProps) {
+  const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill
       style={{
@@ -54,6 +54,7 @@ export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="dark" />
       <SfxCues cues={sfxCuesFor(beats)} />
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );
 }

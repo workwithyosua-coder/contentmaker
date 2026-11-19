@@ -422,7 +422,9 @@ export async function setVideoStyleAction(projectId: string, style: string): Pro
         SELECT id, EXISTS (SELECT 1 FROM jsonb_array_elements(lines) l
                            WHERE NOT (l ? 'important_message') OR l->'important_message' = 'null'::jsonb OR NOT (l ? 'camera_shot')) AS missing
         FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
-      if (s?.missing) {
+      // custom (no-AI) scripts never call the writers' room: their cues come from the script itself or the rules
+      const [c] = await db()<{ custom: boolean }[]>`SELECT custom FROM scripts WHERE id = ${s?.id ?? null}`;
+      if (s?.missing && !c?.custom) {
         after(async () => {
           await writeImportantMessages({ userId: o.id, projectId, scriptId: s.id }).catch((err) => console.error("[cues] failed:", err));
           revalidatePath(`/create/${projectId}`);
