@@ -5,11 +5,24 @@ import manifest from "./assetManifest.json";
 const cast = new Set<string>(manifest.cast);
 const sfx = new Set<string>(manifest.sfx);
 
-/** `cast/uco/shocked-open.png` style path when both mouth frames exist for that character and emotion, else null. */
-export function castSprites(who: "uco" | "ocu", emotion: string): { closed: string; open: string } | null {
-  const closed = `${who}/${emotion}-closed.png`;
-  const open = `${who}/${emotion}-open.png`;
-  return cast.has(closed) && cast.has(open) ? { closed: `cast/${closed}`, open: `cast/${open}` } : null;
+/** Each character's default sprite emotion, used when the beat's emotion hasn't been drawn yet. */
+const DEFAULT_EMOTION: Record<"uco" | "ocu", string[]> = {
+  uco: ["triumphant", "defensive", "explaining", "deadpan"],
+  ocu: ["deadpan", "explaining", "defensive", "triumphant"],
+};
+
+const pair = (who: string, emotion: string) =>
+  cast.has(`${who}/${emotion}-closed.png`) && cast.has(`${who}/${emotion}-open.png`)
+    ? { emotion, closed: `cast/${who}/${emotion}-closed.png`, open: `cast/${who}/${emotion}-open.png` }
+    : null;
+
+/**
+ * Sprite pair for a character and emotion: that emotion's two mouth frames if both exist, else the character's
+ * default uploaded emotion (so one person never switches between illustrated and coded looks), else null
+ * (no sprites for this character yet: the coded CastSvg figure stands in).
+ */
+export function castSprites(who: "uco" | "ocu", emotion: string): { emotion: string; closed: string; open: string } | null {
+  return pair(who, emotion) ?? DEFAULT_EMOTION[who].map((e) => pair(who, e)).find(Boolean) ?? null;
 }
 
 /** `sfx/whoosh.mp3` (or .wav) when that effect has been added, else null. */

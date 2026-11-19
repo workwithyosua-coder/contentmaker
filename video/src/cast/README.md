@@ -38,6 +38,23 @@ Each emotion needs **both** mouth frames (`-closed` and `-open`), or that emotio
 | `ocu/shocked-*.png`, `ocu/defensive-*.png` | optional |
 | `ocu/cta-*.png` | **CTA pose:** right arm raised beside the head, index finger pointing right; fingertip at **(870, 235)** exactly |
 
+### Artwork with its own framing
+
+You don't have to hit the framing above exactly. Measure where the head is on the exported PNG and add it to
+`video/src/cast/spriteCalibration.ts` (`hairTop`, `chin`, `faceX` in px). The puppet then scales and shifts the image
+so the head lands on the director's head position. If the body ends above the bottom of the frame, its last rows are
+continued straight down.
+
+Uploaded so far (closed and open frames share one crop):
+- `uco/triumphant`: hair top 150, chin 720, face x 410
+- `ocu/deadpan`: hair top 150, chin 720, face x 493
+
+Both characters share one head size, and both sit flush at y 1700. Uco's sweater was extended straight down from its
+flat cut.
+
+Each character's first uploaded emotion stands in for emotions that haven't been drawn yet: Uco uses `triumphant`,
+Ocu uses `deadpan`. So the same person never switches between the illustrated and the coded look within a video.
+
 ## Sound effects: `public/sfx/`
 
 | File | When | Length |

@@ -3,6 +3,7 @@ import { Img, spring, staticFile, useVideoConfig } from "remotion";
 import { castSprites } from "../assets";
 import type { Emotion } from "../beats";
 import { OcuBust, UcoBust, type CastVariant, type OcuMood, type UcoMood } from "./CastSvg";
+import { TARGET_HEAD, headBoxFor } from "./spriteCalibration";
 
 // Layered puppet: illustrated PNG sprites (public/cast/{uco|ocu}/{emotion}-{closed|open}.png, see cast/README.md),
 // swapped closed/open from the voice loudness, with spring squash-and-stretch on entry, a talking bounce, idle
@@ -59,7 +60,7 @@ export function CastPuppet(p: PuppetProps) {
         }}
       >
         {sprites ? (
-          <Img src={staticFile(p.mouthOpen ? sprites.open : sprites.closed)} style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "50% 0%" }} />
+          <SpriteImg src={staticFile(p.mouthOpen ? sprites.open : sprites.closed)} who={p.who} emotion={sprites.emotion} />
         ) : p.who === "uco" ? (
           <UcoBust
             variant={p.variant}
@@ -81,6 +82,40 @@ export function CastPuppet(p: PuppetProps) {
       {/* the SVG Uco already sweats in his "sweat" mood; everyone else gets falling drops as an FX layer */}
       {sweaty && (sprites || p.who === "ocu") && <SweatDrops frame={p.frame} reduced={r} />}
     </div>
+  );
+}
+
+/**
+ * A 900×1700 sprite placed so its measured head (spriteCalibration.ts) lands on the director's head position:
+ * scaled about the head, then shifted. Percentages keep it exact at any figure size. The body may extend past the
+ * frame box (bodies run off the bottom of the screen anyway).
+ */
+function SpriteImg({ src, who, emotion }: { src: string; who: "uco" | "ocu"; emotion: string }) {
+  const h = headBoxFor(who, emotion);
+  const k = (TARGET_HEAD.chin - TARGET_HEAD.hairTop) / (h.chin - h.hairTop);
+  const left = TARGET_HEAD.faceX - h.faceX * k;
+  const top = TARGET_HEAD.hairTop - h.hairTop * k;
+  const box = { position: "absolute" as const, left: `${(left / 900) * 100}%`, top: `${(top / 1700) * 100}%`, width: `${k * 100}%`, height: `${k * 100}%` };
+  // Sprites are flush at their own bottom edge; at the director's head size that edge can land above the bottom of
+  // the figure frame. Continue the body straight down: a copy clipped to its last 2 rows, stretched vertically.
+  const bottom = top / 1700 + k; // sprite bottom, as a fraction of the frame height
+  const rows = 2 / 1700; // last two sprite rows, as a fraction of the sprite
+  const stretch = bottom < 1 ? 1 + (1 - bottom) / (k * rows) + 1 : 1;
+  return (
+    <>
+      {stretch > 1 && (
+        <Img
+          src={src}
+          style={{
+            ...box,
+            clipPath: `inset(${(1 - rows) * 100}% 0 0 0)`,
+            transform: `scaleY(${stretch})`,
+            transformOrigin: `50% ${(1 - rows) * 100}%`,
+          }}
+        />
+      )}
+      <Img src={src} style={box} />
+    </>
   );
 }
 

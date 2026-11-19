@@ -1,4 +1,9 @@
 {
-  "cast": [],
+  "cast": [
+    "ocu/deadpan-closed.png",
+    "ocu/deadpan-open.png",
+    "uco/triumphant-closed.png",
+    "uco/triumphant-open.png"
+  ],
   "sfx": []
 }

@@ -1,0 +1,16 @@
+// Where each uploaded sprite's head actually is, measured on the exported 900×1700 PNG. CastPuppet scales and shifts
+// the image so the head lands where the director expects it (hair top y 40, chin y 520, face centred on x 450, the
+// same framing as the coded CastSvg figures), so shots frame identically whatever the artwork's own crop.
+// Sprites not listed here are assumed to follow that framing already (see cast/README.md).
+
+export type HeadBox = { hairTop: number; chin: number; faceX: number };
+export const TARGET_HEAD: HeadBox = { hairTop: 40, chin: 520, faceX: 450 };
+
+const MEASURED: Record<string, HeadBox> = {
+  // closed and open frames share one crop, so one entry covers both
+  // both pairs were exported at one shared head size (hair top y 150, chin y 720) and sit flush at y 1700
+  "uco/triumphant": { hairTop: 150, chin: 720, faceX: 410 },
+  "ocu/deadpan": { hairTop: 150, chin: 720, faceX: 493 },
+};
+
+export const headBoxFor = (who: "uco" | "ocu", emotion: string): HeadBox => MEASURED[`${who}/${emotion}`] ?? TARGET_HEAD;
