@@ -1,7 +1,7 @@
 import "server-only";
 import { decrypt } from "../crypto";
 import { db } from "../db";
-import { GRAPH_VERSION, graph, graphPost } from "../platforms/meta";
+import { GRAPH_VERSION, graph, graphPost, isMetaRateLimit } from "../platforms/meta";
 import { getObject, signedUrl } from "../storage";
 import { accessTokenFor as tiktokToken } from "../sync/tiktok";
 import { accessTokenFor as youtubeToken } from "../sync/youtube";
@@ -246,4 +246,26 @@ async function facebook(p: PublicationRow): Promise<Advance> {
   return { status: "processing", step: p.step, retryInSec: 20 };
 }
 
-export const ADAPTERS: Record<PublishPlatform, (p: PublicationRow) => Promise<Advance>> = { youtube, tiktok, instagram, facebook };
+/** Meta request limit: wait and continue from the same step instead of failing (the limit clears within the hour). */
+function waitOnMetaLimit(run: (p: PublicationRow) => Promise<Advance>) {
+  return async (p: PublicationRow): Promise<Advance> => {
+    try {
+      return await run(p);
+    } catch (err) {
+      if (!isMetaRateLimit(err)) throw err;
+      return {
+        status: p.step.container || p.step.videoId ? "processing" : "uploading",
+        step: p.step,
+        retryInSec: 600,
+        note: "Meta's hourly request limit was reached. Trying again in 10 minutes; nothing to do.",
+      };
+    }
+  };
+}
+
+export const ADAPTERS: Record<PublishPlatform, (p: PublicationRow) => Promise<Advance>> = {
+  youtube,
+  tiktok,
+  instagram: waitOnMetaLimit(instagram),
+  facebook: waitOnMetaLimit(facebook),
+};

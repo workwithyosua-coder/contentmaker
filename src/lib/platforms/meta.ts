@@ -38,6 +38,12 @@ export class GraphError extends Error {
   }
 }
 
+/** Meta's request-limit errors (app, user, page or business limits). They clear on their own within the hour. */
+export function isMetaRateLimit(err: unknown) {
+  if (!(err instanceof GraphError)) return false;
+  return [4, 17, 32, 613, 80001, 80002, 80004, 80006].includes(err.code ?? -1) || /request limit/i.test(err.message);
+}
+
 /** GET a Graph API path (or a full `paging.next` URL) with appsecret_proof. */
 export async function graph<T>(pathOrUrl: string, token: string, params: Record<string, string> = {}): Promise<T> {
   const u = new URL(pathOrUrl.startsWith("http") ? pathOrUrl : `${GRAPH}${pathOrUrl}`);
