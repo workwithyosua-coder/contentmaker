@@ -1,6 +1,7 @@
 import React from "react";
 import { Img, spring, staticFile, useVideoConfig } from "remotion";
 import { castSprites } from "../assets";
+import { headBoxFor, sweatPoint } from "./spriteCalibration";
 import type { Emotion } from "../beats";
 import { OcuBust, UcoBust, type CastVariant, type OcuMood, type UcoMood } from "./CastSvg";
 
@@ -26,10 +27,8 @@ export type PuppetProps = {
   reduced: boolean;
   /** rim light colour (a soft outer glow), or null */
   rim?: string | null;
-  /** colour of the speed lines behind high-energy Uco beats */
-  fxColor: string;
-  /** which FX layers this figure may show: all (single-character shots), sweat only (the speaker in a two-shot), none */
-  fx?: "all" | "sweat" | "none";
+  /** which FX this figure may show: sweat (the speaker), none. Speed lines live on the Director's background layer. */
+  fx?: "sweat" | "none";
 };
 
 const UCO_MOOD: Partial<Record<Emotion, UcoMood>> = { phone: "phone", shocked: "sweat", defensive: "squint" };
@@ -45,13 +44,12 @@ export function CastPuppet(p: PuppetProps) {
   const sy = 0.9 + 0.1 * pop + breathe;
   const sx = 1 / Math.sqrt(sy);
   const bounce = r ? 0 : -p.level * 1.4; // % of the figure height, while talking
-  const fx = p.fx ?? "all";
-  const energetic = fx === "all" && p.who === "uco" && (p.emotion === "triumphant" || p.emotion === "shocked");
-  const sweaty = fx !== "none" && (p.emotion === "shocked" || p.emotion === "defensive");
+  const sweaty = (p.fx ?? "sweat") === "sweat" && (p.emotion === "shocked" || p.emotion === "defensive");
+  // the coded Uco already sweats in his "sweat" mood
+  const drop = !sweaty ? null : sprites ? { view: "0 0 900 1700", ...sweatPoint(headBoxFor(p.who, sprites.emotion)), size: 96 } : p.who === "ocu" ? { view: "0 0 180 340", x: 44, y: 62, size: 22 } : null;
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
-      {energetic && <SpeedLines color={p.fxColor} frame={p.globalFrame} reduced={r} />}
       <div
         style={{
           position: "absolute",
@@ -80,9 +78,9 @@ export function CastPuppet(p: PuppetProps) {
             motion={{ frame: p.globalFrame, look: p.look, talk: p.level, reduced: r }}
           />
         )}
+        {/* inside the squash/stretch layer, so the drop stays glued to the temple */}
+        {drop && <SweatDrop {...drop} frame={p.frame} reduced={r} />}
       </div>
-      {/* the SVG Uco already sweats in his "sweat" mood; everyone else gets falling drops as an FX layer */}
-      {sweaty && (sprites || p.who === "ocu") && <SweatDrops frame={p.frame} reduced={r} />}
     </div>
   );
 }
@@ -92,45 +90,38 @@ function SpriteImg({ src }: { src: string }) {
   return <Img src={src} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
 }
 
-/** Comic speed lines radiating from behind the head, rotating slowly (frame-driven). viewBox matches the figure. */
-function SpeedLines({ color, frame, reduced }: { color: string; frame: number; reduced: boolean }) {
+/** Comic speed lines radiating from behind a head, rotating slowly (frame-driven). Canvas coordinates; the Director
+ *  draws them on the background layer, behind the cast and every prop or card. */
+export function SpeedLines({ cx, cy, r, color, frame, reduced }: { cx: number; cy: number; r: number; color: string; frame: number; reduced: boolean }) {
   const spin = reduced ? 0 : (frame * 0.6) % 360;
   return (
-    <svg viewBox="0 0 180 340" width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-hidden>
-      <g transform={`rotate(${spin} 90 60)`} stroke={color} strokeLinecap="round" opacity={0.85}>
-        {Array.from({ length: 18 }, (_, i) => {
-          const a = (i / 18) * Math.PI * 2;
-          const r0 = 70 + (i % 3) * 8;
-          const r1 = r0 + 34 + (i % 2) * 18;
-          return <line key={i} x1={90 + Math.cos(a) * r0} y1={60 + Math.sin(a) * r0} x2={90 + Math.cos(a) * r1} y2={60 + Math.sin(a) * r1} strokeWidth={i % 2 ? 3 : 5} />;
+    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0 }} aria-hidden>
+      <g transform={`rotate(${spin} ${cx} ${cy})`} stroke={color} strokeLinecap="round" opacity={0.85}>
+        {Array.from({ length: 22 }, (_, i) => {
+          const a = (i / 22) * Math.PI * 2;
+          const r0 = r * (1 + (i % 3) * 0.1);
+          const r1 = r0 + r * (0.42 + (i % 2) * 0.22);
+          return <line key={i} x1={cx + Math.cos(a) * r0} y1={cy + Math.sin(a) * r0} x2={cx + Math.cos(a) * r1} y2={cy + Math.sin(a) * r1} strokeWidth={i % 2 ? 7 : 12} />;
         })}
       </g>
     </svg>
   );
 }
 
-/** Two sweat drops sliding down beside the head, looping every 36 frames. */
-function SweatDrops({ frame, reduced }: { frame: number; reduced: boolean }) {
-  const drops = [
-    { x: 136, y0: 40, phase: 0 },
-    { x: 46, y0: 50, phase: 18 },
-  ];
+/** One comic sweat drop beside the temple: wells up, slides a little down the cheek line, repeats every 48 frames. */
+function SweatDrop({ view, x, y, size, frame, reduced }: { view: string; x: number; y: number; size: number; frame: number; reduced: boolean }) {
+  const t = reduced ? 0.35 : (frame % 48) / 48;
+  const dy = t * size * 0.35;
+  const o = reduced ? 1 : Math.min(1, t * 6) * (1 - Math.max(0, t - 0.75) * 4);
+  const w = size * 0.62;
+  const top = y - size / 2 + dy;
+  const d = `M${x} ${top} C${x + w * 0.2} ${top + size * 0.32} ${x + w / 2} ${top + size * 0.52} ${x + w / 2} ${top + size * 0.7} A${w / 2} ${w / 2} 0 0 1 ${x - w / 2} ${top + size * 0.7} C${x - w / 2} ${top + size * 0.52} ${x - w * 0.2} ${top + size * 0.32} ${x} ${top} Z`;
   return (
-    <svg viewBox="0 0 180 340" width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-hidden>
-      {drops.map((d, i) => {
-        const t = reduced ? 0.3 : ((frame + d.phase) % 36) / 36;
-        const y = d.y0 + t * 30;
-        return (
-          <path
-            key={i}
-            d={`M${d.x} ${y} C${d.x + 5} ${y + 10} ${d.x + 5} ${y + 17} ${d.x} ${y + 17} C${d.x - 5} ${y + 17} ${d.x - 5} ${y + 10} ${d.x} ${y} Z`}
-            fill="#38BDF8"
-            stroke="#141619"
-            strokeWidth={2.5}
-            opacity={1 - t * 0.6}
-          />
-        );
-      })}
+    <svg viewBox={view} width="100%" height="100%" style={{ position: "absolute", inset: 0, overflow: "visible" }} aria-hidden>
+      <g opacity={o}>
+        <path d={d} fill="#7DD3FC" stroke="#141619" strokeWidth={size * 0.07} strokeLinejoin="round" />
+        <ellipse cx={x - w * 0.16} cy={top + size * 0.66} rx={w * 0.1} ry={size * 0.12} fill="#FFFFFF" opacity={0.9} />
+      </g>
     </svg>
   );
 }

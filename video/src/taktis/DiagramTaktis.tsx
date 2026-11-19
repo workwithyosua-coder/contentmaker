@@ -1,8 +1,7 @@
 import React from "react";
-import { AbsoluteFill, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
-import { BrandAware } from "../brand/UcoOcuWordmark";
-import { HEAVY, MONO, SafeFrame, VoiceTrack, headlineSize, wrapHeadline } from "../cast/CueShared";
+import { AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { buildBeats, type Beat } from "../beats";
+import { MONO, SafeFrame, VoiceTrack } from "../cast/CueShared";
 import { GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
@@ -12,15 +11,12 @@ import { TACTICAL_VECTOR_HUD_STYLE } from "../styles/registry";
 import type { EpisodeLine } from "../types";
 
 // "Diagram Taktis" (tactical-vector-hud), ported from the Uco & Ocu Style Lab reference (PR #28). Frame-driven only:
-// the cast rises in on a spring (mass 0.7, damping 14, stiffness 200) inside HUD target frames, indicator lines retract
-// before each cut, voice meters follow the recorded loudness. On-screen text: the beat's important message on top and the line's English subtitle
-// under the cast (never the Indonesian line).
+// the cast rises in on a spring (mass 0.7, damping 14, stiffness 200) inside HUD target frames, voice meters follow
+// the recorded loudness. On-screen text: typed amber readouts on emphasis beats only, and the line's English subtitle
+// (never the Indonesian line).
 
 const P = TACTICAL_VECTOR_HUD_STYLE.palette;
 const G = TACTICAL_VECTOR_HUD_STYLE.editingGrammar;
-const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
-/** The reference retracts at frame 98 of a 120-frame beat: 22 frames before the cut. */
-const RETRACT_BEFORE_END = 120 - G.retractFrame;
 
 const SKIN: DirectorSkin = {
   variant: "hud",
@@ -62,76 +58,22 @@ export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
   );
 }
 
-/** Card chrome around the headline lines: 5px borders, 20/24 padding, 48px kicker row + 12, leader line 16 + 6. */
-const CARD_CHROME = 10 + 20 + 24 + 48 + 12 + 16 + 6;
-/** Headline text width inside the card (840 card − borders − padding). */
-const HEADLINE_W = 840 - 10 - 48;
-
 function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const cta = beat.beatType === "cta-stinger";
-  const m = beat.importantMessage;
   const snap = reduced ? 1 : spring({ frame: f, fps, config: G.springConfig });
-  // Retract relative to this beat's end (voice lines vary in length): 22 frames before the cut, but never before
-  // the first half of a short beat, and the retract always finishes on or before the last frame.
-  const dur = beat.durationInFrames;
-  const late = Math.max(Math.round(dur * 0.5), dur - RETRACT_BEFORE_END);
-  const retractLen = Math.max(1, Math.min(12, dur - late - 1));
-  const line01 = reduced
-    ? 1
-    : f >= late
-      ? interpolate(f, [late, late + retractLen], [1, 0], clamp)
-      : Math.min(1, spring({ frame: f - 6, fps, config: G.springConfig }));
-
-  const size = headlineSize(m.headline) - 4;
-  const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
-  const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
   const rise = (1 - Math.min(1, snap)) * 40;
 
   return (
     <>
-      {/* CAST + PROPS: the director's camera shot for this beat, rising in on the HUD spring. Bodies may run below
-          y 1260; faces never do. */}
+      {/* CAST + VISUAL STAGE: the director's camera shot for this beat, rising in on the HUD spring (no headline
+          panel; kinetic readouts and props float on the open stage). Bodies may run below y 1260; faces never do. */}
       <AbsoluteFill style={{ transform: `translateY(${rise}px)` }}>
-        <DirectorStage beat={beat} line={line} frame={f} cardBottom={SAFE_ZONE.top + 20 + cardH} skin={SKIN} reduced={reduced} />
+        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
 
       <SafeFrame>
-        {/* TOP: important message panel (unchanged look) */}
-        <div
-          style={{
-            position: "absolute",
-            left: 20,
-            right: 20,
-            top: 20,
-            height: cardH,
-            boxSizing: "border-box",
-            border: `5px solid ${P.primary}`,
-            background: P.surface,
-            padding: "20px 24px 24px",
-            transform: `scale(${0.92 + 0.08 * Math.min(1, snap)})`,
-            transformOrigin: "50% 0%",
-          }}
-        >
-          <div style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 12, fontFamily: MONO, fontWeight: 700 }}>
-            <BrandAware text={m.kicker} height={44}>
-              <span style={{ fontSize: 30, color: P.cyan }}>[{m.kicker}]</span>
-            </BrandAware>
-            {m.stamp && <span style={{ fontSize: 26, background: P.accent, color: "#141619", padding: "4px 12px", whiteSpace: "nowrap" }}>{m.stamp}</span>}
-          </div>
-          <BrandAware text={m.headline} height={size * 1.4}>
-            <div style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: size, lineHeight: 1.02, color: P.ink }}>
-              {headLines.map((l, i) => (
-                <div key={i} style={{ whiteSpace: "nowrap" }}>
-                  {l}
-                </div>
-              ))}
-            </div>
-          </BrandAware>
-          <div style={{ height: 6, marginTop: 16, background: P.accent, transform: `scaleX(${line01})`, transformOrigin: "0% 50%" }} />
-        </div>
-
         {/* BOTTOM: English subtitle floating over the chests (ends at y 1260), or the CTA box */}
         {cta ? (
           <div
@@ -162,8 +104,8 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
         ) : null}
       </SafeFrame>
 
-      {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250) */}
-      <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} />
+      {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250); italic for inner thoughts */}
+      <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />
     </>
   );
 }

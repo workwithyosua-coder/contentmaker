@@ -7,6 +7,9 @@ import { AutoRefresh, CopyButton, RenderProgress, StepButton } from "@/component
 import { EpisodePreview } from "@/components/episode-preview";
 import { VideoStylePicker } from "@/components/video-style";
 import { ShotPrompts } from "@/components/shot-prompts";
+import { AssetChecklist } from "@/components/asset-checklist";
+import { requiredAssets } from "../../../../video/src/beats";
+import { usesImportantMessages } from "../../../../video/src/styles/registry";
 import { shotPrompts } from "@/lib/shot-prompts";
 import { PublishPanel } from "@/components/publish-panel";
 import { VideoUpload } from "@/components/video-upload";
@@ -291,6 +294,28 @@ async function Episode({
               )}
             />
             <div className="space-y-2 border-t border-border pt-4">
+              {usesImportantMessages(pubProject?.video_style) && (
+                <AssetChecklist
+                  {...requiredAssets(
+                    booth.lines.map((l) => ({
+                      index: l.index,
+                      beat: l.beat,
+                      speaker: l.speaker,
+                      text: l.text,
+                      subtitle: l.subtitle,
+                      expression: l.expression,
+                      visual: l.visual,
+                      on_screen_text: l.on_screen_text,
+                      thought_bubble: l.thought_bubble,
+                      important_message: l.important_message ?? null,
+                      camera_shot: l.camera_shot ?? null,
+                      emotion: l.emotion ?? null,
+                      prop_tag: l.prop_tag ?? null,
+                    })),
+                    { stamp: pubProject?.video_style === "editorial-paper-cutout" },
+                  )}
+                />
+              )}
               {renderButtonConfigured() ? (
                 <StepButton
                   action={renderVideoAction.bind(null, project.id)}

@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { db } from "../db";
 import { CAMERA_SHOTS, EMOTIONS, PROP_TAGS, clampCue } from "../../../video/src/beats";
+import { PNG_PROPS } from "../../../video/src/props/library";
 import { research, structured } from "./claude";
 
 // The writers' room: ideas → fact check → Uco & Ocu dialogue script → platform captions.
@@ -161,13 +162,15 @@ export const DIRECTOR_FIELDS = {
     .enum(EMOTIONS.filter((e) => e !== "cta") as [string, ...string[]])
     .describe("How the speaker plays it: triumphant, defensive, shocked, phone (holding a phone), deadpan, explaining, inspecting (Ocu with a magnifier)"),
   prop_tag: z
-    .enum(PROP_TAGS as unknown as [string, ...string[]])
-    .describe("Topic prop shown beside a solo speaker: iced-coffee, checkout-phone, payday-slips, receipt-magnifier, cash-vs-paylater, or none"),
+    .string()
+    .describe(
+      `Topic prop on the visual stage. Illustrated props: ${PNG_PROPS.map((p) => p.name).join(", ")}. Coded props: ${PROP_TAGS.filter((t) => t !== "none").join(", ")}. Nasi padang lines use nasi-padang-blender; bubur lines use the bubur props. If the line is about an object none of these show, a new kebab-case name for it (e.g. es-kopi-susu); it gets drawn later. none when nothing fits.`,
+    ),
 };
 export const DIRECTOR_RULES = `camera_shot / emotion / prop_tag (the director for the Koran Kinetik and Diagram Taktis styles):
-  - A line one character says defaults to that speaker's solo shot (solo-uco or solo-ocu); use closeup-punch for punchlines and the button; two-shot for inner thoughts or when both react. Vary shots so no more than 3 lines in a row share one.
+  - A line one character says defaults to that speaker's solo shot (solo-uco or solo-ocu); use closeup-punch for punchlines and the button; two-shot when both react. Inner thoughts use the thinker's solo (it renders as a thought bubble). Vary shots so no more than 3 lines in a row share one.
   - emotion fits the speaker: Uco is usually triumphant, defensive, shocked or on his phone; Ocu deadpan, explaining or inspecting.
-  - prop_tag is the object the line is about; none when nothing fits.`;
+  - prop_tag is the object the line is about. Prefer an illustrated prop when one fits; name a new one only for an object the episode really turns on; none when nothing fits.`;
 
 const ScriptSchema = z.object({
   title: z.string(),

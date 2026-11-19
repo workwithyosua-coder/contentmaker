@@ -147,14 +147,14 @@ if (args.includes("--prep")) {
   process.exit(0);
 }
 
-// Optional puppet sprites and SFX (public/cast, public/sfx at the repo root): refresh the list of what exists and
+// Optional puppet sprites, SFX and props (public/cast, public/sfx, public/props at the repo root): refresh the list of what exists and
 // copy them next to the episode audio so the bundle can serve them. Missing ones fall back (SVG cast, no SFX).
 const assets = writeAssetManifest();
-for (const dir of ["cast", "sfx"]) {
+for (const dir of ["cast", "sfx", "props"]) {
   const src = path.join(here, "..", "public", dir);
   if (existsSync(src)) cpSync(src, path.join(pub, dir), { recursive: true });
 }
-log(`assets: ${assets.cast.length} cast sprites, ${assets.sfx.length} sound effects`);
+log(`assets: ${assets.cast.length} cast sprites, ${assets.sfx.length} sound effects, ${assets.props.length} props`);
 log("bundling…");
 progress(13, "Getting the animation ready");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });

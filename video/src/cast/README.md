@@ -44,7 +44,7 @@ You don't have to hit the framing above exactly. Measure where the head is on th
 `video/src/cast/spriteCalibration.ts` (`hairTop`, `chin`, `faceX` in px).
 - **Never distorted:** sprites are always drawn at their own proportions, with one uniform scale.
 - **How the director uses the head box:**
-  - It sizes each shot so the hair stays under the headline card and the mouth stays above the subtitles (y ≤ 1100).
+  - It sizes each shot so the hair stays inside the safe zone (y ≥ 274) and the mouth stays above the subtitles (y ≤ 1100).
   - It anchors the sprite's bottom edge to the bottom of the video (y 1920) in solo shots, two-shots and the CTA.
   - It places the face where the shot wants it.
 - **So:** keep the body running to the bottom edge of the PNG.
@@ -69,7 +69,27 @@ Ocu uses `deadpan`. So the same person never switches between the illustrated an
 | File | When | Length |
 |---|---|---|
 | `whoosh.mp3` | every cut to a different camera shot | ≤ 0.6 s |
-| `pop.mp3` | a solo shot's topic prop springs in | ≤ 0.4 s |
-| `stamp.mp3` | Koran Kinetik stamp slam (34 frames into a beat) | ≤ 0.5 s |
+| `pop.mp3` | a solo shot's prop springs in | ≤ 0.4 s |
+| `stamp.mp3` | Koran Kinetik kinetic stamp slam (10 frames into an emphasis beat) | ≤ 0.5 s |
+| `ding.mp3` | an explainer card or prop callout lands | ≤ 0.5 s |
+| `record-scratch.mp3` | a shocked close-up | ≤ 0.8 s |
 
 Use mono or stereo MP3 (or WAV) at 44.1 or 48 kHz, peaks around −3 dBFS, with no silence at the start (the effect plays on the exact frame).
+
+## Sweat drop
+
+Shocked and defensive speakers get one sweat drop just outside the temple (`sweat` in `spriteCalibration.ts`, px on
+the 900×1700 sprite). It's drawn inside the sprite's squash/stretch layer so it stays glued to the head. For a new
+sprite, measure the head's left silhouette edge at temple height and put the drop ~50 px outside it.
+
+## Props: `public/props/`
+
+Illustrated props are PNGs with a transparent background, any size up to 900 px on the long side
+(`public/props/{name}.png`, kebab-case name). `video/src/props/library.ts` lists, per prop:
+- the words in a line (Indonesian text, English subtitle, visual note) that call it up, first match wins;
+- its aspect ratio;
+- its parts (label + anchor as fractions of the PNG) for the callout labels.
+
+A script can also name a prop directly in `prop_tag`. If that file isn't in `public/props/` yet, the episode page's
+asset checklist lists it as missing and the video falls back to a coded prop. Uploaded so far: `bubur-unmixed`,
+`bubur-mixed`, `bubur-kerupuk`, `nasi-padang-blender`.
