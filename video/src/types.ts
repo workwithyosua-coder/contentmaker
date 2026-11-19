@@ -63,7 +63,8 @@ export const COLORS = {
 
 /**
  * When each line starts. Tight comedic cutting:
- * - Uco cuts in on Ocu: overlap 5 frames (~0.17 s), like an interruption.
+ * - Uco cuts in on Ocu: overlap 3 frames (0.1 s), only over the 0.15 s of silence kept at the end of each take, so
+ *   he never talks over Ocu's last word.
  * - Ocu answers: 4 frames (~0.13 s); his punchlines (button beat) and answers to a question get a 12-frame (0.4 s) deadpan beat.
  * - Inner thoughts: 8 frames to let the room dim.
  */
@@ -75,7 +76,7 @@ export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" 
       const prev = lines[i - 1];
       let gap = 4;
       if (l.thought_bubble || prev.thought_bubble) gap = 8;
-      else if (l.speaker === "uco" && prev.speaker === "ocu") gap = -5;
+      else if (l.speaker === "uco" && prev.speaker === "ocu") gap = -3;
       else if (l.speaker === "ocu" && (l.beat === "button" || /\?\s*$|\?!\s*$/.test(prev.text))) gap = 12;
       t = Math.max(starts[i - 1] + 10, t + gap);
     }

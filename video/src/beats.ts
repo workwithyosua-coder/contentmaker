@@ -155,8 +155,9 @@ const propText = (l: PropLine) => `${l.visual ?? ""} ${l.text} ${l.subtitle ?? "
  */
 export function wantedPropImage(l: PropLine): { name: string; explicit: boolean } | null {
   const tag = l.prop_tag?.trim() ?? "";
-  if ((PROP_TAGS as readonly string[]).includes(tag) && tag !== "none") return null; // a coded prop was asked for
   const hit = PNG_PROPS.find((p) => p.rx.test(propText(l)) && propFile(p.name));
+  // a coded prop tag (the older, generic set) only wins when no illustrated prop matches the line's own words
+  if ((PROP_TAGS as readonly string[]).includes(tag) && tag !== "none") return hit ? { name: hit.name, explicit: false } : null;
   if (isPropName(tag) && tag !== "none") {
     // a named prop: use it when its file exists; when it doesn't, an existing prop the line itself is about wins
     // (e.g. a line about blending nasi padang tagged "sate-padang" uses nasi-padang-blender); only otherwise is the

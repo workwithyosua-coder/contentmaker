@@ -15,12 +15,13 @@ export const PNG_PROPS: PngProp[] = [
   {
     name: "nasi-padang-blender",
     aspect: 417 / 900,
-    rx: /\b(blender|diblender|blend(ed|ing)?|nasi padang|jus nasi padang)\b/i,
+    // the blender itself, nasi padang, its dishes (rendang, sayur/gulai nangka, jackfruit curry) and the boba straw
+    rx: /\b(blender|diblender|blend(ed|ing)?|nasi padang|jus nasi padang|rendang|(sayur|gulai) nangka|jackfruit curry|sedotan boba|boba straw|boba)\b/i,
     parts: [
       { id: "rendang", label: "RENDANG", x: 0.408, y: 0.511, rx: /\b(rendang|daging|beef)\b/i },
       { id: "cabai", label: "CABAI HIJAU", x: 0.516, y: 0.572, rx: /\b(cabai|cabe|lado|chili|chilli|sambal)\b/i },
       { id: "nasi", label: "NASI", x: 0.264, y: 0.4, rx: /\b(nasi|rice)\b/i },
-      { id: "sedotan", label: "SEDOTAN", x: 0.48, y: 0.111, rx: /\b(sedotan|straw|sedot|minum|drink)\b/i },
+      { id: "sedotan", label: "SEDOTAN BOBA", x: 0.48, y: 0.111, rx: /\b(sedotan|straw|sedot|minum|drink|boba)\b/i },
     ],
   },
   {

@@ -68,7 +68,7 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
       </AbsoluteFill>
 
       <SafeFrame>
-        {/* BOTTOM: English subtitle floating over the chests (ends at y 1260), or the CTA card */}
+        {/* BOTTOM: the CTA card (subtitles are drawn below, at y 1480..1620) */}
         {cta ? (
           <div
             style={{
@@ -95,7 +95,7 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
         ) : null}
       </SafeFrame>
 
-      {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250); italic for inner thoughts */}
+      {/* movie-style English subtitle, timed to the voice, no box, low in the frame (y 1480..1620, under every face); italic for inner thoughts */}
       <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />
     </>
   );
