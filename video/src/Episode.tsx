@@ -7,9 +7,9 @@ import { AbsoluteFill, Audio, Easing, Sequence, interpolate, random, spring, sta
 import { Character, slapAt, type Gesture } from "./Character";
 import { Prop, propsFor } from "./Props";
 import { COLORS, END_FRAMES, SAFE, timeline, type EpisodeLine, type EpisodeProps, type Speaker } from "./types";
+import { UcoOcuWordmark } from "./brand/UcoOcuWordmark";
 
 const COMIC = "Bangers, Impact, sans-serif";
-const LOGO = "'Luckiest Guy', Impact, sans-serif";
 const BODY = "Nunito, Arial, sans-serif";
 
 /** Ocu's signature iced drink, colored by what the episode is about. */
@@ -512,8 +512,8 @@ function ThoughtCloud({ side, frame }: { side: Speaker; frame: number }) {
 
 function Bug() {
   return (
-    <div style={{ position: "absolute", top: SAFE.top, left: SAFE.left, fontFamily: LOGO, fontSize: 38, color: COLORS.white, WebkitTextStroke: `6px ${COLORS.ink}`, paintOrder: "stroke fill" }}>
-      <span style={{ color: COLORS.ucoAmber }}>UCO</span> & <span style={{ color: "#7FB3C8" }}>OCU</span>
+    <div style={{ position: "absolute", top: SAFE.top, left: SAFE.left }}>
+      <UcoOcuWordmark height={48} shadow={false} />
     </div>
   );
 }
@@ -537,8 +537,8 @@ function EndCard({ cta, drink }: { cta: string | null; drink: string | null }) {
         </div>
       </div>
       <div style={{ position: "absolute", top: SAFE.top + 70, left: SAFE.left, right: SAFE.right, textAlign: "center", transform: `scale(${pop})` }}>
-        <div style={{ fontFamily: LOGO, fontSize: 150, lineHeight: 1, color: COLORS.white, WebkitTextStroke: `10px ${COLORS.ink}`, paintOrder: "stroke fill", textShadow: `0 12px 0 ${COLORS.ink}` }}>
-          UCO & OCU
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <UcoOcuWordmark height={180} />
         </div>
         <div style={{ fontFamily: BODY, fontWeight: 900, fontSize: 48, color: COLORS.yellow, marginTop: 14 }}>@uco.ocu</div>
         {cta && (

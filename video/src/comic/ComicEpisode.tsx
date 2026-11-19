@@ -22,6 +22,7 @@ import {
 import { ComicCharacter, type ComicGesture } from "./ComicCharacter";
 import { buildShots, type Shot } from "./shots";
 import { C, HEAVY, INK_PX, SHADOW, halftone } from "./theme";
+import { UcoOcuWordmark } from "../brand/UcoOcuWordmark";
 
 // Comic style (video/styles/comic.md). Layers per shot: stage (characters, no text) → overlays (banner, caption, SFX).
 export type ComicProps = EpisodeProps & { reducedMotion?: boolean };
@@ -671,15 +672,10 @@ function EndCard() {
             background: C.bolt,
             border,
             boxShadow: SHADOW,
-            padding: "18px 32px",
-            fontFamily: HEAVY,
-            fontWeight: 900,
-            fontSize: 120,
-            letterSpacing: -4,
-            color: C.ink,
+            padding: "24px 36px",
           }}
         >
-          UCO &amp; OCU
+          <UcoOcuWordmark height={150} />
         </div>
         <div
           style={{
