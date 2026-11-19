@@ -25,6 +25,8 @@ export type Beat = {
   startFrame: number;
   durationInFrames: number;
   importantMessage: ImportantMessage;
+  /** The line's English translation (the script's [EN] subtitle), or null. Never the Indonesian line. */
+  subtitleEn: string | null;
 };
 
 export const KICKER_MAX_WORDS = 2;
@@ -77,6 +79,14 @@ function fallbackCue(l: Pick<EpisodeLine, "beat" | "text" | "on_screen_text" | "
   return { kicker: KICKER_FOR_BEAT[l.beat] ?? l.beat, headline: l.on_screen_text?.trim() || l.text?.trim() || l.subtitle };
 }
 
+/** English subtitle for a line: the [EN] translation, never the Indonesian text (blank or identical → null). */
+function englishOf(l: Pick<EpisodeLine, "subtitle" | "text">) {
+  const en = l.subtitle?.replace(/\s+/g, " ").trim();
+  if (!en) return null;
+  if (en.toLowerCase() === l.text?.replace(/\s+/g, " ").trim().toLowerCase()) return null;
+  return en;
+}
+
 export const CTA_CUE: ImportantMessage = { kicker: "UCO & OCU", headline: "FOLLOW KONTEN PINTER ANTI ZONK", stamp: "FOLLOW +" };
 
 export function buildBeats(lines: EpisodeLine[]): Beat[] {
@@ -89,6 +99,7 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     startFrame: starts[i],
     durationInFrames: Math.max(1, (starts[i + 1] ?? end) - starts[i]),
     importantMessage: clampCue(l.important_message, fallbackCue(l)),
+    subtitleEn: englishOf(l),
   }));
   beats.push({
     id: "cta",
@@ -98,6 +109,7 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     startFrame: end,
     durationInFrames: END_FRAMES,
     importantMessage: CTA_CUE,
+    subtitleEn: null,
   });
   return beats;
 }

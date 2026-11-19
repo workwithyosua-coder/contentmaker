@@ -74,8 +74,9 @@ export const UCO_OCU_2D_COMIC_STYLE = {
   shotLayouts: ["uco-solo-orange", "ocu-solo-teal", "split-screen-jagged-yellow", "two-shot-debate", "thought-dimmed-charcoal"],
 } as const;
 
-// Cue-based styles (from the Uco & Ocu Style Lab reference (PR #28)). They show only each beat's important message
-// (kicker ≤ 2 words, headline ≤ 5 words), never full-sentence subtitles. Beat timeline: video/src/beats.ts.
+// Cue-based styles (from the Uco & Ocu Style Lab reference (PR #28)). The headline is each beat's important message
+// (kicker ≤ 2 words, headline ≤ 5 words); Koran Kinetik shows nothing else, Diagram Taktis adds the line's English
+// subtitle under the cast. Beat timeline: video/src/beats.ts.
 export const EDITORIAL_PAPER_CUTOUT_STYLE = {
   id: "editorial-paper-cutout",
   label: "Koran Kinetik",
@@ -117,7 +118,7 @@ export const EDITORIAL_PAPER_CUTOUT_STYLE = {
 export const TACTICAL_VECTOR_HUD_STYLE = {
   id: "tactical-vector-hud",
   label: "Diagram Taktis",
-  shortDescription: "Vector HUD explainer: dark grid, spring-snap panels, live voice meters, 5-word headlines only.",
+  shortDescription: "Vector HUD explainer: dark grid, spring-snap panels, big cast with live voice meters, 5-word headlines and English subtitles.",
   aspectRatio: "9:16",
   resolution: { width: 1080, height: 1920 },
   fps: 30,
@@ -141,7 +142,7 @@ export const TACTICAL_VECTOR_HUD_STYLE = {
   visualRules: {
     linework: "Flat vector HUD on a dark navy grid (#11161D), crisp 2px outlines in blue, amber and cyan, monospace labels.",
     elevation: "Bordered square HUD panels, no shadows; panels spring-snap in and indicator lines retract before each cut.",
-    forbiddenEffects: "No soft gradients, no neon glow, no blur, no full-sentence subtitles, no baked-in text, voices, or music in raw generated video clips.",
+    forbiddenEffects: "No soft gradients, no neon glow, no blur, no Indonesian subtitles (English only, under the cast), no baked-in text, voices, or music in raw generated video clips.",
   },
   characters: {
     uco: {
