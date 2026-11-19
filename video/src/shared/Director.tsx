@@ -21,7 +21,8 @@ import { ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight,
 //   cta-stinger          two-shot, Ocu pointing at TikTok's + Follow (x 920, y 780), wordmark + stamp up top
 //   thought lines        dimmed backdrop, the thinker lit, a comic thought bubble with the prop inside
 // Layers, back to front: background wash → speed lines → (thought dim) → cast → stage (props, cards, labels, text).
-// Faces always end above y 1100 (subtitles live in y 1120..1250); the stage stays in x 60..940, y 274..1080.
+// Faces always end above y 1100 (above TikTok's caption area; subtitles sit far lower, y 1480..1620); the stage stays
+// in x 60..940, y 274..1080.
 
 export type DirectorSkin = {
   variant: CastVariant;
@@ -64,7 +65,7 @@ const STAGE_BOTTOM = 1080;
 const SOLO_H = 1760;
 /** two-shot / CTA figure frame height */
 const PAIR_H = 1440;
-/** mouths stay above the movie subtitles (y 1120..1250) */
+/** mouths stay above TikTok's caption area (y 1260+), and so far above the subtitles (y 1480..1620) */
 const MOUTH_MAX_Y = 1100;
 
 type Placed = { who: "uco" | "ocu"; cx: number; top: number; s: number; on: boolean; head: HeadOnScreen; transform?: string };
@@ -117,6 +118,8 @@ export function DirectorStage({
   let kineticBox: Box | null = null;
   let kineticAlign: "left" | "center" | "right" = "center";
   let labelMode: LabelMode = "sides";
+  /** close-up prop inset: no callout labels (they'd run over the face or the subtitles) */
+  let closeInset = false;
   let cardBox: Box | null = null;
   let propBox: Box | null = null;
   let bubbleBox: Box | null = null;
@@ -125,22 +128,27 @@ export function DirectorStage({
 
   /** Stacks kinetic text, card and prop top-down in one column (thought lines put the prop in a bubble instead). */
   const stack = (col: { x: number; w: number }, top: number, bottom: number, propMinH = 300) => {
+    // space goes to the prop first, then the kinetic text, then the explainer card (dropped when it doesn't fit)
+    const kh = kinetic ? kineticHeight(kinetic, col.w) + 8 : 0;
+    const showKinetic = Boolean(kinetic) && (beat.thought || !hasProp || bottom - top - kh >= propMinH);
     let y = top;
-    if (kinetic) {
-      const h = kineticHeight(kinetic, col.w);
-      kineticBox = { x: col.x, y, w: col.w, h };
-      y += h + 8;
+    if (showKinetic && kinetic) {
+      kineticBox = { x: col.x, y, w: col.w, h: kh - 8 };
+      y += kh;
     }
     if (beat.thought) {
       bubbleBox = { x: col.x, y, w: col.w, h: Math.min(bottom - y, col.w * 0.95) };
       return;
     }
     if (beat.overlay) {
-      const h = hasProp ? Math.min(300, Math.max(220, bottom - y - propMinH)) : Math.min(col.w * 1.15, bottom - y);
-      cardBox = { x: col.x, y, w: col.w, h };
-      y += h + 22;
+      const free = bottom - y - (hasProp ? propMinH : 0);
+      const h = hasProp ? Math.min(300, free - 22) : Math.min(col.w * 1.15, bottom - y);
+      if (h >= 200) {
+        cardBox = { x: col.x, y, w: col.w, h };
+        y += h + 22;
+      }
     }
-    if (hasProp && bottom - y >= 160) propBox = { x: col.x, y, w: col.w, h: bottom - y };
+    if (hasProp) propBox = { x: col.x, y, w: col.w, h: Math.max(propMinH, bottom - y) };
   };
 
   if (shot === "solo-uco" || shot === "solo-ocu") {
@@ -167,6 +175,11 @@ export function DirectorStage({
     const shake = reduced ? { x: 0, y: 0 } : { x: Math.sin(frame * 1.7) * 5 + Math.sin(frame * 4.1) * 2, y: Math.cos(frame * 2.3) * 4 };
     placed = [place(who, f, H, 540 + shake.x, true, hairMin - f.hair * H + H + shake.y)];
     if (beat.thought) bubbleBox = { x: who === "uco" ? 640 : 60, y: hairMin, w: 300, h: 260 };
+    // the line's prop still shows: an inset low on the open side, under the face and above the subtitles
+    else if (hasProp) {
+      propBox = { x: who === "uco" ? 620 : 60, y: 1110, w: 320, h: 350 };
+      closeInset = true;
+    }
     washFor = who;
   } else {
     // two-shot / CTA: one size for both, shoulders slightly overlapping, bottoms on the frame edge
@@ -219,7 +232,7 @@ export function DirectorStage({
   // the prop itself (illustrated PNG first, then the scene image or the coded prop), in a stage box
   const propNode = (box: Box, inBubble = false) =>
     beat.propImage && !beat.sceneImageUrl ? (
-      <PngPropStage name={beat.propImage} box={box} skin={skin.prop} callouts={inBubble ? [] : beat.callouts} labels={labelMode} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : 6} />
+      <PngPropStage name={beat.propImage} box={box} skin={skin.prop} callouts={inBubble || closeInset ? [] : beat.callouts} labels={labelMode} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : 6} />
     ) : (
       <PropStage box={box} skin={skin.prop} tag={beat.propTag} label={label} sceneImageUrl={beat.sceneImageUrl} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} />
     );
