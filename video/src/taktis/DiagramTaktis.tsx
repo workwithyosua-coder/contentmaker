@@ -137,7 +137,8 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
           <div
             style={{
               position: "absolute",
-              right: 0,
+              // bottom-left, so Ocu's pointing hand and the arrow (right side) stay clear
+              left: 0,
               bottom: 0,
               border: `5px solid ${P.accent}`,
               background: P.surface,
@@ -150,7 +151,7 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
               fontSize: 34,
               color: P.accent,
               transform: `scale(${0.92 + 0.08 * Math.min(1, snap)})`,
-              transformOrigin: "100% 100%",
+              transformOrigin: "0% 100%",
             }}
           >
             <span>LOCK TARGET + FOLLOW</span>

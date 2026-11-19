@@ -1,7 +1,13 @@
 {
   "cast": [
+    "ocu/cta-closed.png",
+    "ocu/cta-open.png",
     "ocu/deadpan-closed.png",
     "ocu/deadpan-open.png",
+    "uco/defensive-closed.png",
+    "uco/defensive-open.png",
+    "uco/shocked-closed.png",
+    "uco/shocked-open.png",
     "uco/triumphant-closed.png",
     "uco/triumphant-open.png"
   ],

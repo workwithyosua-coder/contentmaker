@@ -52,6 +52,9 @@ You don't have to hit the framing above exactly. Measure where the head is on th
 Uploaded so far (closed and open frames share one crop):
 - `uco/triumphant`: hair top 150, chin 720, face x 410
 - `ocu/deadpan`: hair top 150, chin 720, face x 493
+- `uco/defensive`, `uco/shocked`: same head box as `uco/triumphant`. Each head was aligned to the starter's head
+  ink before export, so expression cuts don't jump.
+- `ocu/cta`: same head box as `ocu/deadpan`, pointing fingertip at (816, 721). The CTA arrow starts there.
 
 Both characters share one head size, and both sit flush at y 1700. Uco's sweater was extended straight down from its
 flat cut.
