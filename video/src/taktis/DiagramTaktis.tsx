@@ -1,10 +1,10 @@
 import React from "react";
-import { AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
 import { BrandAware } from "../brand/UcoOcuWordmark";
-import { FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { HEAVY, MONO, SafeFrame, VoiceTrack, headlineSize, wrapHeadline } from "../cast/CueShared";
 import { GrainVignette, SfxCues } from "../shared/Compositing";
-import { DirectorStage, type DirectorSkin } from "../shared/Director";
+import { DirectorStage, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
 import { sfxCuesFor } from "../shared/sfxCues";
 import type { CueProps } from "../koran/KoranKinetik";
@@ -29,11 +29,12 @@ const SKIN: DirectorSkin = {
   fxColor: P.accent,
   rim: { uco: "rgba(245,158,11,0.75)", ocu: "rgba(56,189,248,0.75)" },
   dimListener: 0.45,
+  arrow: { color: P.accent, outline: P.canvas, ring: P.cyan },
   // two-shots keep the HUD target brackets and chest voice meters
-  figureExtras: ({ who, cx, top, s, on, level, frame }) => (
+  figureExtras: ({ who, head, on, level, frame }) => (
     <>
-      <HudTarget cx={cx} top={top} s={s} color={who === "uco" ? P.accent : P.cyan} on={on} />
-      <VoiceMeter cx={cx} top={top} s={s} color={who === "uco" ? P.accent : P.cyan} on={on} level={level} f={frame} reduced={false} />
+      <HudTarget head={head} color={who === "uco" ? P.accent : P.cyan} on={on} />
+      <VoiceMeter head={head} color={who === "uco" ? P.accent : P.cyan} on={on} level={level} f={frame} reduced={false} />
     </>
   ),
 };
@@ -86,7 +87,6 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
   const size = headlineSize(m.headline) - 4;
   const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
   const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
-  const stage = castLayout({ cardBottom: SAFE_ZONE.top + 20 + cardH, cta, frame: f, reduced });
   const rise = (1 - Math.min(1, snap)) * 40;
 
   return (
@@ -159,13 +159,6 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
             </svg>
           </div>
         ) : null}
-
-        {cta && (
-          <>
-            <FollowArrow from={toFrame({ x: stage.tip.x + 12, y: stage.tip.y })} color={P.accent} outline={P.canvas} progress={reduced ? 1 : interpolate(f, [10, 24], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) })} />
-            <FollowTarget color={P.cyan} scale={reduced ? 1 : 1 + 0.15 * Math.sin((f / 30) * Math.PI * 2)} />
-          </>
-        )}
       </SafeFrame>
 
       {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250) */}
@@ -175,37 +168,37 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
 }
 
 /** HUD target frame around one figure's head and shoulders: corner brackets in the character's colour. */
-function HudTarget({ cx, top, s, color, on }: { cx: number; top: number; s: number; color: string; on: boolean }) {
-  const half = 74 * s;
-  const y0 = top - 6;
-  const y1 = top + 150 * s;
+function HudTarget({ head, color, on }: { head: HeadOnScreen; color: string; on: boolean }) {
+  const half = head.height * 0.62;
+  const y0 = head.top - 14;
+  const y1 = head.chin + head.height * 0.3;
   const arm = 46;
   const corner = (x: number, y: number, dx: number, dy: number) => `M${x + dx * arm} ${y} L${x} ${y} L${x} ${y + dy * arm}`;
   return (
     <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0, opacity: on ? 1 : 0.35 }} aria-hidden>
       <g fill="none" stroke={color} strokeWidth={6} strokeLinecap="square">
-        <path d={corner(cx - half, y0, 1, 1)} />
-        <path d={corner(cx + half, y0, -1, 1)} />
-        <path d={corner(cx - half, y1, 1, -1)} />
-        <path d={corner(cx + half, y1, -1, -1)} />
+        <path d={corner(head.cx - half, y0, 1, 1)} />
+        <path d={corner(head.cx + half, y0, -1, 1)} />
+        <path d={corner(head.cx - half, y1, 1, -1)} />
+        <path d={corner(head.cx + half, y1, -1, -1)} />
       </g>
     </svg>
   );
 }
 
-/** Frame-driven voice meter on a dark plate at chest height, in front of the figure (above the subtitle area). */
-function VoiceMeter({ cx, top, s, color, on, level, f, reduced }: { cx: number; top: number; s: number; color: string; on: boolean; level: number; f: number; reduced: boolean }) {
-  const w = 74 * s;
-  const h = 64;
-  const y = top + 128 * s;
+/** Frame-driven voice meter on a dark plate just under the bracket, in front of the figure. */
+function VoiceMeter({ head, color, on, level, f, reduced }: { head: HeadOnScreen; color: string; on: boolean; level: number; f: number; reduced: boolean }) {
+  const w = head.height * 0.7;
+  const h = 56;
+  const y = head.chin + head.height * 0.36;
   return (
     <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0, opacity: on ? 1 : 0.45 }} aria-hidden>
-      <rect x={cx - w / 2} y={y} width={w} height={h} fill="#0F172A" stroke={color} strokeWidth={3} />
+      <rect x={head.cx - w / 2} y={y} width={w} height={h} fill="#0F172A" stroke={color} strokeWidth={3} />
       {Array.from({ length: 10 }, (_, i) => {
         const wobble = reduced ? 0.6 : (Math.sin(f * 0.5 + i * 1.4) + 1) / 2;
-        const bh = on ? 6 + 44 * Math.min(1, level * (0.5 + 0.5 * wobble)) : 4;
+        const bh = on ? 6 + 38 * Math.min(1, level * (0.5 + 0.5 * wobble)) : 4;
         const bw = (w - 16) / 10;
-        return <rect key={i} x={cx - w / 2 + 8 + i * bw + 2} y={y + h - 7 - bh} width={bw - 4} height={bh} fill={color} />;
+        return <rect key={i} x={head.cx - w / 2 + 8 + i * bw + 2} y={y + h - 7 - bh} width={bw - 4} height={bh} fill={color} />;
       })}
     </svg>
   );

@@ -1,7 +1,7 @@
-// Where each uploaded sprite's head actually is, measured on the exported 900×1700 PNG. CastPuppet scales and shifts
-// the image so the head lands where the director expects it (hair top y 40, chin y 520, face centred on x 450, the
-// same framing as the coded CastSvg figures), so shots frame identically whatever the artwork's own crop.
-// Sprites not listed here are assumed to follow that framing already (see cast/README.md).
+// Where each uploaded sprite's head is, measured on the exported 900×1700 PNG. Sprites are always drawn at their own
+// proportions (never stretched); the Director reads these to size and place each figure so the hair stays under the
+// headline card, the mouth above the subtitles, and the face where the shot wants it.
+// Sprites not listed here are assumed to use the README framing (hair top 40, chin 520, face centred on x 450).
 
 export type HeadBox = { hairTop: number; chin: number; faceX: number };
 export const TARGET_HEAD: HeadBox = { hairTop: 40, chin: 520, faceX: 450 };

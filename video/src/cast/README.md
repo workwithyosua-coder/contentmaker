@@ -41,9 +41,13 @@ Each emotion needs **both** mouth frames (`-closed` and `-open`), or that emotio
 ### Artwork with its own framing
 
 You don't have to hit the framing above exactly. Measure where the head is on the exported PNG and add it to
-`video/src/cast/spriteCalibration.ts` (`hairTop`, `chin`, `faceX` in px). The puppet then scales and shifts the image
-so the head lands on the director's head position. If the body ends above the bottom of the frame, its last rows are
-continued straight down.
+`video/src/cast/spriteCalibration.ts` (`hairTop`, `chin`, `faceX` in px).
+- **Never distorted:** sprites are always drawn at their own proportions, with one uniform scale.
+- **How the director uses the head box:**
+  - It sizes each shot so the hair stays under the headline card and the mouth stays above the subtitles (y ≤ 1100).
+  - It anchors the sprite's bottom edge to the bottom of the video (y 1920) in solo shots, two-shots and the CTA.
+  - It places the face where the shot wants it.
+- **So:** keep the body running to the bottom edge of the PNG.
 
 Uploaded so far (closed and open frames share one crop):
 - `uco/triumphant`: hair top 150, chin 720, face x 410

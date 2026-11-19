@@ -2,7 +2,7 @@ import React from "react";
 import { AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
 import { BrandAware } from "../brand/UcoOcuWordmark";
-import { FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { HEAVY, MONO, SafeFrame, VoiceTrack, headlineSize, wrapHeadline } from "../cast/CueShared";
 import { GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
@@ -28,6 +28,7 @@ const SKIN: DirectorSkin = {
   fxColor: P.ink,
   rim: { uco: null, ocu: null },
   dimListener: 0.12,
+  arrow: { color: P.accent, outline: P.ink, ring: P.primary },
 };
 
 export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
@@ -73,7 +74,6 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
   const size = headlineSize(m.headline);
   const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
   const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
-  const stage = castLayout({ cardBottom: SAFE_ZONE.top + 20 + cardH, cta, frame: f, reduced });
   // who looks where: the listener watches the speaker; in the CTA both look at the viewer
 
   return (
@@ -163,14 +163,6 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
             </svg>
           </div>
         ) : null}
-
-        {/* CTA stinger: arrow from Ocu's fingertip, sideways to TikTok's + Follow (x 920, y 780) */}
-        {cta && (
-          <>
-            <FollowArrow from={toFrame({ x: stage.tip.x + 12, y: stage.tip.y })} color={P.accent} outline={P.ink} progress={reduced ? 1 : interpolate(f, [10, 24], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) })} />
-            <FollowTarget color={P.primary} scale={reduced ? 1 : 1 + 0.15 * Math.sin((f / 30) * Math.PI * 2)} />
-          </>
-        )}
       </SafeFrame>
 
       {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250) */}

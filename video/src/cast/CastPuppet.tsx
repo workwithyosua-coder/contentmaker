@@ -3,7 +3,6 @@ import { Img, spring, staticFile, useVideoConfig } from "remotion";
 import { castSprites } from "../assets";
 import type { Emotion } from "../beats";
 import { OcuBust, UcoBust, type CastVariant, type OcuMood, type UcoMood } from "./CastSvg";
-import { TARGET_HEAD, headBoxFor } from "./spriteCalibration";
 
 // Layered puppet: illustrated PNG sprites (public/cast/{uco|ocu}/{emotion}-{closed|open}.png, see cast/README.md),
 // swapped closed/open from the voice loudness, with spring squash-and-stretch on entry, a talking bounce, idle
@@ -29,6 +28,8 @@ export type PuppetProps = {
   rim?: string | null;
   /** colour of the speed lines behind high-energy Uco beats */
   fxColor: string;
+  /** which FX layers this figure may show: all (single-character shots), sweat only (the speaker in a two-shot), none */
+  fx?: "all" | "sweat" | "none";
 };
 
 const UCO_MOOD: Partial<Record<Emotion, UcoMood>> = { phone: "phone", shocked: "sweat", defensive: "squint" };
@@ -44,8 +45,9 @@ export function CastPuppet(p: PuppetProps) {
   const sy = 0.9 + 0.1 * pop + breathe;
   const sx = 1 / Math.sqrt(sy);
   const bounce = r ? 0 : -p.level * 1.4; // % of the figure height, while talking
-  const energetic = p.who === "uco" && (p.emotion === "triumphant" || p.emotion === "shocked");
-  const sweaty = p.emotion === "shocked" || p.emotion === "defensive";
+  const fx = p.fx ?? "all";
+  const energetic = fx === "all" && p.who === "uco" && (p.emotion === "triumphant" || p.emotion === "shocked");
+  const sweaty = fx !== "none" && (p.emotion === "shocked" || p.emotion === "defensive");
 
   return (
     <div style={{ position: "absolute", inset: 0 }}>
@@ -60,7 +62,7 @@ export function CastPuppet(p: PuppetProps) {
         }}
       >
         {sprites ? (
-          <SpriteImg src={staticFile(p.mouthOpen ? sprites.open : sprites.closed)} who={p.who} emotion={sprites.emotion} />
+          <SpriteImg src={staticFile(p.mouthOpen ? sprites.open : sprites.closed)} />
         ) : p.who === "uco" ? (
           <UcoBust
             variant={p.variant}
@@ -85,38 +87,9 @@ export function CastPuppet(p: PuppetProps) {
   );
 }
 
-/**
- * A 900×1700 sprite placed so its measured head (spriteCalibration.ts) lands on the director's head position:
- * scaled about the head, then shifted. Percentages keep it exact at any figure size. The body may extend past the
- * frame box (bodies run off the bottom of the screen anyway).
- */
-function SpriteImg({ src, who, emotion }: { src: string; who: "uco" | "ocu"; emotion: string }) {
-  const h = headBoxFor(who, emotion);
-  const k = (TARGET_HEAD.chin - TARGET_HEAD.hairTop) / (h.chin - h.hairTop);
-  const left = TARGET_HEAD.faceX - h.faceX * k;
-  const top = TARGET_HEAD.hairTop - h.hairTop * k;
-  const box = { position: "absolute" as const, left: `${(left / 900) * 100}%`, top: `${(top / 1700) * 100}%`, width: `${k * 100}%`, height: `${k * 100}%` };
-  // Sprites are flush at their own bottom edge; at the director's head size that edge can land above the bottom of
-  // the figure frame. Continue the body straight down: a copy clipped to its last 2 rows, stretched vertically.
-  const bottom = top / 1700 + k; // sprite bottom, as a fraction of the frame height
-  const rows = 2 / 1700; // last two sprite rows, as a fraction of the sprite
-  const stretch = bottom < 1 ? 1 + (1 - bottom) / (k * rows) + 1 : 1;
-  return (
-    <>
-      {stretch > 1 && (
-        <Img
-          src={src}
-          style={{
-            ...box,
-            clipPath: `inset(${(1 - rows) * 100}% 0 0 0)`,
-            transform: `scaleY(${stretch})`,
-            transformOrigin: `50% ${(1 - rows) * 100}%`,
-          }}
-        />
-      )}
-      <Img src={src} style={box} />
-    </>
-  );
+/** The 900×1700 sprite fills its figure frame exactly (same aspect, uniform scale, never stretched). */
+function SpriteImg({ src }: { src: string }) {
+  return <Img src={src} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
 }
 
 /** Comic speed lines radiating from behind the head, rotating slowly (frame-driven). viewBox matches the figure. */
