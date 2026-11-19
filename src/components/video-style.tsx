@@ -9,6 +9,7 @@ import { VIDEO_STYLES, styleById } from "../../video/src/styles/registry";
 export function VideoStylePicker({ value, action }: { value: string; action: (style: string) => Promise<StepResult> }) {
   const [style, setStyle] = useState(styleById(value).id);
   const [pending, start] = useTransition();
+  const [result, setResult] = useState<StepResult | null>(null);
   return (
     <fieldset className="space-y-2">
       <legend className="label">Video style</legend>
@@ -19,7 +20,7 @@ export function VideoStylePicker({ value, action }: { value: string; action: (st
             <label
               key={s.id}
               className={`flex min-h-11 cursor-pointer gap-3 rounded-control border p-3 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 ${on ? "border-text" : "border-border"}`}
-              style={{ outlineColor: s.palette.accentYellow }}
+              style={{ outlineColor: s.palette.accentYellow ?? s.palette.accent }}
             >
               <input
                 type="radio"
@@ -29,8 +30,9 @@ export function VideoStylePicker({ value, action }: { value: string; action: (st
                 disabled={pending}
                 onChange={() => {
                   setStyle(s.id);
+                  setResult(null);
                   start(async () => {
-                    await action(s.id);
+                    setResult(await action(s.id));
                   });
                 }}
                 className="mt-1 size-4 shrink-0"
@@ -51,6 +53,9 @@ export function VideoStylePicker({ value, action }: { value: string; action: (st
           );
         })}
       </div>
+      <p role="status" className="min-h-4 text-xs" style={{ color: result && !result.ok ? "var(--bad)" : undefined }}>
+        {pending ? "Saving…" : (result?.message ?? "")}
+      </p>
     </fieldset>
   );
 }

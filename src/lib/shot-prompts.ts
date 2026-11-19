@@ -41,8 +41,19 @@ const MOOD: Record<string, string> = {
   neutral: "neutral",
 };
 
+// Cue-based styles (Koran Kinetik, Diagram Taktis) keep both characters on one canvas; the clip only needs the
+// cast acting on that canvas, the app adds the cards, headlines and diagrams.
+const CUE_LAYOUT: Record<ShotLayout, (s: VideoStylePreset, who: "uco" | "ocu") => string> = {
+  "uco-solo-orange": (s) => `Uco centred on the flat ${s.palette.canvas} canvas, Ocu out of frame.`,
+  "ocu-solo-teal": (s) => `Ocu centred on the flat ${s.palette.canvas} canvas, Uco out of frame.`,
+  "split-screen-jagged-yellow": (s, who) => `Uco on the left and Ocu on the right of the flat ${s.palette.canvas} canvas; ${who === "uco" ? "Uco" : "Ocu"} is speaking, the other listens.`,
+  "two-shot-debate": (s) => `Uco and Ocu side by side on the flat ${s.palette.canvas} canvas, both lit, facing each other.`,
+  "thought-dimmed-charcoal": (s, who) => `Uco and Ocu side by side on the flat ${s.palette.canvas} canvas, ${who === "uco" ? "Uco" : "Ocu"} lost in thought, lips closed.`,
+};
+
 export function shotPrompts(lines: PromptLine[], styleId: string): ShotPrompt[] {
   const s = styleById(styleId);
+  const layoutText = s.cues === "important-message" ? CUE_LAYOUT : LAYOUT_TEXT;
   return lines.map((l, i) => {
     const layout = layoutFor(l, i);
     const both = layout === "split-screen-jagged-yellow" || layout === "two-shot-debate" || layout === "thought-dimmed-charcoal";
@@ -52,7 +63,7 @@ export function shotPrompts(lines: PromptLine[], styleId: string): ShotPrompt[] 
     const prompt = [
       `${s.aspectRatio} vertical video, ${s.resolution.width}x${s.resolution.height}, ${seconds} seconds, ${s.fps} fps.`,
       `Style: ${s.visualRules.linework} ${s.visualRules.elevation}`,
-      LAYOUT_TEXT[layout](s, l.speaker),
+      layoutText[layout](s, l.speaker),
       both
         ? `Uco: ${s.characters.uco.appearance} Ocu: ${s.characters.ocu.appearance}`
         : `${l.speaker === "uco" ? "Uco" : "Ocu"}: ${who.appearance}`,

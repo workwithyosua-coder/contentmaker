@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { db } from "../db";
+import { clampCue } from "../../../video/src/beats";
 import { research, structured } from "./claude";
 
 // The writers' room: ideas → fact check → Uco & Ocu dialogue script → platform captions.
@@ -139,6 +140,18 @@ Keep it under 350 words. Format: bullet points, each ending with (source: URL).`
 }
 
 // ---------- 3. Script ----------
+// On-screen cue per line for the cue-based video styles (Koran Kinetik, Diagram Taktis): the only text they show.
+export const ImportantMessageSchema = z.object({
+  kicker: z.string().describe("Label above the headline, uppercase Indonesian, at most 2 words (e.g. 'BIAYA LAYANAN')"),
+  headline: z
+    .string()
+    .describe("The one thing to remember from this line, uppercase Indonesian, at most 5 words, numbers as digits (e.g. '85RB X 12 = 1,02 JUTA'); never the full sentence"),
+  stamp: z.string().nullable().describe("Optional red stamp, at most 3 words (e.g. 'MINUS 520RB'), or null"),
+});
+export const CUE_RULES = `important_message (the only text the Koran Kinetik and Diagram Taktis styles show; no subtitles there):
+  - kicker: at most 2 words. headline: at most 5 words, the high-signal point of the line (a number, a verdict, the twist), not a paraphrase of the whole sentence. stamp: at most 3 words or null.
+  - Uppercase Indonesian, no em dashes, no trailing punctuation. Numbers as digits (65RB, 12X, 1,02 JUTA).`;
+
 const ScriptSchema = z.object({
   title: z.string(),
   target_duration_s: z.number().int().describe("Estimated spoken length, 50–60"),
@@ -156,6 +169,7 @@ const ScriptSchema = z.object({
         .string()
         .nullable()
         .describe("How to say it, for the voice actor or AI voice: emotion, pace, emphasis (e.g. 'fast, indignant, hit 65 ribu')"),
+      important_message: ImportantMessageSchema,
     }),
   ),
   sources: z.array(z.object({ claim: z.string(), url: z.string() })),
@@ -209,6 +223,7 @@ Rules:
 - The concession beat: each privately acknowledges the other via thought_bubble lines, never out loud.
 - Comedy comes from the clash of worldviews and real facts, not insults. Neither one "wins".
 - Put key numbers/facts in on_screen_text so the video works with sound off.
+- ${CUE_RULES}
 - sources: the URLs from the fact sheet that back the facts used.`,
   });
   return {
@@ -220,8 +235,47 @@ Rules:
       subtitle: stripEmDashes(l.subtitle),
       visual: stripEmDashes(l.visual),
       on_screen_text: l.on_screen_text === null ? null : stripEmDashes(l.on_screen_text),
+      important_message: cleanCue(l.important_message, l),
     })),
   };
+}
+
+/** Word limits enforced in code (kicker ≤ 2, headline ≤ 5, stamp ≤ 3), whatever the model returned. */
+export function cleanCue(m: z.infer<typeof ImportantMessageSchema> | null | undefined, l: { beat: string; text: string; on_screen_text?: string | null }) {
+  const c = clampCue(
+    m ? { kicker: stripEmDashes(m.kicker), headline: stripEmDashes(m.headline), stamp: m.stamp ? stripEmDashes(m.stamp) : null } : null,
+    { kicker: l.beat, headline: l.on_screen_text || l.text },
+  );
+  return { kicker: c.kicker, headline: c.headline, stamp: c.stamp ?? null };
+}
+
+/**
+ * Adds important_message cues to an existing script version in place (scripts written before cues existed), so it
+ * can be shown in Koran Kinetik / Diagram Taktis. The spoken lines are not changed.
+ */
+export async function writeImportantMessages(p: { userId: string; projectId: string; scriptId: string }) {
+  const sql = db();
+  const [row] = await sql<{ lines: Script["lines"] }[]>`SELECT lines FROM scripts WHERE id = ${p.scriptId} AND project_id = ${p.projectId}`;
+  if (!row) throw new Error("Script not found.");
+  if (row.lines.every((l) => l.important_message?.headline)) return 0;
+  const brand = await brandGuide(p.userId);
+  const out = await structured({
+    agent: "strategist",
+    projectId: p.projectId,
+    promptVersion: "cues-v1",
+    effort: "low",
+    system: systemFor("the on-screen text editor", brand),
+    schema: z.object({ cues: z.array(ImportantMessageSchema) }),
+    prompt: `Write one on-screen cue per line of this Uco & Ocu script, in the same order (${row.lines.length} cues).
+
+${row.lines.map((l, i) => `${i + 1}. [${l.beat}] ${l.speaker.toUpperCase()}${l.thought_bubble ? " (thought)" : ""}: ${l.text}${l.on_screen_text ? `  (on-screen text: ${l.on_screen_text})` : ""}`).join("\n")}
+
+${CUE_RULES}`,
+  });
+  if (out.cues.length !== row.lines.length) throw new Error(`Got ${out.cues.length} cues for ${row.lines.length} lines. Try again.`);
+  const lines = row.lines.map((l, i) => ({ ...l, important_message: l.important_message?.headline ? l.important_message : cleanCue(out.cues[i], l) }));
+  await sql`UPDATE scripts SET lines = ${sql.json(lines as never)} WHERE id = ${p.scriptId}`;
+  return lines.length;
 }
 
 // ---------- 4. Captions ----------
