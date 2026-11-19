@@ -75,12 +75,11 @@ export const UCO_OCU_2D_COMIC_STYLE = {
 } as const;
 
 // Cue-based styles (from the Uco & Ocu Style Lab reference (PR #28)). The headline is each beat's important message
-// (kicker ≤ 2 words, headline ≤ 5 words); Koran Kinetik shows nothing else, Diagram Taktis adds the line's English
-// subtitle under the cast. Beat timeline: video/src/beats.ts.
+// (kicker ≤ 2 words, headline ≤ 5 words); both add the line's English subtitle under the cast (never Indonesian). Beat timeline: video/src/beats.ts.
 export const EDITORIAL_PAPER_CUTOUT_STYLE = {
   id: "editorial-paper-cutout",
   label: "Koran Kinetik",
-  shortDescription: "Editorial paper cut-out: newsprint canvas, highlighter sweeps, red stamps, 5-word headlines only.",
+  shortDescription: "Editorial paper cut-out: newsprint canvas, highlighter sweeps, red stamps, big cast, 5-word headlines and English subtitles.",
   aspectRatio: "9:16",
   resolution: { width: 1080, height: 1920 },
   fps: 30,
@@ -98,7 +97,7 @@ export const EDITORIAL_PAPER_CUTOUT_STYLE = {
   visualRules: {
     linework: "Flat paper cut-out collage on warm newsprint (#F4EFE6) with fine halftone dots; characters as white-bordered cut-outs with a hard ink drop shadow.",
     elevation: "Hard offset ink shadows (5px 5px 0 #141619), sharp rectangular paper cards, a yellow highlighter sweep behind headlines and a tilted red stamp.",
-    forbiddenEffects: "No gradients, no glow, no blur, no full-sentence subtitles, no baked-in text, voices, or music in raw generated video clips.",
+    forbiddenEffects: "No gradients, no glow, no blur, no Indonesian subtitles (English only, under the cast), no baked-in text, voices, or music in raw generated video clips.",
   },
   characters: {
     uco: {

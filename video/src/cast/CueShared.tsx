@@ -60,8 +60,6 @@ export function headlineSize(text: string) {
   return n <= 14 ? 100 : n <= 22 ? 88 : n <= 30 ? 78 : 66;
 }
 
-/** Message cards may grow to this y (safe-frame px); cast and props start below it. */
-export const CARD_BOTTOM = 390;
 
 /** Arrow from (x1,y1) toward the Follow target, drawn up to `progress` (0..1). Safe-frame coordinates. */
 export function FollowArrow({ from, color, outline, progress, width = 14 }: { from: { x: number; y: number }; color: string; outline: string; progress: number; width?: number }) {
