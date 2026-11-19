@@ -37,13 +37,15 @@ export type HeadOnScreen = { cx: number; top: number; chin: number; height: numb
 // Where the head sits inside a figure's frame, as fractions of the frame (sprite: measured; coded SVG: its drawing).
 type HeadFrac = { hair: number; chin: number; mouth: number; faceX: number };
 const SVG_HEAD: HeadFrac = { hair: 8 / 340, chin: 104 / 340, mouth: 86 / 340, faceX: 0.5 };
-function headFracFor(who: "uco" | "ocu", emotion: string): { frac: HeadFrac; sprite: boolean } {
+function headFracFor(who: "uco" | "ocu", emotion: string): { frac: HeadFrac; sprite: boolean; tip: { x: number; y: number } | null } {
   const sp = castSprites(who, emotion);
-  if (!sp) return { frac: SVG_HEAD, sprite: false };
+  if (!sp) return { frac: SVG_HEAD, sprite: false, tip: null };
   const h = headBoxFor(who, sp.emotion);
   return {
     frac: { hair: h.hairTop / 1700, chin: h.chin / 1700, mouth: (h.hairTop + 0.8 * (h.chin - h.hairTop)) / 1700, faceX: h.faceX / 900 },
     sprite: true,
+    // fingertip as fractions of the figure frame
+    tip: h.fingertip && sp.emotion === emotion ? { x: h.fingertip.x / 900, y: h.fingertip.y / 1700 } : null,
   };
 }
 
@@ -125,23 +127,39 @@ export function DirectorStage({
   } else {
     // two-shot / CTA: one size for both, shoulders slightly overlapping, bottoms on the frame edge
     const H = Math.min(fit(U.frac, 1320), fit(O.frac, 1320));
-    const uco = place("uco", U.frac, H, cta ? 290 : 300, ucoOn);
-    const ocu = place("ocu", O.frac, H, cta ? 740 : 790, ocuOn);
-    // the speaker stands in front
-    placed = ocuOn && !ucoOn ? [uco, ocu] : [ocu, uco];
+    // CTA with a pointing sprite: Ocu nearer the centre (Uco half behind him on the left) so the arrow can leave his
+    // fingertip up-right into + Follow without crossing a face
+    const pointing = cta && O.tip;
+    const uco = place("uco", U.frac, H, pointing ? 175 : cta ? 290 : 300, ucoOn);
+    const ocu = place("ocu", O.frac, H, pointing ? 500 : cta ? 740 : 790, ocuOn);
+    // the speaker stands in front; in the pointing CTA Uco does (he only overlaps Ocu's folded arm, not the hand)
+    placed = ocuOn && !ucoOn && !pointing ? [uco, ocu] : [ocu, uco];
   }
 
   const look = (who: "uco" | "ocu") => (cta || placed.length === 1 ? 0 : who === "uco" ? (ocuOn && !ucoOn ? 1 : 0.4) : ucoOn && !ocuOn ? -1 : -0.4);
   const label = propLabel(beat.importantMessage.stamp, line?.on_screen_text, beat.importantMessage.headline);
 
-  // CTA arrow: from Ocu's fingertip when he has a pointing pose (coded figure), else from beside his head
+  // CTA arrow: from Ocu's pointing fingertip (sprite or coded figure), else from just above his head
   let arrowFrom: { x: number; y: number } | null = null;
   if (cta) {
     const o = placed.find((p) => p.who === "ocu")!;
-    // from just above his hair (under the card), sweeping down-right into + Follow: long enough to read, never straight up
-    arrowFrom = O.sprite
-      ? { x: o.head.cx - o.head.height * 0.1, y: Math.min(SAFE_ZONE.followY - 60, Math.max(hairMin + 8, o.head.top - 40)) }
-      : { x: o.cx - 90 * o.s + OCU_FINGERTIP.x * o.s + 12, y: o.top + OCU_FINGERTIP.y * o.s };
+    const w = 180 * o.s;
+    const left = o.cx - w / 2;
+    if (O.tip) {
+      // from his pointing fingertip, a little clear of the nail, toward + Follow
+      const tx = left + O.tip.x * w;
+      const ty = o.top + O.tip.y * 340 * o.s;
+      const dx = SAFE_ZONE.followX - tx;
+      const dy = SAFE_ZONE.followY - ty;
+      const len = Math.hypot(dx, dy) || 1;
+      arrowFrom = { x: tx + (dx / len) * 14, y: ty + (dy / len) * 14 };
+    } else if (O.sprite) {
+      // no pointing sprite: from just above his hair (under the card), sweeping down-right into + Follow
+      arrowFrom = { x: o.head.cx - o.head.height * 0.1, y: Math.min(SAFE_ZONE.followY - 60, Math.max(hairMin + 8, o.head.top - 40)) };
+    } else {
+      // coded figure: from its raised pointing hand
+      arrowFrom = { x: left + OCU_FINGERTIP.x * o.s + 12, y: o.top + OCU_FINGERTIP.y * o.s };
+    }
   }
 
   return (

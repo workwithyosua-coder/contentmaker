@@ -144,7 +144,8 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
           <div
             style={{
               position: "absolute",
-              right: 0,
+              // bottom-left, so Ocu's pointing hand and the arrow (right side) stay clear
+              left: 0,
               bottom: 0,
               background: P.accent,
               border: `5px solid ${P.ink}`,
@@ -154,7 +155,7 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
               alignItems: "center",
               gap: 18,
               transform: `scale(${0.92 + 0.08 * Math.min(1, ctaPop)})`,
-              transformOrigin: "100% 100%",
+              transformOrigin: "0% 100%",
             }}
           >
             <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 40, color: P.ink }}>TAP + DI KANAN</span>
