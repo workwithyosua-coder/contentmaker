@@ -12,6 +12,8 @@ import crypto from "node:crypto";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { COMPOSITION_FOR, styleById } from "./src/styles/registry.ts";
+import { cpSync } from "node:fs";
+import { writeAssetManifest } from "../scripts/asset-manifest.mts";
 import { FPS, totalFrames, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 
 const args = process.argv.slice(2);
@@ -145,6 +147,14 @@ if (args.includes("--prep")) {
   process.exit(0);
 }
 
+// Optional puppet sprites and SFX (public/cast, public/sfx at the repo root): refresh the list of what exists and
+// copy them next to the episode audio so the bundle can serve them. Missing ones fall back (SVG cast, no SFX).
+const assets = writeAssetManifest();
+for (const dir of ["cast", "sfx"]) {
+  const src = path.join(here, "..", "public", dir);
+  if (existsSync(src)) cpSync(src, path.join(pub, dir), { recursive: true });
+}
+log(`assets: ${assets.cast.length} cast sprites, ${assets.sfx.length} sound effects`);
 log("bundling…");
 progress(13, "Getting the animation ready");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });

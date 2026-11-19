@@ -24,6 +24,11 @@ export type ManifestLine = {
   thought_bubble?: boolean;
   /** High-signal on-screen cue for the cue-based styles: kicker ≤ 2 words, headline ≤ 5 words (see beats.ts). */
   important_message?: { kicker: string; headline: string; stamp?: string | null } | null;
+  /** Director fields (cue styles): camera shot, acting emotion, topic prop, optional topic image. All optional. */
+  camera_shot?: string | null;
+  emotion?: string | null;
+  prop_tag?: string | null;
+  scene_image_url?: string | null;
   hasAudio: boolean;
 };
 

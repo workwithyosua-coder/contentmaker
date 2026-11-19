@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { structured } from "./agents/claude";
 import { db } from "./db";
-import { BEATS, CUE_RULES, EXPRESSIONS, ImportantMessageSchema, cleanCue, type Script } from "./agents/writers-room";
+import { BEATS, CUE_RULES, DIRECTOR_FIELDS, DIRECTOR_RULES, EXPRESSIONS, ImportantMessageSchema, cleanCue, type Script } from "./agents/writers-room";
 
 // Importing a pre-written script. Two stages:
 // 1. parsePastedScript(): plain code pulls out every spoken line (speaker, clean Indonesian, [EN], cues, thought flag).
@@ -167,6 +167,7 @@ const MappedLine = z.object({
   on_screen_text: z.string().nullable().describe("Short on-screen text only if the paste or notes ask for it, else null"),
   delivery: z.string().nullable().describe("How to say it: emotion, pace, emphasis"),
   important_message: ImportantMessageSchema,
+  ...DIRECTOR_FIELDS,
 });
 const ImportSchema = z.object({
   title: z.string().describe("Short episode title"),
@@ -242,6 +243,7 @@ For every line fill in:
 - on_screen_text: only when the paste or notes give on-screen text for that line, else null.
 - delivery: the delivery cue in a few words (pace, emotion, emphasis), or null.
 - ${CUE_RULES} Use the paste's on-screen text for the line when it has some.
+- ${DIRECTOR_RULES} Follow any shot or camera notes in the paste (e.g. "two-shot", "close-up", "split-screen" → two-shot).
 - title: a short episode title${p.currentTitle ? ` (keep "${p.currentTitle}" unless the paste names another)` : ""}.
 Never put the creator's instructions or the raw paste into any field.`,
   });

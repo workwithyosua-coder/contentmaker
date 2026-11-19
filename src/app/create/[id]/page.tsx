@@ -278,6 +278,9 @@ async function Episode({
                 on_screen_text: l.on_screen_text,
                 thought_bubble: l.thought_bubble,
                 important_message: l.important_message ?? null,
+                camera_shot: l.camera_shot ?? null,
+                emotion: l.emotion ?? null,
+                prop_tag: l.prop_tag ?? null,
                 take: booth.recorded[l.index]?.url ?? null,
               }))}
             />
