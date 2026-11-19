@@ -55,6 +55,8 @@ Uploaded so far (closed and open frames share one crop):
 - `uco/defensive`, `uco/shocked`: same head box as `uco/triumphant`. Each head was aligned to the starter's head
   ink before export, so expression cuts don't jump.
 - `ocu/cta`: same head box as `ocu/deadpan`, pointing fingertip at (816, 721). The CTA arrow starts there.
+- `uco/phone`: same head box as `uco/triumphant`, holding a glowing phone at chest height.
+- `ocu/explaining` (open palm) and `ocu/inspecting` (magnifier held up on the right): same head box as `ocu/deadpan`.
 
 Both characters share one head size, and both sit flush at y 1700. Uco's sweater was extended straight down from its
 flat cut.
