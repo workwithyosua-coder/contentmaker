@@ -8,7 +8,7 @@ import { DiagramTaktis } from "../../video/src/taktis/DiagramTaktis";
 import { Episode } from "../../video/src/Episode";
 import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/styles/registry";
 import { parseDirection } from "../../video/src/direction";
-import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
+import { FPS, HEIGHT, WIDTH, totalFrames, type AssetUrls, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
 
 // Live preview of the episode animation (the same Remotion composition the renderer uses), built in the browser
 // from the selected takes: each take is decoded, its loudness measured per frame for the mouths, and the silence
@@ -26,7 +26,20 @@ export type PreviewLine = Omit<EpisodeLine, "audio" | "frames" | "envelope" | "t
 
 type State = { status: "idle" } | { status: "loading"; done: number } | { status: "ready"; props: EpisodeProps } | { status: "error"; message: string };
 
-export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID, direction = null }: { title: string; lines: PreviewLine[]; style?: string; direction?: string | null }) {
+export function EpisodePreview({
+  title,
+  lines,
+  style = DEFAULT_STYLE_ID,
+  direction = null,
+  assetUrls = null,
+}: {
+  title: string;
+  lines: PreviewLine[];
+  style?: string;
+  direction?: string | null;
+  /** uploaded custom props / SFX (signed URLs), so the preview shows them like the render does */
+  assetUrls?: AssetUrls | null;
+}) {
   const [state, setState] = useState<State>({ status: "idle" });
   const preset = styleById(style);
   const composition = COMPOSITION_FOR[preset.id] ?? "Episode";
@@ -46,7 +59,7 @@ export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID, directi
         setState({ status: "loading", done: ++done });
       }
       await ctx.close();
-      setState({ status: "ready", props: { title, lines: out, direction: parseDirection(direction) } });
+      setState({ status: "ready", props: { title, lines: out, direction: parseDirection(direction), assetUrls } });
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }

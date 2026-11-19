@@ -1,5 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
 import { MONO, SafeFrame, VoiceTrack } from "../cast/CueShared";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
@@ -35,7 +36,8 @@ const SKIN: DirectorSkin = {
   ),
 };
 
-export function DiagramTaktis({ lines, direction, reducedMotion = false }: CueProps) {
+export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = false }: CueProps) {
+  registerRemoteAssets(assetUrls); // uploaded props / SFX load from their HTTPS URLs
   const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill

@@ -8,7 +8,14 @@ export async function GET(request: Request, ctx: RouteContext<"/api/media/[...pa
   const data = await readLocalObject(path.join("/"), Number(u.searchParams.get("exp")), u.searchParams.get("sig") ?? "");
   if (!data) return new Response("Not found", { status: 404 });
   const ext = path.at(-1)?.split(".").pop();
-  const type = ext === "mp4" ? (path.join("/").includes("/video/") ? "video/mp4" : "audio/mp4") : ext === "m4a" ? "audio/mp4" : ext === "mp3" ? "audio/mpeg" : ext === "wav" ? "audio/wav" : "audio/webm";
+  const type =
+    ext === "mp4" ? (path.join("/").includes("/video/") ? "video/mp4" : "audio/mp4")
+    : ext === "m4a" ? "audio/mp4"
+    : ext === "mp3" ? "audio/mpeg"
+    : ext === "wav" ? "audio/wav"
+    : ext === "png" ? "image/png"
+    : ext === "webp" ? "image/webp"
+    : "audio/webm";
   return new Response(new Uint8Array(data), { headers: { "Content-Type": type, "Cache-Control": "private, max-age=600" } });
 }
 

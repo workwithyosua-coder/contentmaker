@@ -9,8 +9,8 @@ import { Card, EmptyState } from "@/components/ui";
 import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
 import { createEpisodeAction } from "./actions";
-import { CustomScriptForm } from "@/components/custom-script-form";
-import { createCustomEpisodeAction } from "./studio-actions";
+import { CreateModes, ManualImport } from "@/components/manual-import";
+import { listAttachedAssets } from "@/lib/attached-assets";
 
 export const maxDuration = 300;
 
@@ -41,10 +41,9 @@ export default function CreatePage() {
       </header>
       <div className="space-y-4">
         <Card title="New episode">
-          <NewEpisodeForm action={createEpisodeAction} />
-        </Card>
-        <Card title="Your own script (no AI)">
-          <CustomScriptForm action={createCustomEpisodeAction} />
+          <Suspense fallback={<NewEpisodeForm action={createEpisodeAction} />}>
+            <NewEpisodeModes />
+          </Suspense>
         </Card>
         <Suspense
           fallback={
@@ -56,6 +55,13 @@ export default function CreatePage() {
       </div>
     </>
   );
+}
+
+/** Writers' room (AI) or Manual / Exact Import (no AI); the manual tab needs the list of uploaded props / SFX. */
+async function NewEpisodeModes() {
+  await connection();
+  const attached = await listAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
+  return <CreateModes ai={<NewEpisodeForm action={createEpisodeAction} />} manual={<ManualImport attached={attached} />} />;
 }
 
 async function Episodes() {

@@ -8,9 +8,9 @@ import { EpisodePreview } from "@/components/episode-preview";
 import { VideoStylePicker } from "@/components/video-style";
 import { ShotPrompts } from "@/components/shot-prompts";
 import { AssetChecklist } from "@/components/asset-checklist";
-import { BeatInspector, type InspectorLine } from "@/components/beat-inspector";
-import { DirectionForm, ReplaceScriptForm } from "@/components/custom-script-form";
-import { loadAttachedAssets } from "@/lib/attached-assets";
+import { BeatTable, type TableLine } from "@/components/beat-inspector";
+import { DirectionForm, ReplaceScriptForm } from "@/components/manual-import";
+import { attachedAssetUrls, loadAttachedAssets } from "@/lib/attached-assets";
 import { parseDirection } from "../../../../video/src/direction";
 import { replaceCustomScriptAction, saveBeatsAction, saveDirectionAction } from "../studio-actions";
 import { requiredAssets } from "../../../../video/src/beats";
@@ -112,6 +112,8 @@ async function Episode({
   ]);
   // props / SFX attached in the app count as available for the beats, the inspector and the checklist
   const attached = await loadAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
+  // uploaded props / SFX as signed URLs (1 h) so the beat table and the in-app preview show them like the render does
+  const assetUrls = await attachedAssetUrls(3600).catch(() => ({ props: {}, sfx: {} }));
   const custom = Boolean(latestScript?.custom);
   const direction = latestScript?.direction ?? "";
   const rendering = job?.status === "queued" || job?.status === "running";
@@ -233,19 +235,20 @@ async function Episode({
       )}
 
       {latestScript && custom && (
-        <Card title="Script studio">
+        <Card title="Manual / Exact Import">
           <div className="space-y-6">
             <p className="text-xs text-muted">
-              Your own script, parsed by fixed rules: no AI is used here or when the video renders. Blank fields in the table are picked automatically
-              from the line (punctuation, keywords, cues); the grey text shows the pick.
+              Your own script, parsed by fixed rules: no AI is used here or when the video renders. Blank fields are picked automatically from the
+              line (punctuation, keywords, cues); the grey text shows the pick.
             </p>
-            <BeatInspector
+            <BeatTable
               key={`${latestScript.id}-${JSON.stringify(latestScript.lines).length}`}
-              lines={latestScript.lines as unknown as InspectorLine[]}
+              lines={latestScript.lines as unknown as TableLine[]}
               recordedMs={Object.fromEntries(Object.entries(booth?.recorded ?? {}).map(([i, t]) => [i, t.durationMs]))}
               direction={direction}
               attached={attached}
-              save={saveBeatsAction.bind(null, project.id, latestScript.id)}
+              assetUrls={assetUrls}
+              onSave={saveBeatsAction.bind(null, project.id, latestScript.id)}
             />
             <DirectionForm action={saveDirectionAction.bind(null, project.id, latestScript.id)} initial={direction} />
             <details>
@@ -306,6 +309,7 @@ async function Episode({
               style={pubProject?.video_style ?? "classic"}
               title={booth.script.title || project.title || "Episode"}
               direction={custom ? direction : null}
+              assetUrls={assetUrls}
               lines={booth.lines.map((l) => ({
                 ...l, // custom scripts carry start_s / end_s / sfx / overlay / callouts too
                 index: l.index,

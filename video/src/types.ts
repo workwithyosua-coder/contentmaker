@@ -37,6 +37,8 @@ export type ManifestLine = {
   sfx?: string[] | null;
   /** explainer card: wave-graph / brain-badge / none (rules pick one when omitted) */
   overlay?: string | null;
+  /** Manual / Exact Import: short on-screen callout (2–4 words) that floats as kinetic text on this line */
+  kinetic_text?: string | null;
   /** callout labels on the line's prop (part ids from video/src/props/library.ts) */
   callouts?: string[] | null;
   hasAudio: boolean;
@@ -52,7 +54,10 @@ export type EpisodeLine = ManifestLine & {
   trimFrom?: number;
 };
 
-export type EpisodeProps = { title: string; lines: EpisodeLine[]; direction?: RenderDirection | null };
+/** Uploaded custom props / SFX by name → HTTPS URL (Supabase Storage), passed in by the renderer and the preview. */
+export type AssetUrls = { props?: Record<string, string>; sfx?: Record<string, string> };
+
+export type EpisodeProps = { title: string; lines: EpisodeLine[]; direction?: RenderDirection | null; assetUrls?: AssetUrls | null };
 
 // Uco & Ocu style bible: high-contrast split on charcoal.
 export const COLORS = {

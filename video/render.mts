@@ -14,9 +14,9 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 import { COMPOSITION_FOR, styleById } from "./src/styles/registry.ts";
 import { cpSync } from "node:fs";
 import { writeAssetManifest } from "../scripts/asset-manifest.mts";
-import { FPS, totalFrames, type EpisodeProps, type ManifestLine } from "./src/types.ts";
+import { FPS, totalFrames, type AssetUrls, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 import { buildBeats } from "./src/beats.ts";
-import { addAvailableAssets } from "./src/assets/index.ts";
+import { registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
 
 const args = process.argv.slice(2);
@@ -77,16 +77,17 @@ const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) 
   /** custom scripts: direction / pacing notes (parsed by rules, video/src/direction.ts) */
   direction?: string | null;
   custom?: boolean;
+  /** uploaded custom props / SFX: name → HTTPS URL (Supabase Storage), loaded directly by Remotion */
+  assetUrls?: AssetUrls;
 };
 log(`"${manifest.title}" v${manifest.version}: ${manifest.lines.length} lines${manifest.custom ? " (custom script, no AI)" : ""}`);
 const direction = parseDirection(manifest.direction);
 if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: undefined })}`);
-// Props and SFX attached in the app (private storage): listed now so the beats see them, downloaded before bundling.
-const attached = JSON.parse((await get(`/api/render/${episodeId}/assets`).catch(() => Buffer.from('{"props":[],"sfx":[]}'))).toString()) as {
-  props: string[];
-  sfx: string[];
-};
-addAvailableAssets(attached);
+// Props and SFX uploaded in the app: Remotion loads them from their HTTPS URLs (nothing is written to public/).
+const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {} };
+registerRemoteAssets(assetUrls);
+const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {})];
+if (uploaded.length) log(`uploaded assets (loaded by URL): ${uploaded.join(", ")}`);
 
 rmSync(path.join(pub, episodeId), { recursive: true, force: true });
 mkdirSync(path.join(pub, episodeId), { recursive: true });
@@ -157,7 +158,7 @@ for (const line of manifest.lines) {
   log(`line ${n} (${line.speaker}): ${(envelope.length / FPS).toFixed(1)} s after trimming`);
 }
 
-const props: EpisodeProps = { title: manifest.title, lines, direction };
+const props: EpisodeProps = { title: manifest.title, lines, direction, assetUrls };
 const total = totalFrames(lines, direction);
 log(`timeline: ${(total / FPS).toFixed(1)} s including the end card`);
 // Beat sheet: when each line starts and ends in the video (m:ss.ss), its shot, pose and stage, for checking timing
@@ -177,17 +178,11 @@ if (args.includes("--prep")) {
 
 // Optional puppet sprites, SFX and props (public/cast, public/sfx, public/props at the repo root): refresh the list of what exists and
 // copy them next to the episode audio so the bundle can serve them. Missing ones fall back (SVG cast, no SFX).
-const assets = writeAssetManifest(attached);
+const assets = writeAssetManifest();
 for (const dir of ["cast", "sfx", "props"]) {
   const src = path.join(here, "..", "public", dir);
   if (existsSync(src)) cpSync(src, path.join(pub, dir), { recursive: true });
 }
-// attached in the app: written after the repo copies, so an attached file wins over a repo file with the same name
-for (const [dir, names] of [["props", attached.props], ["sfx", attached.sfx]] as const) {
-  mkdirSync(path.join(pub, dir), { recursive: true });
-  for (const name of names) writeFileSync(path.join(pub, dir, name), await get(`/api/render/${episodeId}/assets?file=${dir}/${encodeURIComponent(name)}`));
-}
-if (attached.props.length + attached.sfx.length) log(`attached in the app: ${[...attached.props, ...attached.sfx].join(", ")}`);
 log(`assets: ${assets.cast.length} cast sprites, ${assets.sfx.length} sound effects, ${assets.props.length} props`);
 log("bundling…");
 progress(13, "Getting the animation ready");

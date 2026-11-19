@@ -1,5 +1,13 @@
 # Tests
 
+## Unit (no database, no network, no AI)
+The Manual / Exact Import parser (`src/lib/manualScriptParser.ts`): full scripts with metadata, timestamps, `[EN]`,
+`(thought)` and line-by-line cues; minimal `UCO:` / `OCU:` scripts; exact text; per-character poses; direction notes.
+
+```bash
+npm run test:unit
+```
+
 ## Integration (no API cost)
 Real database, simulated platform and Claude APIs. Needs a local Postgres with `db/schema.sql` + `db/migrations/*`
 applied and at least one user (run `npm run db:seed` once).

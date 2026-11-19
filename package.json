@@ -10,6 +10,7 @@
     "db:setup": "tsx --env-file-if-exists=.env.local scripts/db-setup.mts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed-demo.mts",
     "typecheck": "next typegen && tsc --noEmit",
+    "test:unit": "tsx --tsconfig tsconfig.json --test tests/unit/*.test.mts",
     "test:integration": "for f in tests/integration/*.test.mts; do echo \"== $f\"; tsx --conditions=react-server --tsconfig tsconfig.json \"$f\" || exit 1; done",
     "prebuild": "tsx scripts/asset-manifest.mts",
     "assets": "tsx scripts/asset-manifest.mts"

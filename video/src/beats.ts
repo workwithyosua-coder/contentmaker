@@ -73,7 +73,7 @@ const oneOf = <T extends string>(list: readonly T[], v: string | null | undefine
 // When nothing in the line decides, the pose alternates from that speaker's previous line so it never sits still.
 
 const UCO_POSES = ["triumphant", "defensive", "shocked", "phone"] as const satisfies readonly Emotion[];
-const OCU_POSES = ["deadpan", "explaining", "inspecting"] as const satisfies readonly Emotion[];
+const OCU_POSES = ["deadpan", "explaining", "inspecting", "cta"] as const satisfies readonly Emotion[];
 
 const RX = {
   phone: /\b(phone|hp|handphone|smartphone|checkout|check out|keranjang|cart|scroll(ing)?|app|apps|aplikasi|paylater|pay later|spaylater|gopaylater|klik|click|tap|order|pesan online|flash ?sale|e-?wallet|ovo|gopay|shopee|tokopedia|tiktok shop|notif\w*)\b/i,
@@ -128,7 +128,8 @@ function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: Came
   let prevShot: CameraShot | null = null;
   return lines.map((l) => {
     const poses: readonly Emotion[] = l.speaker === "uco" ? UCO_POSES : OCU_POSES;
-    const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
+    // "cta" (Ocu pointing) is a pose Ocu may use on any line; for Uco it isn't drawn
+    const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta" || l.speaker === "ocu"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
     const cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
     // an explicit emotion the character has no sprite for still renders (castSprites falls back); the alternation
     // memory only tracks poses that show
@@ -375,7 +376,8 @@ function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot 
     callouts: calloutsFor(l, propImage, d.emotion),
     overlay: overlayFor(l),
     thought: Boolean(l.thought_bubble),
-    kinetic: l.thought_bubble ? null : kineticFor(l.beat, d.cameraShot, cue),
+    // a manual line's own on-screen callout always shows (first 4 words); otherwise kinetic text only on emphasis beats
+    kinetic: l.thought_bubble ? null : l.kinetic_text?.trim() ? l.kinetic_text.trim().split(/\s+/).slice(0, 4).join(" ") : kineticFor(l.beat, d.cameraShot, cue),
     sfx: (Array.isArray(l.sfx) ? l.sfx : []).map((n) => String(n).trim().toLowerCase()).filter((n) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n)).slice(0, 4),
   };
 }

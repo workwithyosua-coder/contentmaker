@@ -24,7 +24,8 @@ function list(dir: string, ext: RegExp): string[] {
   return out;
 }
 
-/** `extra`: files that aren't in the repo but will be served next to it (props / SFX attached in the app). */
+/** `extra`: files that aren't in the repo but will be served next to it (optional). Uploaded assets don't need this:
+ *  they load from their HTTPS URLs. */
 export function writeAssetManifest(extra: { props?: string[]; sfx?: string[] } = {}) {
   const merge = (a: string[], b: string[] = []) => [...new Set([...a, ...b])].sort();
   const manifest = { cast: list("cast", /\.png$/i), sfx: merge(list("sfx", /\.(mp3|wav)$/i), extra.sfx), props: merge(list("props", /\.png$/i), extra.props) };

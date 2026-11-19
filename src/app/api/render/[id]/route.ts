@@ -1,4 +1,5 @@
 import { styleById } from "../../../../../video/src/styles/registry";
+import { attachedAssetUrls } from "@/lib/attached-assets";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
 
 // GET /api/render/:id → everything the renderer needs to animate an episode (script lines + which lines have audio).
@@ -18,6 +19,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]"
     // custom scripts: direction / pacing notes, parsed by the renderer (video/src/direction.ts)
     direction: src.script.direction ?? null,
     custom: src.script.custom ?? false,
+    // uploaded custom props / SFX (Supabase Storage) by name → HTTPS URL, valid 7 days; Remotion loads them directly
+    assetUrls: await attachedAssetUrls(7 * 24 * 3600, new URL(request.url).origin).catch(() => ({ props: {}, sfx: {} })),
     lines: src.script.lines.map((l, index) => ({ ...l, index, hasAudio: recorded.has(index) })),
   });
 }
