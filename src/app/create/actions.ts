@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { claudeConfigured } from "@/lib/agents/claude";
-import { factCheck, generateIdeas, writeCaptions, writeScript, type ConceptOutline, type Script } from "@/lib/agents/writers-room";
+import { factCheck, generateIdeas, writeCaptions, writeImportantMessages, writeScript, type ConceptOutline, type Script } from "@/lib/agents/writers-room";
 import { db } from "@/lib/db";
 import { getOwner } from "@/lib/queries";
 import { recordingProgress } from "@/lib/recordings";
-import { styleById } from "../../../video/src/styles/registry";
+import { styleById, usesImportantMessages } from "../../../video/src/styles/registry";
 
 export type StepResult = { ok: boolean; message: string } | null;
 const ALL_PLATFORMS = ["tiktok", "instagram", "youtube", "facebook"];
@@ -415,6 +415,20 @@ export async function setVideoStyleAction(projectId: string, style: string): Pro
     const v = styleById(style);
     await db()`UPDATE content_projects SET video_style = ${v.id} WHERE id = ${projectId} AND user_id = ${o.id}`;
     revalidatePath(`/create/${projectId}`);
+    // Cue-based styles show each line's important_message. Older scripts don't have them yet: write them now in the
+    // background (the video falls back to each line's own first 5 words until they arrive).
+    if (usesImportantMessages(v.id) && claudeConfigured()) {
+      const [s] = await db()<{ id: string; missing: boolean }[]>`
+        SELECT id, EXISTS (SELECT 1 FROM jsonb_array_elements(lines) l WHERE NOT (l ? 'important_message') OR l->'important_message' = 'null'::jsonb) AS missing
+        FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
+      if (s?.missing) {
+        after(async () => {
+          await writeImportantMessages({ userId: o.id, projectId, scriptId: s.id }).catch((err) => console.error("[cues] failed:", err));
+          revalidatePath(`/create/${projectId}`);
+        });
+        return { ok: true, message: `${v.label} style selected. Writing the on-screen headlines for this script (about 20 s).` };
+      }
+    }
     return { ok: true, message: `${v.label} style selected.` };
   } catch (err) {
     return { ok: false, message: message(err) };

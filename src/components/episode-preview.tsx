@@ -3,6 +3,8 @@
 import { Player } from "@remotion/player";
 import { useState, useSyncExternalStore } from "react";
 import { ComicEpisode } from "../../video/src/comic/ComicEpisode";
+import { KoranKinetik } from "../../video/src/koran/KoranKinetik";
+import { DiagramTaktis } from "../../video/src/taktis/DiagramTaktis";
 import { Episode } from "../../video/src/Episode";
 import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/styles/registry";
 import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
@@ -11,6 +13,14 @@ import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeLine, type EpisodeProps } 
 // from the selected takes: each take is decoded, its loudness measured per frame for the mouths, and the silence
 // at both ends skipped. Nothing is rendered or uploaded.
 
+/** Same composition the renderer uses for each style (ids registered in video/src/Root.tsx). */
+const COMPONENTS: Record<string, React.ComponentType<EpisodeProps & { reducedMotion?: boolean }>> = {
+  Episode,
+  EpisodeComic: ComicEpisode,
+  EpisodeKoran: KoranKinetik,
+  EpisodeTaktis: DiagramTaktis,
+};
+
 export type PreviewLine = Omit<EpisodeLine, "audio" | "frames" | "envelope" | "trimFrom" | "hasAudio"> & { take: string | null };
 
 type State = { status: "idle" } | { status: "loading"; done: number } | { status: "ready"; props: EpisodeProps } | { status: "error"; message: string };
@@ -18,7 +28,9 @@ type State = { status: "idle" } | { status: "loading"; done: number } | { status
 export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID }: { title: string; lines: PreviewLine[]; style?: string }) {
   const [state, setState] = useState<State>({ status: "idle" });
   const preset = styleById(style);
-  const comic = COMPOSITION_FOR[preset.id] === "EpisodeComic";
+  const composition = COMPOSITION_FOR[preset.id] ?? "Episode";
+  const Component = COMPONENTS[composition] ?? Episode;
+  const takesReducedMotion = composition !== "Episode";
   // 2D Vertical Comic: honour the viewer's reduced-motion setting (no shake, tilt wobble or speed-line pulses).
   const reduced = useSyncExternalStore(subscribeReduced, () => window.matchMedia(REDUCED).matches, () => false);
 
@@ -46,8 +58,8 @@ export function EpisodePreview({ title, lines, style = DEFAULT_STYLE_ID }: { tit
         <div className="mx-auto w-full max-w-[360px] overflow-hidden rounded-control border border-border bg-black">
           <Player
             key={preset.id}
-            component={(comic ? ComicEpisode : Episode) as typeof Episode}
-            inputProps={comic ? { ...state.props, reducedMotion: reduced } : state.props}
+            component={Component as typeof Episode}
+            inputProps={takesReducedMotion ? { ...state.props, reducedMotion: reduced } : state.props}
             durationInFrames={frames}
             compositionWidth={preset.resolution.width ?? WIDTH}
             compositionHeight={preset.resolution.height ?? HEIGHT}

@@ -22,6 +22,8 @@ export type ManifestLine = {
   visual?: string;
   on_screen_text?: string | null;
   thought_bubble?: boolean;
+  /** High-signal on-screen cue for the cue-based styles: kicker ≤ 2 words, headline ≤ 5 words (see beats.ts). */
+  important_message?: { kicker: string; headline: string; stamp?: string | null } | null;
   hasAudio: boolean;
 };
 
