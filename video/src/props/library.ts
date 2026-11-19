@@ -15,7 +15,7 @@ export const PNG_PROPS: PngProp[] = [
   {
     name: "nasi-padang-blender",
     aspect: 417 / 900,
-    rx: /\b(blender|diblender|blend(ed|ing)?|jus nasi padang|nasi padang (di)?jus)\b/i,
+    rx: /\b(blender|diblender|blend(ed|ing)?|nasi padang|jus nasi padang)\b/i,
     parts: [
       { id: "rendang", label: "RENDANG", x: 0.408, y: 0.511, rx: /\b(rendang|daging|beef)\b/i },
       { id: "cabai", label: "CABAI HIJAU", x: 0.516, y: 0.572, rx: /\b(cabai|cabe|lado|chili|chilli|sambal)\b/i },

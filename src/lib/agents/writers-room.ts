@@ -164,7 +164,7 @@ export const DIRECTOR_FIELDS = {
   prop_tag: z
     .string()
     .describe(
-      `Topic prop on the visual stage. Illustrated props: ${PNG_PROPS.map((p) => p.name).join(", ")}. Coded props: ${PROP_TAGS.filter((t) => t !== "none").join(", ")}. If the line is about an object none of these show, a new kebab-case name for it (e.g. sate-padang); it gets drawn later. none when nothing fits.`,
+      `Topic prop on the visual stage. Illustrated props: ${PNG_PROPS.map((p) => p.name).join(", ")}. Coded props: ${PROP_TAGS.filter((t) => t !== "none").join(", ")}. Nasi padang lines use nasi-padang-blender; bubur lines use the bubur props. If the line is about an object none of these show, a new kebab-case name for it (e.g. es-kopi-susu); it gets drawn later. none when nothing fits.`,
     ),
 };
 export const DIRECTOR_RULES = `camera_shot / emotion / prop_tag (the director for the Koran Kinetik and Diagram Taktis styles):

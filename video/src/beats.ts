@@ -155,9 +155,14 @@ const propText = (l: PropLine) => `${l.visual ?? ""} ${l.text} ${l.subtitle ?? "
  */
 export function wantedPropImage(l: PropLine): { name: string; explicit: boolean } | null {
   const tag = l.prop_tag?.trim() ?? "";
-  if (isPropName(tag) && tag !== "none" && !(PROP_TAGS as readonly string[]).includes(tag)) return { name: tag, explicit: true };
   if ((PROP_TAGS as readonly string[]).includes(tag) && tag !== "none") return null; // a coded prop was asked for
-  const hit = PNG_PROPS.find((p) => p.rx.test(propText(l)));
+  const hit = PNG_PROPS.find((p) => p.rx.test(propText(l)) && propFile(p.name));
+  if (isPropName(tag) && tag !== "none") {
+    // a named prop: use it when its file exists; when it doesn't, an existing prop the line itself is about wins
+    // (e.g. a line about blending nasi padang tagged "sate-padang" uses nasi-padang-blender); only otherwise is the
+    // name reported as a prop to draw
+    if (propFile(tag) || !hit) return { name: tag, explicit: true };
+  }
   return hit ? { name: hit.name, explicit: false } : null;
 }
 
