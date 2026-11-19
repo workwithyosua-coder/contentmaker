@@ -6,6 +6,7 @@ import { Character, type Gesture } from "../Character";
 import { Icon } from "../Props";
 import { COLORS } from "../types";
 import data from "./data.json";
+import { UcoOcuWordmark } from "../brand/UcoOcuWordmark";
 
 // "Uco & Ocu: Lipstick Effect" — 12 lines from one ElevenLabs dialogue file, prepared by scripts/lipstick_prepare.py
 // (line cuts, tightened gaps, voice chain, word timings, synthesized BGM + SFX). Every cue below comes from data.json.
@@ -703,8 +704,8 @@ function Captions() {
 
 function Bug() {
   return (
-    <div style={{ position: "absolute", top: 192, left: 108, fontFamily: LOGO, fontSize: 38, color: COLORS.white, WebkitTextStroke: `6px ${INK}`, paintOrder: "stroke fill" }}>
-      <span style={{ color: COLORS.ucoAmber }}>UCO</span> & <span style={{ color: "#7FB3C8" }}>OCU</span>
+    <div style={{ position: "absolute", top: 192, left: 108 }}>
+      <UcoOcuWordmark height={48} shadow={false} />
     </div>
   );
 }
@@ -717,8 +718,8 @@ function EndCard() {
     <AbsoluteFill style={{ backgroundColor: COLORS.canvas }}>
       <AbsoluteFill style={halftone("rgba(248,249,250,0.06)", 3, 22)} />
       <div style={{ position: "absolute", top: 520, left: 108, right: 108, textAlign: "center", transform: `scale(${pop})` }}>
-        <div style={{ fontFamily: LOGO, fontSize: 150, lineHeight: 1, color: COLORS.white, WebkitTextStroke: `10px ${INK}`, paintOrder: "stroke fill", textShadow: `0 12px 0 ${INK}` }}>
-          UCO & OCU
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <UcoOcuWordmark height={180} />
         </div>
         <div
           style={{

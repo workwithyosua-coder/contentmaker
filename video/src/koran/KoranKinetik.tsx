@@ -1,8 +1,9 @@
 import React from "react";
 import { AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { buildBeats, type Beat } from "../beats";
+import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
+import { BrandAware } from "../brand/UcoOcuWordmark";
 import { OcuBust, UcoBust, mouthOpenAt, ocuMoodFor, ucoMoodFor } from "../cast/CastSvg";
-import { FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, headlineSize } from "../cast/CueShared";
+import { CastFigure, FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
@@ -37,6 +38,11 @@ export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
   );
 }
 
+/** Card chrome around the headline lines: 5px borders, 22/26 padding, 48px kicker row, 12px gap. */
+const CARD_CHROME = 10 + 22 + 26 + 48 + 12;
+/** Headline text width inside the card (840 card − borders − padding − highlighter padding). */
+const HEADLINE_W = 840 - 10 - 52 - 16;
+
 function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -51,116 +57,132 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
 
   const ucoOn = beat.speaker === "uco" || beat.speaker === "both";
   const ocuOn = beat.speaker === "ocu" || beat.speaker === "both";
+  const level = line && line.envelope.length ? (line.envelope[f] ?? 0) : 0;
   const talking = line && line.envelope.length ? mouthOpenAt(line.envelope, f) : !reduced && !cta && Math.floor(f / 4) % 2 === 0;
   const visual = line?.visual ?? "";
+
   const size = headlineSize(m.headline);
+  const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
+  const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
+  const stage = castLayout({ cardBottom: SAFE_ZONE.top + 20 + cardH, cta, frame: f, reduced });
+  // who looks where: the listener watches the speaker; in the CTA both look at the viewer
+  const ucoLook = cta ? 0 : ocuOn && !ucoOn ? 1 : 0.4;
+  const ocuLook = cta ? 0 : ucoOn && !ocuOn ? -1 : -0.4;
+  const emph = (on: boolean, rot: number) => (reduced ? undefined : `scale(${on ? 1.03 : 0.96}) rotate(${on ? rot : 0}deg)`);
 
   return (
-    <SafeFrame>
-      {/* One column, 20px inside the safe frame (so the 1.04 push-in from its centre never leaves it): headline card,
-          cast, then the English subtitle or the CTA. The cast takes whatever height is left, so a longer headline or
-          a 3-line subtitle shrinks the cast instead of overlapping it. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          padding: 20,
-          display: "flex",
-          flexDirection: "column",
-          transform: `translateX(${slideX}px) scale(${zoom})`,
-          transformOrigin: "50% 50%",
-        }}
-      >
-        {/* TOP: important message only */}
-        <div
-          style={{
-            flexShrink: 0,
-            background: P.surface,
-            border: `5px solid ${P.ink}`,
-            boxShadow: `10px 10px 0 ${P.ink}`,
-            padding: "22px 26px 26px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 12 }}>
-            <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 30, letterSpacing: 2, color: P.primary }}>{m.kicker}</span>
-            {m.stamp && stamp > 0 && (
-              <span
-                style={{
-                  fontFamily: HEAVY,
-                  fontWeight: 900,
-                  fontSize: 26,
-                  background: P.primary,
-                  color: "#FFFFFF",
-                  border: `3px solid ${P.ink}`,
-                  padding: "4px 12px",
-                  transform: `rotate(-3deg) scale(${stamp})`,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {m.stamp}
-              </span>
-            )}
-          </div>
-          <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-            <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${sweep}%`, background: P.accent }} />
-            <div
-              style={{
-                position: "relative",
-                fontFamily: HEAVY,
-                fontWeight: 900,
-                fontSize: size,
-                lineHeight: 1.02,
-                color: P.ink,
-                textTransform: "uppercase",
-                padding: "0 8px",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {m.headline}
+    <>
+      {/* CAST: huge cut-outs on the full canvas, under all text. Bodies may run below y 1260; faces never do. */}
+      <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 45%" }}>
+        <CastFigure cx={stage.uco} top={stage.top} s={stage.s} dim={ucoOn ? 0 : 0.12} transform={emph(ucoOn, -2)}>
+          <UcoBust
+            variant="paper"
+            mood={line ? ucoMoodFor(line.expression, visual) : "loud"}
+            mouthOpen={ucoOn && Boolean(talking)}
+            sweatOffset={reduced ? 0 : Math.min(8, f / 6)}
+            motion={{ frame: f + beat.startFrame, look: ucoLook, talk: ucoOn ? level : 0, reduced }}
+          />
+        </CastFigure>
+        <CastFigure cx={stage.ocu} top={stage.top} s={stage.s} dim={ocuOn ? 0 : 0.12} transform={emph(ocuOn, 1.5)}>
+          <OcuBust
+            variant="paper"
+            mood={ocuMoodFor(visual)}
+            mouthOpen={ocuOn && Boolean(talking) && !cta}
+            pointRight={cta}
+            motion={{ frame: f + beat.startFrame, look: ocuLook, talk: ocuOn ? level : 0, reduced }}
+          />
+        </CastFigure>
+      </AbsoluteFill>
+
+      <SafeFrame>
+        {/* TOP: important message. The paper slide happens inside its own clip, so it never leaves the safe zone. */}
+        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 20 + cardH + 14, overflow: "hidden" }}>
+          <div
+            style={{
+              position: "absolute",
+              left: 20,
+              right: 20,
+              top: 20,
+              height: cardH,
+              boxSizing: "border-box",
+              background: P.surface,
+              border: `5px solid ${P.ink}`,
+              boxShadow: `10px 10px 0 ${P.ink}`,
+              padding: "22px 26px 26px",
+              transform: `translateX(${slideX}px)`,
+            }}
+          >
+            <div style={{ height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 12 }}>
+              <BrandAware text={m.kicker} height={44}>
+                <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 30, letterSpacing: 2, color: P.primary }}>{m.kicker}</span>
+              </BrandAware>
+              {m.stamp && stamp > 0 && (
+                <span
+                  style={{
+                    fontFamily: HEAVY,
+                    fontWeight: 900,
+                    fontSize: 26,
+                    background: P.primary,
+                    color: "#FFFFFF",
+                    border: `3px solid ${P.ink}`,
+                    padding: "4px 12px",
+                    transform: `rotate(-3deg) scale(${stamp})`,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {m.stamp}
+                </span>
+              )}
             </div>
+            <BrandAware text={m.headline} height={size * 1.4}>
+              <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+                <div aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${sweep}%`, background: P.accent }} />
+                <div style={{ position: "relative", fontFamily: HEAVY, fontWeight: 900, fontSize: size, lineHeight: 1.02, color: P.ink, padding: "0 8px" }}>
+                  {headLines.map((l, i) => (
+                    <div key={i} style={{ whiteSpace: "nowrap" }}>
+                      {l}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </BrandAware>
           </div>
         </div>
 
-        {/* MIDDLE: big cut-out cast, side by side across the safe-zone width */}
-        <div style={{ flex: 1, minHeight: 0, marginTop: 30, marginBottom: 2, display: "flex", gap: 16 }}>
-          <CastSlot who="uco" on={ucoOn} reduced={reduced}>
-            <UcoBust variant="paper" mood={line ? ucoMoodFor(line.expression, visual) : "loud"} mouthOpen={ucoOn && Boolean(talking)} sweatOffset={reduced ? 0 : Math.min(8, f / 6)} />
-          </CastSlot>
-          <CastSlot who="ocu" on={ocuOn} reduced={reduced}>
-            <OcuBust variant="paper" mood={ocuMoodFor(visual)} mouthOpen={ocuOn && Boolean(talking) && !cta} pointRight={cta} />
-          </CastSlot>
-        </div>
-
-        {/* LOWER: English subtitle (nothing when the line has none) or the CTA card */}
+        {/* BOTTOM: English subtitle floating over the chests (ends at y 1260), or the CTA card */}
         {cta ? (
-          <div style={{ marginTop: 14, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
-            <div
-              style={{
-                background: P.accent,
-                border: `5px solid ${P.ink}`,
-                boxShadow: `8px 8px 0 ${P.ink}`,
-                padding: "18px 26px",
-                display: "flex",
-                alignItems: "center",
-                gap: 18,
-                transform: `scale(${0.92 + 0.08 * Math.min(1, ctaPop)})`,
-                transformOrigin: "100% 100%",
-              }}
-            >
-              <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 40, color: P.ink }}>TAP + DI KANAN</span>
-              <svg width={60} height={40} viewBox="0 0 24 16" aria-hidden>
-                <path d="M2 8 H20 M14 2 L21 8 L14 14" fill="none" stroke={P.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
+          <div
+            style={{
+              position: "absolute",
+              right: 0,
+              bottom: 0,
+              background: P.accent,
+              border: `5px solid ${P.ink}`,
+              boxShadow: `8px 8px 0 ${P.ink}`,
+              padding: "18px 26px",
+              display: "flex",
+              alignItems: "center",
+              gap: 18,
+              transform: `scale(${0.92 + 0.08 * Math.min(1, ctaPop)})`,
+              transformOrigin: "100% 100%",
+            }}
+          >
+            <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 40, color: P.ink }}>TAP + DI KANAN</span>
+            <svg width={60} height={40} viewBox="0 0 24 16" aria-hidden>
+              <path d="M2 8 H20 M14 2 L21 8 L14 14" fill="none" stroke={P.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </div>
         ) : beat.subtitleEn ? (
           <div
             style={{
-              marginTop: 14,
-              flexShrink: 0,
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
               background: P.ink,
               border: `2px solid ${P.ink}`,
-              padding: "14px 20px 16px",
+              boxShadow: `6px 6px 0 rgba(20,22,25,0.35)`,
+              padding: "14px 22px 16px",
               fontFamily: HEAVY,
               fontWeight: 800,
               fontSize: 36,
@@ -176,64 +198,15 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
             {beat.subtitleEn}
           </div>
         ) : null}
-      </div>
 
-      {/* CTA stinger: Ocu points at TikTok's + Follow (x 920, y 780) */}
-      {cta && (
-        <>
-          <FollowArrow from={OCU_HAND} color={P.accent} outline={P.ink} progress={reduced ? 1 : interpolate(f, [8, 26], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) })} />
-          <FollowTarget color={P.primary} scale={reduced ? 1 : 1 + 0.15 * Math.sin((f / 30) * Math.PI * 2)} />
-        </>
-      )}
-    </SafeFrame>
-  );
-}
-
-/** Ocu's pointing hand in the CTA stinger (safe-frame px), where the Follow arrow starts. Checked against renders. */
-const OCU_HAND = { x: 845, y: 716 };
-
-/**
- * One cut-out character, sized by the height it gets: the figure only uses the middle two-thirds of its 180×200
- * drawing, so the drawing may run wider than the slot without the two characters touching. The name tag sits on the
- * bottom of the bust like a sticker, so it costs no height.
- */
-function CastSlot({ who, on, reduced, children }: { who: "uco" | "ocu"; on: boolean; reduced: boolean; children: React.ReactNode }) {
-  const scale = on ? 1.04 : 0.94;
-  const rot = on ? (who === "uco" ? -2 : 1.5) : 0;
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 0,
-        position: "relative",
-        display: "flex",
-        justifyContent: "center",
-        opacity: on ? 1 : 0.6,
-        // grows from its centre, so the 4% active emphasis stays clear of the card above and the subtitle below
-        transform: reduced ? undefined : `scale(${scale}) rotate(${rot}deg)`,
-        transformOrigin: "50% 50%",
-      }}
-    >
-      <div style={{ height: "100%", aspectRatio: "180 / 200", flexShrink: 0 }}>{children}</div>
-      <span
-        style={{
-          position: "absolute",
-          bottom: 6,
-          left: "50%",
-          transform: "translateX(-50%)",
-          whiteSpace: "nowrap",
-          fontFamily: MONO,
-          fontWeight: 700,
-          fontSize: 26,
-          padding: "4px 12px",
-          background: who === "uco" ? P.ink : P.ocuBg,
-          color: who === "uco" ? P.accent : "#FFFFFF",
-          border: `3px solid ${P.ink}`,
-        }}
-      >
-        {who.toUpperCase()}
-        {on ? " ON MIC" : ""}
-      </span>
-    </div>
+        {/* CTA stinger: arrow from Ocu's fingertip, sideways to TikTok's + Follow (x 920, y 780) */}
+        {cta && (
+          <>
+            <FollowArrow from={toFrame({ x: stage.tip.x + 12, y: stage.tip.y })} color={P.accent} outline={P.ink} progress={reduced ? 1 : interpolate(f, [10, 24], [0, 1], { ...clamp, easing: Easing.out(Easing.cubic) })} />
+            <FollowTarget color={P.primary} scale={reduced ? 1 : 1 + 0.15 * Math.sin((f / 30) * Math.PI * 2)} />
+          </>
+        )}
+      </SafeFrame>
+    </>
   );
 }
