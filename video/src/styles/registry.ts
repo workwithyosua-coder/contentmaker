@@ -97,7 +97,7 @@ export const EDITORIAL_PAPER_CUTOUT_STYLE = {
   visualRules: {
     linework: "Flat paper cut-out collage on warm newsprint (#F4EFE6) with fine halftone dots; characters as white-bordered cut-outs with a hard ink drop shadow.",
     elevation: "Hard offset ink shadows (5px 5px 0 #141619), sharp rectangular paper cards, a yellow highlighter sweep behind headlines and a tilted red stamp.",
-    forbiddenEffects: "No gradients, no glow, no blur, no Indonesian subtitles (English only, under the cast), no baked-in text, voices, or music in raw generated video clips.",
+    forbiddenEffects: "Flat paper colour only; the only soft effects are the edge vignette and 4% paper grain. No glow, no blur, no Indonesian subtitles (English movie subtitles only), no baked-in text, voices, or music in raw generated video clips.",
   },
   characters: {
     uco: {
@@ -141,7 +141,7 @@ export const TACTICAL_VECTOR_HUD_STYLE = {
   visualRules: {
     linework: "Flat vector HUD on a dark navy grid (#11161D), crisp 2px outlines in blue, amber and cyan, monospace labels.",
     elevation: "Bordered square HUD panels, no shadows; panels spring-snap in and indicator lines retract before each cut.",
-    forbiddenEffects: "No soft gradients, no neon glow, no blur, no Indonesian subtitles (English only, under the cast), no baked-in text, voices, or music in raw generated video clips.",
+    forbiddenEffects: "Soft light only where it reads as HUD light: speaker colour washes, a subtle rim light, the edge vignette and 3.5% grain. No neon bloom, no blur, no Indonesian subtitles (English movie subtitles only), no baked-in text, voices, or music in raw generated video clips.",
   },
   characters: {
     uco: {

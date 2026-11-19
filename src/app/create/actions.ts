@@ -419,7 +419,8 @@ export async function setVideoStyleAction(projectId: string, style: string): Pro
     // background (the video falls back to each line's own first 5 words until they arrive).
     if (usesImportantMessages(v.id) && claudeConfigured()) {
       const [s] = await db()<{ id: string; missing: boolean }[]>`
-        SELECT id, EXISTS (SELECT 1 FROM jsonb_array_elements(lines) l WHERE NOT (l ? 'important_message') OR l->'important_message' = 'null'::jsonb) AS missing
+        SELECT id, EXISTS (SELECT 1 FROM jsonb_array_elements(lines) l
+                           WHERE NOT (l ? 'important_message') OR l->'important_message' = 'null'::jsonb OR NOT (l ? 'camera_shot')) AS missing
         FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
       if (s?.missing) {
         after(async () => {

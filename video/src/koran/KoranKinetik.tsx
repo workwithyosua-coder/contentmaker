@@ -2,8 +2,11 @@ import React from "react";
 import { AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
 import { BrandAware } from "../brand/UcoOcuWordmark";
-import { OcuBust, UcoBust, mouthOpenAt, ocuMoodFor, ucoMoodFor } from "../cast/CastSvg";
-import { CastFigure, FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { GrainVignette, SfxCues } from "../shared/Compositing";
+import { DirectorStage, type DirectorSkin } from "../shared/Director";
+import { MovieSubtitle } from "../shared/MovieSubtitle";
+import { sfxCuesFor } from "../shared/sfxCues";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
@@ -17,6 +20,15 @@ const G = EDITORIAL_PAPER_CUTOUT_STYLE.editingGrammar;
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 export type CueProps = EpisodeProps & { reducedMotion?: boolean };
+
+const SKIN: DirectorSkin = {
+  variant: "paper",
+  prop: "paper",
+  wash: { uco: P.ucoBg, ocu: "#7FA3A4", kind: "flat" },
+  fxColor: P.ink,
+  rim: { uco: null, ocu: null },
+  dimListener: 0.12,
+};
 
 export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
   const beats = buildBeats(lines);
@@ -34,6 +46,8 @@ export function KoranKinetik({ lines, reducedMotion = false }: CueProps) {
         </Sequence>
       ))}
       <VoiceTrack lines={lines} beats={beats} />
+      <GrainVignette reduced={reducedMotion} tone="paper" />
+      <SfxCues cues={sfxCuesFor(beats, { stampAt: 34 })} />
     </AbsoluteFill>
   );
 }
@@ -55,43 +69,19 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
   const stamp = reduced ? 1 : f < 34 ? 0 : interpolate(f, [34, 42], [1.65, 1], clamp);
   const ctaPop = reduced ? 1 : spring({ frame: f - 6, fps, config: { mass: 0.7, damping: 14, stiffness: 200 } });
 
-  const ucoOn = beat.speaker === "uco" || beat.speaker === "both";
-  const ocuOn = beat.speaker === "ocu" || beat.speaker === "both";
-  const level = line && line.envelope.length ? (line.envelope[f] ?? 0) : 0;
-  const talking = line && line.envelope.length ? mouthOpenAt(line.envelope, f) : !reduced && !cta && Math.floor(f / 4) % 2 === 0;
-  const visual = line?.visual ?? "";
 
   const size = headlineSize(m.headline);
   const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
   const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
   const stage = castLayout({ cardBottom: SAFE_ZONE.top + 20 + cardH, cta, frame: f, reduced });
   // who looks where: the listener watches the speaker; in the CTA both look at the viewer
-  const ucoLook = cta ? 0 : ocuOn && !ucoOn ? 1 : 0.4;
-  const ocuLook = cta ? 0 : ucoOn && !ocuOn ? -1 : -0.4;
-  const emph = (on: boolean, rot: number) => (reduced ? undefined : `scale(${on ? 1.03 : 0.96}) rotate(${on ? rot : 0}deg)`);
 
   return (
     <>
-      {/* CAST: huge cut-outs on the full canvas, under all text. Bodies may run below y 1260; faces never do. */}
+      {/* CAST + PROPS: the director's camera shot for this beat, under all text (bodies may run below y 1260,
+          faces never do), with the paper push-in */}
       <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 45%" }}>
-        <CastFigure cx={stage.uco} top={stage.top} s={stage.s} dim={ucoOn ? 0 : 0.12} transform={emph(ucoOn, -2)}>
-          <UcoBust
-            variant="paper"
-            mood={line ? ucoMoodFor(line.expression, visual) : "loud"}
-            mouthOpen={ucoOn && Boolean(talking)}
-            sweatOffset={reduced ? 0 : Math.min(8, f / 6)}
-            motion={{ frame: f + beat.startFrame, look: ucoLook, talk: ucoOn ? level : 0, reduced }}
-          />
-        </CastFigure>
-        <CastFigure cx={stage.ocu} top={stage.top} s={stage.s} dim={ocuOn ? 0 : 0.12} transform={emph(ocuOn, 1.5)}>
-          <OcuBust
-            variant="paper"
-            mood={ocuMoodFor(visual)}
-            mouthOpen={ocuOn && Boolean(talking) && !cta}
-            pointRight={cta}
-            motion={{ frame: f + beat.startFrame, look: ocuLook, talk: ocuOn ? level : 0, reduced }}
-          />
-        </CastFigure>
+        <DirectorStage beat={beat} line={line} frame={f} cardBottom={SAFE_ZONE.top + 20 + cardH} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
 
       <SafeFrame>
@@ -172,31 +162,6 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
               <path d="M2 8 H20 M14 2 L21 8 L14 14" fill="none" stroke={P.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-        ) : beat.subtitleEn ? (
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: P.ink,
-              border: `2px solid ${P.ink}`,
-              boxShadow: `6px 6px 0 rgba(20,22,25,0.35)`,
-              padding: "14px 22px 16px",
-              fontFamily: HEAVY,
-              fontWeight: 800,
-              fontSize: 36,
-              lineHeight: 1.25,
-              color: P.canvas,
-              display: "-webkit-box",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 3,
-              overflow: "hidden",
-              overflowWrap: "anywhere",
-            }}
-          >
-            {beat.subtitleEn}
-          </div>
         ) : null}
 
         {/* CTA stinger: arrow from Ocu's fingertip, sideways to TikTok's + Follow (x 920, y 780) */}
@@ -207,6 +172,9 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
           </>
         )}
       </SafeFrame>
+
+      {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250) */}
+      <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} />
     </>
   );
 }

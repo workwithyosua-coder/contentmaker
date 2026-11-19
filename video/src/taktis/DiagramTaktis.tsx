@@ -2,8 +2,11 @@ import React from "react";
 import { AbsoluteFill, Easing, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { SAFE_ZONE, buildBeats, type Beat } from "../beats";
 import { BrandAware } from "../brand/UcoOcuWordmark";
-import { OcuBust, UcoBust, mouthOpenAt, ocuMoodFor, ucoMoodFor } from "../cast/CastSvg";
-import { CastFigure, FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { FollowArrow, FollowTarget, HEAVY, MONO, SafeFrame, VoiceTrack, castLayout, headlineSize, toFrame, wrapHeadline } from "../cast/CueShared";
+import { GrainVignette, SfxCues } from "../shared/Compositing";
+import { DirectorStage, type DirectorSkin } from "../shared/Director";
+import { MovieSubtitle } from "../shared/MovieSubtitle";
+import { sfxCuesFor } from "../shared/sfxCues";
 import type { CueProps } from "../koran/KoranKinetik";
 import { TACTICAL_VECTOR_HUD_STYLE } from "../styles/registry";
 import type { EpisodeLine } from "../types";
@@ -18,6 +21,22 @@ const G = TACTICAL_VECTOR_HUD_STYLE.editingGrammar;
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 /** The reference retracts at frame 98 of a 120-frame beat: 22 frames before the cut. */
 const RETRACT_BEFORE_END = 120 - G.retractFrame;
+
+const SKIN: DirectorSkin = {
+  variant: "hud",
+  prop: "hud",
+  wash: { uco: "rgba(245,158,11,0.42)", ocu: "rgba(56,189,248,0.36)", kind: "glow" },
+  fxColor: P.accent,
+  rim: { uco: "rgba(245,158,11,0.75)", ocu: "rgba(56,189,248,0.75)" },
+  dimListener: 0.45,
+  // two-shots keep the HUD target brackets and chest voice meters
+  figureExtras: ({ who, cx, top, s, on, level, frame }) => (
+    <>
+      <HudTarget cx={cx} top={top} s={s} color={who === "uco" ? P.accent : P.cyan} on={on} />
+      <VoiceMeter cx={cx} top={top} s={s} color={who === "uco" ? P.accent : P.cyan} on={on} level={level} f={frame} reduced={false} />
+    </>
+  ),
+};
 
 export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
   const beats = buildBeats(lines);
@@ -36,6 +55,8 @@ export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
         </Sequence>
       ))}
       <VoiceTrack lines={lines} beats={beats} />
+      <GrainVignette reduced={reducedMotion} tone="dark" />
+      <SfxCues cues={sfxCuesFor(beats)} />
     </AbsoluteFill>
   );
 }
@@ -62,47 +83,18 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
       ? interpolate(f, [late, late + retractLen], [1, 0], clamp)
       : Math.min(1, spring({ frame: f - 6, fps, config: G.springConfig }));
 
-  const ucoOn = beat.speaker === "uco" || beat.speaker === "both";
-  const ocuOn = beat.speaker === "ocu" || beat.speaker === "both";
-  const level = line && line.envelope.length ? (line.envelope[f] ?? 0) : !reduced && !cta ? (Math.sin(f * 0.5) + 1) / 2 : 0;
-  const talking = line && line.envelope.length ? mouthOpenAt(line.envelope, f) : false;
-  const visual = line?.visual ?? "";
   const size = headlineSize(m.headline) - 4;
   const headLines = wrapHeadline(m.headline, size, HEADLINE_W);
   const cardH = CARD_CHROME + Math.ceil(headLines.length * size * 1.02);
   const stage = castLayout({ cardBottom: SAFE_ZONE.top + 20 + cardH, cta, frame: f, reduced });
-  const ucoLook = cta ? 0 : ocuOn && !ucoOn ? 1 : 0.4;
-  const ocuLook = cta ? 0 : ucoOn && !ocuOn ? -1 : -0.4;
-  const subColor = beat.speaker === "uco" ? P.accent : beat.speaker === "ocu" ? P.cyan : P.primary;
   const rise = (1 - Math.min(1, snap)) * 40;
 
   return (
     <>
-      {/* CAST: huge vector figures on the full canvas, each locked in a HUD target frame. Bodies may run below
-          y 1260; faces never do. The frames and meters are graphics, not text. */}
+      {/* CAST + PROPS: the director's camera shot for this beat, rising in on the HUD spring. Bodies may run below
+          y 1260; faces never do. */}
       <AbsoluteFill style={{ transform: `translateY(${rise}px)` }}>
-        <HudTarget cx={stage.uco} top={stage.top} s={stage.s} color={P.accent} on={ucoOn} />
-        <HudTarget cx={stage.ocu} top={stage.top} s={stage.s} color={P.cyan} on={ocuOn} />
-        <CastFigure cx={stage.uco} top={stage.top} s={stage.s} dim={ucoOn ? 0 : 0.45}>
-          <UcoBust
-            variant="hud"
-            mood={line ? ucoMoodFor(line.expression, visual) : "loud"}
-            mouthOpen={ucoOn && talking}
-            sweatOffset={reduced ? 0 : Math.min(8, f / 6)}
-            motion={{ frame: f + beat.startFrame, look: ucoLook, talk: ucoOn ? level : 0, reduced }}
-          />
-        </CastFigure>
-        <CastFigure cx={stage.ocu} top={stage.top} s={stage.s} dim={ocuOn ? 0 : 0.45}>
-          <OcuBust
-            variant="hud"
-            mood={ocuMoodFor(visual)}
-            mouthOpen={ocuOn && talking}
-            pointRight={cta}
-            motion={{ frame: f + beat.startFrame, look: ocuLook, talk: ocuOn ? level : 0, reduced }}
-          />
-        </CastFigure>
-        <VoiceMeter cx={stage.uco} top={stage.top} s={stage.s} color={P.accent} on={ucoOn} level={ucoOn ? level : 0} f={f} reduced={reduced} />
-        <VoiceMeter cx={stage.ocu} top={stage.top} s={stage.s} color={P.cyan} on={ocuOn} level={ocuOn && !cta ? level : 0} f={f} reduced={reduced} />
+        <DirectorStage beat={beat} line={line} frame={f} cardBottom={SAFE_ZONE.top + 20 + cardH} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
 
       <SafeFrame>
@@ -166,28 +158,6 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
               <path d="M1 7 H17 M12 2 L18 7 L12 12" fill="none" stroke={P.accent} strokeWidth={2.5} />
             </svg>
           </div>
-        ) : beat.subtitleEn ? (
-          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, border: `2px solid ${subColor}`, background: "#0F172A" }}>
-            {/* leader line: springs in, retracts 22 frames before the beat ends (never before halfway) */}
-            <div style={{ height: 4, background: subColor, transform: `scaleX(${line01})`, transformOrigin: "0% 50%" }} />
-            <div
-              style={{
-                padding: "12px 20px 14px",
-                fontFamily: HEAVY,
-                fontWeight: 700,
-                fontSize: 36,
-                lineHeight: 1.25,
-                color: "#F8FAFC",
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 3,
-                overflow: "hidden",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {beat.subtitleEn}
-            </div>
-          </div>
         ) : null}
 
         {cta && (
@@ -197,6 +167,9 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
           </>
         )}
       </SafeFrame>
+
+      {/* movie-style English subtitle, timed to the voice, no box (y 1120..1250) */}
+      <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} />
     </>
   );
 }

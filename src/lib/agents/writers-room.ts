@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { db } from "../db";
-import { clampCue } from "../../../video/src/beats";
+import { CAMERA_SHOTS, EMOTIONS, PROP_TAGS, clampCue } from "../../../video/src/beats";
 import { research, structured } from "./claude";
 
 // The writers' room: ideas → fact check → Uco & Ocu dialogue script → platform captions.
@@ -152,6 +152,23 @@ export const CUE_RULES = `important_message (the only text the Koran Kinetik and
   - kicker: at most 2 words. headline: at most 5 words, the high-signal point of the line (a number, a verdict, the twist), not a paraphrase of the whole sentence. stamp: at most 3 words or null.
   - Uppercase Indonesian, no em dashes, no trailing punctuation. Numbers as digits (65RB, 12X, 1,02 JUTA).`;
 
+// Director fields: how the Koran Kinetik / Diagram Taktis cameras shoot each line.
+export const DIRECTOR_FIELDS = {
+  camera_shot: z
+    .enum(CAMERA_SHOTS.filter((c) => c !== "cta-stinger") as [string, ...string[]])
+    .describe("solo-uco / solo-ocu for a line one character says (the speaker's own solo), closeup-punch for punchlines and big reveals, two-shot when both react or for inner thoughts"),
+  emotion: z
+    .enum(EMOTIONS.filter((e) => e !== "cta") as [string, ...string[]])
+    .describe("How the speaker plays it: triumphant, defensive, shocked, phone (holding a phone), deadpan, explaining, inspecting (Ocu with a magnifier)"),
+  prop_tag: z
+    .enum(PROP_TAGS as unknown as [string, ...string[]])
+    .describe("Topic prop shown beside a solo speaker: iced-coffee, checkout-phone, payday-slips, receipt-magnifier, cash-vs-paylater, or none"),
+};
+export const DIRECTOR_RULES = `camera_shot / emotion / prop_tag (the director for the Koran Kinetik and Diagram Taktis styles):
+  - A line one character says defaults to that speaker's solo shot (solo-uco or solo-ocu); use closeup-punch for punchlines and the button; two-shot for inner thoughts or when both react. Vary shots so no more than 3 lines in a row share one.
+  - emotion fits the speaker: Uco is usually triumphant, defensive, shocked or on his phone; Ocu deadpan, explaining or inspecting.
+  - prop_tag is the object the line is about; none when nothing fits.`;
+
 const ScriptSchema = z.object({
   title: z.string(),
   target_duration_s: z.number().int().describe("Estimated spoken length, 50–60"),
@@ -170,6 +187,7 @@ const ScriptSchema = z.object({
         .nullable()
         .describe("How to say it, for the voice actor or AI voice: emotion, pace, emphasis (e.g. 'fast, indignant, hit 65 ribu')"),
       important_message: ImportantMessageSchema,
+      ...DIRECTOR_FIELDS,
     }),
   ),
   sources: z.array(z.object({ claim: z.string(), url: z.string() })),
@@ -224,6 +242,7 @@ Rules:
 - Comedy comes from the clash of worldviews and real facts, not insults. Neither one "wins".
 - Put key numbers/facts in on_screen_text so the video works with sound off.
 - ${CUE_RULES}
+- ${DIRECTOR_RULES}
 - sources: the URLs from the fact sheet that back the facts used.`,
   });
   return {
@@ -257,23 +276,31 @@ export async function writeImportantMessages(p: { userId: string; projectId: str
   const sql = db();
   const [row] = await sql<{ lines: Script["lines"] }[]>`SELECT lines FROM scripts WHERE id = ${p.scriptId} AND project_id = ${p.projectId}`;
   if (!row) throw new Error("Script not found.");
-  if (row.lines.every((l) => l.important_message?.headline)) return 0;
+  if (row.lines.every((l) => l.important_message?.headline && l.camera_shot)) return 0;
   const brand = await brandGuide(p.userId);
   const out = await structured({
     agent: "strategist",
     projectId: p.projectId,
-    promptVersion: "cues-v1",
+    promptVersion: "cues-v2",
     effort: "low",
     system: systemFor("the on-screen text editor", brand),
-    schema: z.object({ cues: z.array(ImportantMessageSchema) }),
-    prompt: `Write one on-screen cue per line of this Uco & Ocu script, in the same order (${row.lines.length} cues).
+    schema: z.object({ cues: z.array(ImportantMessageSchema.extend(DIRECTOR_FIELDS)) }),
+    prompt: `Write one on-screen cue and one camera direction per line of this Uco & Ocu script, in the same order (${row.lines.length} entries).
 
 ${row.lines.map((l, i) => `${i + 1}. [${l.beat}] ${l.speaker.toUpperCase()}${l.thought_bubble ? " (thought)" : ""}: ${l.text}${l.on_screen_text ? `  (on-screen text: ${l.on_screen_text})` : ""}`).join("\n")}
 
-${CUE_RULES}`,
+${CUE_RULES}
+
+${DIRECTOR_RULES}`,
   });
   if (out.cues.length !== row.lines.length) throw new Error(`Got ${out.cues.length} cues for ${row.lines.length} lines. Try again.`);
-  const lines = row.lines.map((l, i) => ({ ...l, important_message: l.important_message?.headline ? l.important_message : cleanCue(out.cues[i], l) }));
+  const lines = row.lines.map((l, i) => ({
+    ...l,
+    important_message: l.important_message?.headline ? l.important_message : cleanCue(out.cues[i], l),
+    camera_shot: l.camera_shot ?? out.cues[i].camera_shot,
+    emotion: l.emotion ?? out.cues[i].emotion,
+    prop_tag: l.prop_tag ?? out.cues[i].prop_tag,
+  }));
   await sql`UPDATE scripts SET lines = ${sql.json(lines as never)} WHERE id = ${p.scriptId}`;
   return lines.length;
 }
