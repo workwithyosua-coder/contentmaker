@@ -1,6 +1,7 @@
 import { propFile, sfxFile } from "./assets";
 import { KINETIC_SLAM, sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
+import { PROP_ENTRY, propEntryFrame } from "./shared/motion";
 import type { RenderDirection } from "./direction";
 import { CTA_HOLD, END_FRAMES, ctaMergesIntoLastLine, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
@@ -50,12 +51,16 @@ export type Beat = {
   /** sound effects the script asks for at the start of this beat (public/sfx names) */
   sfx: string[];
   sceneImageUrl: string | null;
+  /** frame inside the beat where the prop pops in (just before its keyword is spoken, else ~0.35 s) */
+  propEntry: number;
 };
 
 export const OVERLAYS = ["wave-graph", "brain-badge"] as const;
 export type Overlay = (typeof OVERLAYS)[number];
 
-export type SubtitleChunk = { text: string; startFrame: number; endFrame: number };
+/** one word of a subtitle chunk and the frame (inside the beat) it's spoken from: the active word is highlighted */
+export type SubtitleWord = { text: string; startFrame: number };
+export type SubtitleChunk = { text: string; startFrame: number; endFrame: number; words: SubtitleWord[] };
 
 export const CAMERA_SHOTS = ["solo-uco", "solo-ocu", "closeup-punch", "two-shot", "cta-stinger"] as const;
 export type CameraShot = (typeof CAMERA_SHOTS)[number];
@@ -258,7 +263,7 @@ export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" 
 }
 
 // ------------------------------------------------------------------ movie-style subtitle chunks
-/** Chunks of 5–8 words, broken at punctuation where possible, each short enough for two subtitle lines. */
+/** Chunks of 3–5 words, broken at punctuation where possible, so each fits one subtitle line (two at most). */
 export function chunkSubtitle(text: string): string[] {
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   const chunks: string[] = [];
@@ -272,17 +277,30 @@ export function chunkSubtitle(text: string): string[] {
     const left = words.length - i - 1;
     const len = cur.join(" ").length;
     const punct = /[.!?;:,…]$/.test(w);
-    const hard = /[.!?…]$/.test(w);
-    // break: at a sentence end (≥ 3 words), at a comma once ≥ 5 words, or at 8 words / 52 characters,
-    // but never leave a 1–2 word orphan at the end
+    // break: at punctuation once ≥ 3 words, or at 5 words / 34 characters; a 1–2 word tail joins this chunk when the
+    // result stays ≤ 6 words, so no chunk is a lonely word
     if (left === 0) return;
-    if ((hard && cur.length >= 3) || (punct && cur.length >= 5) || cur.length >= 8 || len >= 52) {
-      // a 2-word tail is fine after a sentence end or when this chunk is already long
-      if (left >= 3 || (left === 2 && (hard || len >= 40))) flush();
+    if ((punct && cur.length >= 3) || cur.length >= 5 || len >= 34) {
+      if (left >= 3 || cur.length + left > 6) flush();
     }
   });
   flush();
   return chunks;
+}
+
+/** Word timings inside one chunk: spread over its voiced frames (else evenly), weighted by word length. */
+function timeWords(text: string, from: number, to: number, voiced: number[] | null): SubtitleWord[] {
+  const ws = text.split(" ").filter(Boolean);
+  const inside = voiced ? voiced.filter((f) => f >= from && f < to) : [];
+  const frames = inside.length >= ws.length * 2 ? inside : Array.from({ length: Math.max(1, to - from) }, (_, i) => from + i);
+  const weights = ws.map((w) => w.replace(/[^\p{L}\p{N}]/gu, "").length + 2);
+  const total = weights.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  return ws.map((w, i) => {
+    const at = frames[Math.min(frames.length - 1, Math.round((acc / total) * frames.length))];
+    acc += weights[i];
+    return { text: w, startFrame: i === 0 ? from : Math.max(from, at) };
+  });
 }
 
 /**
@@ -302,7 +320,7 @@ export function timeSubtitle(text: string | null, envelope: number[], durationIn
   chunks.forEach((c, i) => {
     const startIdx = Math.min(frames.length - 1, Math.round((acc / total) * frames.length));
     acc += weights[i];
-    out.push({ text: c, startFrame: i === 0 ? 0 : frames[startIdx], endFrame: durationInFrames });
+    out.push({ text: c, startFrame: i === 0 ? 0 : frames[startIdx], endFrame: durationInFrames, words: [] });
   });
   // snap each chunk start to where the voice resumes after a pause (≥ 6 quiet frames), when one is within 24 frames
   const resumes = frames === voiced ? voiced.filter((f, i) => i > 0 && f - voiced[i - 1] >= 6) : [];
@@ -311,6 +329,7 @@ export function timeSubtitle(text: string | null, envelope: number[], durationIn
     if (near.length) out[i].startFrame = near.reduce((a, r) => (Math.abs(r - out[i].startFrame) < Math.abs(a - out[i].startFrame) ? r : a));
   }
   for (let i = 0; i < out.length - 1; i++) out[i].endFrame = Math.max(out[i].startFrame + 1, out[i + 1].startFrame);
+  for (const c of out) c.words = timeWords(c.text, c.startFrame, c.endFrame, frames === voiced ? voiced : null);
   return out;
 }
 
@@ -434,7 +453,12 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     propTag: oneOf(PROP_TAGS, l.prop_tag) ?? (exact ? "none" : defaultProp(l)),
     ...stageFor(l, directed[i], exact),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
+    propEntry: 0,
   }));
+  beats.forEach((b, i) => {
+    const l = lines[i];
+    b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, l.envelope ?? [], b.durationInFrames);
+  });
   if (direction?.cta === false) return beats;
   if (ctaMergesIntoLastLine(lines, direction)) {
     // the last line is the call to action: the outro two-shot plays while it's spoken, then holds 0.5 s
@@ -462,6 +486,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     kinetic: direction?.ctaText || CTA_CUE.stamp || null,
     sfx: [],
     sceneImageUrl: null,
+    propEntry: PROP_ENTRY,
   });
   return beats;
 }
