@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { ASSET_MAX_BYTES, ASSET_TYPES, assetPath, isAssetName, isAttachedAssetPath, type AssetKind } from "@/lib/attached-assets";
+import { headers } from "next/headers";
+import { ASSET_BUCKET, ASSET_MAX_BYTES, ASSET_TYPES, assetPath, ensureAssetBucket, isAssetName, isAttachedAssetPath, type AssetKind } from "@/lib/attached-assets";
 import { db } from "@/lib/db";
 import { POSES, parseManualScript, spokenSeconds } from "@/lib/manualScriptParser";
 import { BEATS, EXPRESSIONS } from "@/lib/script-parse";
@@ -40,6 +41,7 @@ const slug = z
   .toLowerCase()
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "use lowercase-with-dashes names");
 const seconds = z.number().min(0).max(600).nullable();
+const assetUrl = z.string().max(500).regex(/^(https:\/\/|http:\/\/localhost[:/]|\/api\/media\/)/, "asset links must be https");
 const BeatLine = z
   .object({
     speaker: z.enum(["uco", "ocu"]),
@@ -62,6 +64,11 @@ const BeatLine = z
     on_screen_text: z.string().max(200).nullable(),
     delivery: z.string().max(400).nullable(),
     important_message: z.object({ kicker: z.string(), headline: z.string(), stamp: z.string().nullable() }).nullable(),
+    // public URLs of uploaded custom props / SFX this line uses (https, or the local driver's /api/media in dev)
+    asset_urls: z
+      .object({ props: z.record(z.string(), assetUrl).optional(), sfx: z.record(z.string(), assetUrl).optional() })
+      .nullable()
+      .optional(),
   })
   .superRefine((l, ctx) => {
     if (l.emotion && !POSES[l.speaker].includes(l.emotion)) ctx.addIssue({ code: "custom", path: ["emotion"], message: `${l.speaker === "uco" ? "Uco" : "Ocu"} has no "${l.emotion}" pose` });
@@ -205,41 +212,42 @@ export async function skipAssetAction(projectId: string, kind: AssetKind, name: 
   }
 }
 
-/** Upload a missing / custom prop or SFX, step 1: a one-time URL to PUT custom-assets/{props|sfx}/{name}.{ext}. */
+/**
+ * Upload a missing / custom prop or SFX, step 1: a one-time URL to PUT {props|sfx}/{name}.{ext} in the public
+ * `custom-assets` bucket (created on first use). Works before an episode exists (the composer uploads before saving).
+ */
 export async function startAssetUploadAction(
-  projectId: string,
   kind: AssetKind,
   name: string,
   type: string,
   size: number,
 ): Promise<{ ok: true; url: string; path: string } | { ok: false; message: string }> {
   try {
-    const o = await account();
-    await ownProject(o.id, projectId);
+    await account();
     if (kind !== "props" && kind !== "sfx") return { ok: false, message: "Unknown asset type." };
     if (!isAssetName(name)) return { ok: false, message: "Asset names are lowercase words joined by dashes." };
     const ext = ASSET_TYPES[kind][type];
     if (!ext) return { ok: false, message: kind === "props" ? "Props must be PNG or WebP images (transparent background)." : "Sound effects must be MP3 or WAV." };
     if (size <= 0 || size > ASSET_MAX_BYTES) return { ok: false, message: "Files can be up to 8 MB." };
+    await ensureAssetBucket();
     const path = assetPath(kind, name, ext);
     const { deleteObjects, listObjects, signedUploadUrl } = await import("@/lib/storage");
     // one file per name: replacing a .png with a .webp (or .mp3 with .wav) removes the other
-    const others = (await listObjects(`custom-assets/${kind}`).catch(() => [])).filter((f) => f.replace(/\.[a-z0-9]+$/, "") === name && f !== `${name}.${ext}`);
-    if (others.length) await deleteObjects(others.map((f) => `custom-assets/${kind}/${f}`));
-    return { ok: true, url: await signedUploadUrl(path), path };
+    const others = (await listObjects(kind, ASSET_BUCKET).catch(() => [])).filter((f) => f.replace(/\.[a-z0-9]+$/, "") === name && f !== `${name}.${ext}`);
+    if (others.length) await deleteObjects(others.map((f) => `${kind}/${f}`), ASSET_BUCKET);
+    return { ok: true, url: await signedUploadUrl(path, ASSET_BUCKET, true), path };
   } catch (err) {
     return { ok: false, message: message(err) };
   }
 }
 
-/** Upload, step 2: check the file arrived and is what it says (by its first bytes), then refresh the page. */
-export async function finishAssetUploadAction(projectId: string, path: string): Promise<StepResult> {
+/** Upload, step 2: check the file arrived and is what it says (by its first bytes); returns its public URL. */
+export async function finishAssetUploadAction(path: string): Promise<{ ok: true; message: string; url: string } | { ok: false; message: string }> {
   try {
-    const o = await account();
-    await ownProject(o.id, projectId);
+    await account();
     if (!isAttachedAssetPath(path)) return { ok: false, message: "Unknown upload." };
-    const { deleteObjects, getObject } = await import("@/lib/storage");
-    const data = await getObject(path);
+    const { deleteObjects, getObject, publicObjectUrl } = await import("@/lib/storage");
+    const data = await getObject(path, ASSET_BUCKET);
     if (!data || !data.byteLength) return { ok: false, message: "The upload didn't arrive. Try again." };
     const head = new Uint8Array(data.slice(0, 12));
     const ascii = (a: number, b: number) => String.fromCharCode(...head.slice(a, b));
@@ -251,11 +259,13 @@ export async function finishAssetUploadAction(projectId: string, path: string): 
           ? ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE"
           : ascii(0, 3) === "ID3" || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0);
     if (!ok) {
-      await deleteObjects([path]);
+      await deleteObjects([path], ASSET_BUCKET);
       return { ok: false, message: "That file isn't a real PNG / WebP / MP3 / WAV. Export it again and retry." };
     }
-    revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: `Uploaded ${path.replace(/^custom-assets\//, "")}.` };
+    const h = await headers();
+    const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("x-forwarded-host") ?? h.get("host")}`;
+    revalidatePath("/create", "layout");
+    return { ok: true, message: `Uploaded ${path}.`, url: publicObjectUrl(path, ASSET_BUCKET, origin) };
   } catch (err) {
     return { ok: false, message: message(err) };
   }

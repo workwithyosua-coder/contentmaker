@@ -112,8 +112,8 @@ async function Episode({
   ]);
   // props / SFX attached in the app count as available for the beats, the inspector and the checklist
   const attached = await loadAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
-  // uploaded props / SFX as signed URLs (1 h) so the beat table and the in-app preview show them like the render does
-  const assetUrls = await attachedAssetUrls(3600).catch(() => ({ props: {}, sfx: {} }));
+  // uploaded props / SFX (public URLs) so the beat list and the in-app preview show them like the render does
+  const assetUrls = await attachedAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string> }));
   const custom = Boolean(latestScript?.custom);
   const direction = latestScript?.direction ?? "";
   const rendering = job?.status === "queued" || job?.status === "running";
@@ -338,6 +338,7 @@ async function Episode({
               {usesImportantMessages(pubProject?.video_style) && (
                 <AssetChecklist
                   projectId={project.id}
+                  urls={assetUrls}
                   {...requiredAssets(
                     booth.lines.map((l) => ({
                       ...l,

@@ -3,12 +3,12 @@ import React from "react";
 import { interpolate } from "remotion";
 import type { SubtitleChunk } from "../beats";
 
-// Movie-style English subtitles: white text with a thick ink outline, no box, one timed chunk at a time, low in the
-// frame (x 60..940, y 1480..1620): below every face and the visual stage, over the lower body only, and above the
-// platforms' bottom controls. Chunks are at most ~52 characters (beats.ts), which fits two lines at these sizes, so
-// nothing is ever clipped with "…".
+// Movie-style English subtitles: white text with a thick ink outline, no box, one timed chunk at a time, in the lower
+// safe zone (x 60..940, y 1410..1530, centred on ≈ 1470): below every face, mouth, hand-held prop and the visual stage,
+// and above the platforms' bottom controls and caption text. Chunks are at most ~52 characters (beats.ts): one line
+// at 50 px, or two lines at 44 px (≈ 99 px), so nothing is ever clipped with "…".
 
-export const SUBTITLE_BAND = { left: 60, width: 880, top: 1480, bottom: 1620 } as const;
+export const SUBTITLE_BAND = { left: 60, width: 880, top: 1410, bottom: 1530 } as const;
 const BAND = SUBTITLE_BAND;
 
 export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chunks: SubtitleChunk[]; frame: number; reduced: boolean; italic?: boolean }) {

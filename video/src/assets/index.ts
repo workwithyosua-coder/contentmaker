@@ -50,6 +50,11 @@ export function registerRemoteAssets(urls: { props?: Record<string, string>; sfx
   for (const [name, url] of Object.entries(urls?.sfx ?? {})) if (ok(url)) remoteSfx.set(name, url);
 }
 
+/** Registers the asset URLs saved on the lines themselves (manual mode stores each upload's public URL on its beats). */
+export function registerLineAssets(lines: { asset_urls?: { props?: Record<string, string>; sfx?: Record<string, string> } | null }[]) {
+  for (const l of lines) registerRemoteAssets(l.asset_urls);
+}
+
 /** Adds uploaded asset *names* as available without URLs yet (the app's checklist and inspector only need to know). */
 export function addAvailableAssets(extra: { props?: string[]; sfx?: string[] }) {
   for (const p of extra.props ?? []) if (!remoteProps.has(p.replace(/\.(png|webp)$/, ""))) remoteProps.set(p.replace(/\.(png|webp)$/, ""), "");

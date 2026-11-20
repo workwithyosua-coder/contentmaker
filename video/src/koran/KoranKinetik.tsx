@@ -1,8 +1,8 @@
 import React from "react";
-import { AbsoluteFill, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { registerRemoteAssets } from "../assets";
+import { AbsoluteFill, Sequence, interpolate, useCurrentFrame } from "remotion";
+import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
-import { HEAVY, SafeFrame, VoiceTrack } from "../cast/CueShared";
+import { VoiceTrack } from "../cast/CueShared";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
@@ -32,7 +32,9 @@ const SKIN: DirectorSkin = {
 };
 
 export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = false }: CueProps) {
-  registerRemoteAssets(assetUrls); // uploaded props / SFX load from their HTTPS URLs
+  // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
+  registerRemoteAssets(assetUrls);
+  registerLineAssets(lines);
   const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill
@@ -57,10 +59,7 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
 
 function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
   const f = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const cta = beat.beatType === "cta-stinger";
   const zoom = reduced ? 1 : interpolate(f, [0, beat.durationInFrames], [G.pushInScale[0], G.pushInScale[1]], clamp);
-  const ctaPop = reduced ? 1 : spring({ frame: f - 6, fps, config: { mass: 0.7, damping: 14, stiffness: 200 } });
 
   return (
     <>
@@ -70,33 +69,8 @@ function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | nu
         <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
 
-      <SafeFrame>
-        {/* BOTTOM: the CTA card (subtitles are drawn below, at y 1480..1620) */}
-        {cta ? (
-          <div
-            style={{
-              position: "absolute",
-              // bottom-left, so Ocu's pointing hand and the arrow (right side) stay clear
-              left: 0,
-              bottom: 0,
-              background: P.accent,
-              border: `5px solid ${P.ink}`,
-              boxShadow: `8px 8px 0 ${P.ink}`,
-              padding: "18px 26px",
-              display: "flex",
-              alignItems: "center",
-              gap: 18,
-              transform: `scale(${0.92 + 0.08 * Math.min(1, ctaPop)})`,
-              transformOrigin: "0% 100%",
-            }}
-          >
-            <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 40, color: P.ink }}>TAP + DI KANAN</span>
-            <svg width={60} height={40} viewBox="0 0 24 16" aria-hidden>
-              <path d="M2 8 H20 M14 2 L21 8 L14 14" fill="none" stroke={P.ink} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-        ) : null}
-      </SafeFrame>
+      {/* the CTA end card's FOLLOW + button and arrow are drawn by the Director (upper-right safe zone); no banner
+          over the chests, where TikTok's caption overlay sits */}
 
       {/* movie-style English subtitle, timed to the voice, no box, low in the frame (y 1480..1620, under every face); italic for inner thoughts */}
       <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />

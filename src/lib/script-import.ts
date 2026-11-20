@@ -120,6 +120,8 @@ Never put the creator's instructions or the raw paste into any field.`,
       text: l.text,
       subtitle: l.en ?? out[i].subtitle,
       thought_bubble: l.thought || out[i].thought_bubble,
+      // the script's own timestamps ("0:24–0:28") anchor each line in the video (read by code, not the model)
+      ...timestampsOf(l.cues),
     }));
   }
   if (!out.length) throw new Error("No dialogue lines found. Put each line on its own row starting with UCO: or OCU:.");
@@ -131,6 +133,21 @@ Never put the creator's instructions or the raw paste into any field.`,
     parsed: lines.length,
     note,
   };
+}
+
+/** "0:24–0:28" (or a single "0:24") among a line's cues → start_s / end_s in seconds; nulls when there's none. */
+export function timestampsOf(cues: string[]): { start_s: number | null; end_s: number | null } {
+  for (const part of cues.flatMap((c) => c.split(/\s*\|\s*/))) {
+    const r = /^(\d{1,2}):(\d{2})(?:[.,](\d))?\s*(?:[–—-]|to)\s*(\d{1,2}):(\d{2})(?:[.,](\d))?$/.exec(part.trim());
+    if (r) {
+      const a = +r[1] * 60 + +r[2] + (r[3] ? +r[3] / 10 : 0);
+      const b = +r[4] * 60 + +r[5] + (r[6] ? +r[6] / 10 : 0);
+      return { start_s: a, end_s: b > a ? b : null };
+    }
+    const one = /^(\d{1,2}):(\d{2})$/.exec(part.trim());
+    if (one) return { start_s: +one[1] * 60 + +one[2], end_s: null };
+  }
+  return { start_s: null, end_s: null };
 }
 
 /** Parses, maps and saves a pasted script as the episode's next version. Older versions stay as they are. */

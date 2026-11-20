@@ -9,8 +9,8 @@ import { Card, EmptyState } from "@/components/ui";
 import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
 import { createEpisodeAction } from "./actions";
-import { CreateModes, ManualImport } from "@/components/manual-import";
-import { listAttachedAssets } from "@/lib/attached-assets";
+import { NewEpisodeCard } from "@/components/manual-import";
+import { attachedAssetUrls, listAttachedAssets } from "@/lib/attached-assets";
 
 export const maxDuration = 300;
 
@@ -34,10 +34,7 @@ export default function CreatePage() {
     <>
       <header className="mb-4">
         <h1 className="text-2xl font-semibold">Create</h1>
-        <p className="text-sm text-muted">
-          Give a topic. Uco &amp; Ocu&apos;s writers&apos; room pitches ideas,
-          fact-checks them and writes the banter.
-        </p>
+        <p className="text-sm text-muted">Pitch ideas with the writers&apos; room, or paste your own script and render directly.</p>
       </header>
       <div className="space-y-4">
         <Card title="New episode">
@@ -57,11 +54,14 @@ export default function CreatePage() {
   );
 }
 
-/** Writers' room (AI) or Manual / Exact Import (no AI); the manual tab needs the list of uploaded props / SFX. */
+/** Idea pitch (writers' room, AI) or "Use my own script (No AI)"; the composer needs the uploaded props / SFX. */
 async function NewEpisodeModes() {
   await connection();
-  const attached = await listAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
-  return <CreateModes ai={<NewEpisodeForm action={createEpisodeAction} />} manual={<ManualImport attached={attached} />} />;
+  const [attached, assetUrls] = await Promise.all([
+    listAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] })),
+    attachedAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string> })),
+  ]);
+  return <NewEpisodeCard pitchAction={createEpisodeAction} attached={attached} assetUrls={assetUrls} />;
 }
 
 async function Episodes() {

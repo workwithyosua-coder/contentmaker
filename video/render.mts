@@ -16,7 +16,7 @@ import { cpSync } from "node:fs";
 import { writeAssetManifest } from "../scripts/asset-manifest.mts";
 import { FPS, totalFrames, type AssetUrls, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 import { buildBeats } from "./src/beats.ts";
-import { registerRemoteAssets } from "./src/assets/index.ts";
+import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
 
 const args = process.argv.slice(2);
@@ -83,9 +83,11 @@ const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) 
 log(`"${manifest.title}" v${manifest.version}: ${manifest.lines.length} lines${manifest.custom ? " (custom script, no AI)" : ""}`);
 const direction = parseDirection(manifest.direction);
 if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: undefined })}`);
-// Props and SFX uploaded in the app: Remotion loads them from their HTTPS URLs (nothing is written to public/).
+// Props and SFX uploaded in the app (public Supabase bucket): Remotion loads them from their HTTPS URLs, saved on the
+// beats and listed by the app (nothing is written to public/).
 const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {} };
 registerRemoteAssets(assetUrls);
+registerLineAssets(manifest.lines);
 const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {})];
 if (uploaded.length) log(`uploaded assets (loaded by URL): ${uploaded.join(", ")}`);
 

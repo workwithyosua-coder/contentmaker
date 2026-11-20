@@ -37,6 +37,8 @@ export type ManifestLine = {
   sfx?: string[] | null;
   /** explainer card: wave-graph / brain-badge / none (rules pick one when omitted) */
   overlay?: string | null;
+  /** Manual mode: public HTTPS URLs of the uploaded custom props / SFX this line uses (name → URL) */
+  asset_urls?: AssetUrls | null;
   /** Manual / Exact Import: short on-screen callout (2–4 words) that floats as kinetic text on this line */
   kinetic_text?: string | null;
   /** callout labels on the line's prop (part ids from video/src/props/library.ts) */
@@ -98,8 +100,12 @@ export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" 
       else if (l.speaker === "ocu" && (l.beat === "button" || /\?\s*$|\?!\s*$/.test(prev.text))) gap = 12;
       t = Math.max(starts[i - 1] + 10, t + gap);
     }
-    // an explicit timestamp wins (never earlier than 10 frames after the previous line's start)
-    if (l.start_s != null && Number.isFinite(l.start_s)) t = Math.max(i > 0 ? starts[i - 1] + 10 : 0, Math.round(l.start_s * FPS));
+    // an explicit timestamp anchors the line exactly (so timing never drifts from the script's), but never so early
+    // that it talks over the previous line: at most a 3-frame cut-in on its trailing silence
+    if (l.start_s != null && Number.isFinite(l.start_s)) {
+      const floor = i > 0 ? Math.max(starts[i - 1] + 10, starts[i - 1] + lines[i - 1].frames - 3) : 0;
+      t = Math.max(floor, Math.round(l.start_s * FPS));
+    }
     starts.push(t);
     t += l.frames;
   });

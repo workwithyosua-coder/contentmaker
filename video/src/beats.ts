@@ -130,7 +130,11 @@ function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: Came
     const poses: readonly Emotion[] = l.speaker === "uco" ? UCO_POSES : OCU_POSES;
     // "cta" (Ocu pointing) is a pose Ocu may use on any line; for Uco it isn't drawn
     const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta" || l.speaker === "ocu"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
-    const cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
+    let cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
+    // a line about an illustrated prop (the blender, a bubur bowl…) gets the speaker's solo shot, so the prop has the
+    // whole visual stage; a face-filling close-up would leave it only a small corner
+    const png = wantedPropImage(l);
+    if (cameraShot === "closeup-punch" && !l.thought_bubble && png && propFile(png.name)) cameraShot = l.speaker === "uco" ? "solo-uco" : "solo-ocu";
     // an explicit emotion the character has no sprite for still renders (castSprites falls back); the alternation
     // memory only tracks poses that show
     prev[l.speaker] = poses.includes(emotion) ? emotion : prev[l.speaker];
