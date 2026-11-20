@@ -227,8 +227,9 @@ export async function startAssetUploadAction(
     if (kind !== "props" && kind !== "sfx") return { ok: false, message: "Unknown asset type." };
     if (!isAssetName(name)) return { ok: false, message: "Asset names are lowercase words joined by dashes." };
     const ext = ASSET_TYPES[kind][type];
-    if (!ext) return { ok: false, message: kind === "props" ? "Props must be PNG or WebP images (transparent background)." : "Sound effects must be MP3 or WAV." };
-    if (size <= 0 || size > ASSET_MAX_BYTES) return { ok: false, message: "Files can be up to 8 MB." };
+    // props are converted to PNG in the browser (any image the user picks); audio keeps its own format
+    if (!ext) return { ok: false, message: kind === "props" ? "That image couldn't be converted. Try another picture." : "Pick an MP3, WAV, M4A or OGG sound." };
+    if (size <= 0 || size > ASSET_MAX_BYTES) return { ok: false, message: "Files can be up to 10 MB." };
     await ensureAssetBucket();
     const path = assetPath(kind, name, ext);
     const { deleteObjects, listObjects, signedUploadUrl } = await import("@/lib/storage");
@@ -257,10 +258,14 @@ export async function finishAssetUploadAction(path: string): Promise<{ ok: true;
         ? ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP"
         : path.endsWith(".wav")
           ? ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE"
-          : ascii(0, 3) === "ID3" || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0);
+          : path.endsWith(".m4a")
+            ? ascii(4, 8) === "ftyp"
+            : path.endsWith(".ogg")
+              ? ascii(0, 4) === "OggS"
+              : ascii(0, 3) === "ID3" || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0);
     if (!ok) {
       await deleteObjects([path], ASSET_BUCKET);
-      return { ok: false, message: "That file isn't a real PNG / WebP / MP3 / WAV. Export it again and retry." };
+      return { ok: false, message: "That file isn't a readable image or sound. Try another file." };
     }
     const h = await headers();
     const origin = `${h.get("x-forwarded-proto") ?? "https"}://${h.get("x-forwarded-host") ?? h.get("host")}`;

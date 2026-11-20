@@ -58,7 +58,7 @@ export function registerLineAssets(lines: { asset_urls?: { props?: Record<string
 /** Adds uploaded asset *names* as available without URLs yet (the app's checklist and inspector only need to know). */
 export function addAvailableAssets(extra: { props?: string[]; sfx?: string[] }) {
   for (const p of extra.props ?? []) if (!remoteProps.has(p.replace(/\.(png|webp)$/, ""))) remoteProps.set(p.replace(/\.(png|webp)$/, ""), "");
-  for (const s of extra.sfx ?? []) if (!remoteSfx.has(s.replace(/\.(mp3|wav)$/, ""))) remoteSfx.set(s.replace(/\.(mp3|wav)$/, ""), "");
+  for (const s of extra.sfx ?? []) if (!remoteSfx.has(s.replace(/\.(mp3|wav|m4a|ogg)$/, ""))) remoteSfx.set(s.replace(/\.(mp3|wav|m4a|ogg)$/, ""), "");
 }
 
 /**
