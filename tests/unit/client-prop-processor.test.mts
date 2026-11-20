@@ -2,7 +2,7 @@
 // Run: npm run test:unit
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { audioUploadType, slotFileName, slotFromFile } from "../../src/lib/assetSlots.ts";
+import { audioUploadType, maxPickBytes, slotFileName, slotFromFile } from "../../src/lib/assetSlots.ts";
 import { fitWithin, hasMeaningfulTransparency, processPixels, removeWhiteBackground, type Rgba } from "../../src/lib/clientPropProcessor.ts";
 
 /** A w×h image filled by `paint(x, y)` → [r, g, b, a]. */
@@ -91,4 +91,9 @@ test("slot naming ignores the user's file name", () => {
   assert.deepEqual(audioUploadType({ name: "x.ogg", type: "application/octet-stream" }), { type: "audio/ogg", ext: "ogg" });
   assert.deepEqual(slotFromFile("props/mie-pedas-level10.png"), { kind: "props", name: "mie-pedas-level10" });
   assert.equal(slotFromFile("../etc/passwd"), null);
+});
+
+test("big phone photos can be picked for props (they're shrunk before upload); audio stays at 10 MB", () => {
+  assert.ok(maxPickBytes("props") >= 25 * 1024 * 1024);
+  assert.equal(maxPickBytes("sfx"), 10 * 1024 * 1024);
 });

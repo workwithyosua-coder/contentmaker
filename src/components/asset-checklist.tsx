@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { finishAssetUploadAction, skipAssetAction, startAssetUploadAction } from "@/app/create/studio-actions";
-import { MAX_PICK_BYTES, SLOT_ACCEPT, audioUploadType, slotFileName, type AssetKind } from "@/lib/assetSlots";
+import { SLOT_ACCEPT, audioUploadType, maxPickBytes, slotFileName, type AssetKind } from "@/lib/assetSlots";
 import { processPropFile } from "@/lib/clientPropProcessor";
 import type { AssetCheck } from "../../video/src/beats";
 
@@ -164,7 +164,7 @@ function Slot({
     setError(null);
     setSkipNote(null);
     try {
-      if (f.size > MAX_PICK_BYTES) throw new Error("That file is over 10 MB. Pick a smaller one.");
+      if (f.size > maxPickBytes(kind)) throw new Error(`That file is over ${Math.round(maxPickBytes(kind) / 1024 / 1024)} MB. Pick a smaller one.`);
       let body: Blob = f;
       let type: string;
       let stored: string;

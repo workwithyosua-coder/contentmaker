@@ -27,8 +27,16 @@ const AUDIO_EXT: Record<string, string> = { mp3: "audio/mpeg", wav: "audio/wav",
 /** The `accept` attribute for each kind of slot. */
 export const SLOT_ACCEPT: Record<AssetKind, string> = { props: "image/*", sfx: "audio/*,.mp3,.wav,.m4a,.ogg" };
 
-/** Largest file a user may pick (images are shrunk and converted before they're uploaded). */
+/** Largest upload the server stores (a converted prop PNG, or an audio file as picked). */
 export const MAX_PICK_BYTES = 10 * 1024 * 1024;
+/**
+ * Largest photo a user may pick for a prop slot: it never leaves the phone as is (the browser shrinks it to ≤ 1024 px
+ * and converts it to PNG first), so big camera JPEGs (12–48 MP, often 10–25 MB) still work.
+ */
+export const MAX_IMAGE_PICK_BYTES = 40 * 1024 * 1024;
+
+/** The largest file a slot accepts from the picker. */
+export const maxPickBytes = (kind: AssetKind) => (kind === "props" ? MAX_IMAGE_PICK_BYTES : MAX_PICK_BYTES);
 
 /**
  * The upload type for an audio file: its MIME type when the browser knows it, else from its extension
