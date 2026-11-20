@@ -135,7 +135,7 @@ function ManualComposer({
     registerRemoteAssets(uploads);
     return requiredAssets(
       lines.map((l, i) => ({ ...l, index: i })),
-      { stamp: style === "editorial-paper-cutout", direction: parseDirection(direction) },
+      { stamp: style === "editorial-paper-cutout", direction: { ...parseDirection(direction), exact: true } },
     );
   }, [lines, attached, uploads, style, direction]);
 

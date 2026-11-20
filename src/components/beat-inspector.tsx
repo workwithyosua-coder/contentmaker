@@ -135,7 +135,8 @@ export function BeatTable({
       const frames = Math.round((ms ? ms / 1000 : (timed ?? spokenSeconds(l.text))) * FPS);
       return { ...l, index: i, hasAudio: Boolean(ms), audio: null, frames, envelope: [] } as unknown as EpisodeLine;
     });
-    return buildBeats(episodeLines, parseDirection(direction));
+    // this list only edits manual (exact) scripts: no keyword-guessed props or cards, same as their render
+    return buildBeats(episodeLines, { ...parseDirection(direction), exact: true });
   }, [rows, lines, recordedMs, direction, attached, uploads]);
 
   useEffect(() => {

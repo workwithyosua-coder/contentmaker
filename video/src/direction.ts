@@ -6,7 +6,7 @@
 //   thought pause: 0.6s                             extra breath around (thought) lines
 //   bgm: on | music on | pakai musik                background music bed (needs sfx/bgm.mp3)
 //   bgm volume: 15%                                 bed level (default 8%)
-//   duck bgm on thought | bgm off on thought        quieter (or silent) music under inner thoughts
+//   duck bgm on thought | bgm off on thought        music under inner thoughts: −12 dB (the default) or silent
 //   cta: off | no outro | tanpa cta                 drop the closing Follow stinger
 //   cta: Follow buat part 2                         CTA stamp text (first 4 words)
 
@@ -26,9 +26,15 @@ export type RenderDirection = {
   ctaText: string | null;
   /** the notes as written */
   notes: string;
+  /**
+   * Exact (Manual / Exact Import) scripts: show only what the script asks for: no keyword-guessed props, cards or
+   * prop labels. Set by the app / renderer from the script, not from the notes.
+   */
+  exact?: boolean;
 };
 
-export const DEFAULT_DIRECTION: RenderDirection = { pauseS: null, thoughtPauseS: null, bgm: false, bgmVolume: 0.08, thoughtDuck: 1, cta: true, ctaText: null, notes: "" };
+// thoughtDuck 0.25 ≈ −12 dB: inner thoughts always sound like a different room (the music dips, with a short fade)
+export const DEFAULT_DIRECTION: RenderDirection = { pauseS: null, thoughtPauseS: null, bgm: false, bgmVolume: 0.08, thoughtDuck: 0.25, cta: true, ctaText: null, notes: "" };
 
 /** "0.4s", "400ms", "0,4 detik", "1 sec" → seconds (clamped to 0..3). */
 function seconds(s: string): number | null {
@@ -57,7 +63,7 @@ export function parseDirection(text: string | null | undefined): RenderDirection
     if (/\b(bgm|music|musik|backsound)\b/.test(low)) {
       if (/\b(duck|kecil|pelan|quiet|lower)\b/.test(low) && /\b(thought|batin|dalam hati)\b/.test(low)) {
         d.bgm = true;
-        d.thoughtDuck = /\b(off|mute|silent|hilang|mati)\b/.test(low) ? 0 : 0.35;
+        d.thoughtDuck = /\b(off|mute|silent|hilang|mati)\b/.test(low) ? 0 : 0.25;
       } else if (/\b(off|mute|silent|mati)\b/.test(low) && /\b(thought|batin|dalam hati)\b/.test(low)) {
         d.bgm = true;
         d.thoughtDuck = 0;

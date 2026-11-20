@@ -67,8 +67,11 @@ const SOLO_H = 1760;
 /** two-shot / CTA figure frame height */
 const PAIR_H = 1440;
 /** pointing CTA: figure frame height and face positions (heads clear of each other, see the layout below) */
-const CTA_H = 1200;
-const CTA_FACE = { uco: 150, ocu: 610 } as const;
+// Uco's sprite reaches 374 px left of his face (his arm) and Ocu's 357 px right of his: at 1100 px tall (scale 0.647)
+// Uco's face at x 250 keeps his arm and hair inside the frame (left edge ≈ 8), and Ocu's at 671 keeps the heads apart
+// (≥ 401 px + margin) with his fingertip at x ≈ 880, clear of the right-hand icon rail.
+const CTA_H = 1100;
+const CTA_FACE = { uco: 250, ocu: 671 } as const;
 /** in-video FOLLOW + button: upper-right safe zone, left of the TikTok / Reels icon rail (x ≥ 950) and under the
  *  top search bar, above Ocu's head and on his pointing side */
 const FOLLOW_PILL = { x: 590, y: 600, w: 340, h: 96 } as const;
@@ -246,12 +249,12 @@ export function DirectorStage({
       {placed.map((p) => (
         <React.Fragment key={p.who}>
           {skin.figureExtras && placed.length > 1 && skin.figureExtras({ who: p.who, head: p.head, on: p.on, level: p.on ? level : 0, frame })}
-          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on ? 0 : beat.thought ? 0.6 : skin.dimListener} transform={p.transform}>
+          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on || cta ? 0 : beat.thought ? 0.6 : skin.dimListener} transform={p.transform}>
             <CastPuppet
               who={p.who}
               variant={skin.variant}
               emotion={emotionOf(p.who)}
-              mouthOpen={p.on && Boolean(talking) && !cta && !beat.thought}
+              mouthOpen={p.on && Boolean(talking) && (!cta || beat.line !== null) && !beat.thought}
               level={p.on ? level : 0}
               frame={frame}
               globalFrame={g}

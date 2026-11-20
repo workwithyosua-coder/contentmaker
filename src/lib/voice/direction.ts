@@ -1,3 +1,4 @@
+import { ttsText } from "./phonetic";
 import type { VoiceSettings } from "./elevenlabs";
 
 // Turns a script line into an acted read for the voice model: delivery tags from the character, the line's
@@ -62,5 +63,5 @@ export function directLine(line: Line, extra?: string) {
   return `${tags
     .slice(0, 4)
     .map((t) => `[${t}]`)
-    .join(" ")} ${line.text.trim()}`;
+    .join(" ")} ${ttsText(line.text)}`;
 }

@@ -6,7 +6,7 @@ import { Episode } from "./Episode";
 import { ComicEpisode } from "./comic/ComicEpisode";
 import { LipstickEffect } from "./lipstick/LipstickEffect";
 import lipstick from "./lipstick/data.json";
-import { FPS, HEIGHT, WIDTH, totalFrames, type EpisodeProps } from "./types";
+import { FPS, HEIGHT, WIDTH, cueTotalFrames, totalFrames, type EpisodeProps } from "./types";
 
 const sample: EpisodeProps = {
   title: "Preview",
@@ -98,7 +98,7 @@ export function Root() {
         height={HEIGHT}
         durationInFrames={300}
         defaultProps={{ ...sample, reducedMotion: false }}
-        calculateMetadata={({ props }) => ({ durationInFrames: totalFrames(props.lines, props.direction) })}
+        calculateMetadata={({ props }) => ({ durationInFrames: cueTotalFrames(props.lines, props.direction) })}
       />
       <Composition
         id="EpisodeTaktis"
@@ -108,7 +108,7 @@ export function Root() {
         height={HEIGHT}
         durationInFrames={300}
         defaultProps={{ ...sample, reducedMotion: false }}
-        calculateMetadata={({ props }) => ({ durationInFrames: totalFrames(props.lines, props.direction) })}
+        calculateMetadata={({ props }) => ({ durationInFrames: cueTotalFrames(props.lines, props.direction) })}
       />
       <Composition
         id="LipstickEffect"

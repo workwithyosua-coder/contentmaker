@@ -8,7 +8,9 @@ import { DiagramTaktis } from "../../video/src/taktis/DiagramTaktis";
 import { Episode } from "../../video/src/Episode";
 import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/styles/registry";
 import { parseDirection } from "../../video/src/direction";
-import { FPS, HEIGHT, WIDTH, totalFrames, type AssetUrls, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
+import { FPS, HEIGHT, WIDTH, cueTotalFrames, totalFrames, type AssetUrls, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
+import { castSprites, propFile, registerLineAssets, registerRemoteAssets } from "../../video/src/assets";
+import { buildBeats } from "../../video/src/beats";
 
 // Live preview of the episode animation (the same Remotion composition the renderer uses), built in the browser
 // from the selected takes: each take is decoded, its loudness measured per frame for the mouths, and the silence
@@ -32,13 +34,16 @@ export function EpisodePreview({
   style = DEFAULT_STYLE_ID,
   direction = null,
   assetUrls = null,
+  exact = false,
 }: {
   title: string;
   lines: PreviewLine[];
   style?: string;
   direction?: string | null;
-  /** uploaded custom props / SFX (signed URLs), so the preview shows them like the render does */
+  /** uploaded custom props / SFX (public URLs), so the preview shows them like the render does */
   assetUrls?: AssetUrls | null;
+  /** Manual / Exact Import script: no keyword-guessed props or cards (same as the render) */
+  exact?: boolean;
 }) {
   const [state, setState] = useState<State>({ status: "idle" });
   const preset = styleById(style);
@@ -59,14 +64,19 @@ export function EpisodePreview({
         setState({ status: "loading", done: ++done });
       }
       await ctx.close();
-      setState({ status: "ready", props: { title, lines: out, direction: parseDirection(direction), assetUrls } });
+      const props: EpisodeProps = { title, lines: out, direction: { ...parseDirection(direction), exact }, assetUrls };
+      // download every sprite and prop the episode shows before playing: a pose or prop that's still loading would
+      // flash an empty frame at a cut
+      await preloadImages(imagesFor(props, composition)).catch(() => {});
+      setState({ status: "ready", props });
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }
 
   if (state.status === "ready") {
-    const frames = totalFrames(state.props.lines, state.props.direction);
+    // cue styles end 0.5 s after a closing call-to-action line (no silent end card); the others keep theirs
+    const frames = composition === "EpisodeKoran" || composition === "EpisodeTaktis" ? cueTotalFrames(state.props.lines, state.props.direction) : totalFrames(state.props.lines, state.props.direction);
     return (
       <div className="space-y-2">
         <div className="mx-auto w-full max-w-[360px] overflow-hidden rounded-control border border-border bg-black">
@@ -162,4 +172,39 @@ function durationOf(url: string) {
     a.onerror = () => resolve(3);
     a.src = url;
   });
+}
+
+/** Every image the cue styles will draw for this episode: both mouth frames of each pose used, the CTA poses, props. */
+function imagesFor(props: EpisodeProps, composition: string): string[] {
+  if (composition !== "EpisodeKoran" && composition !== "EpisodeTaktis") return [];
+  registerRemoteAssets(props.assetUrls);
+  registerLineAssets(props.lines);
+  const urls = new Set<string>();
+  const add = (p: string | null) => {
+    if (!p || p.startsWith("remote:")) return;
+    urls.add(/^(https?:)?\/\//.test(p) || p.startsWith("/") ? p : `/${p}`);
+  };
+  for (const b of buildBeats(props.lines, props.direction)) {
+    const poses: ["uco" | "ocu", string][] = b.cameraShot === "cta-stinger" ? [["uco", "triumphant"], ["ocu", "cta"]] : [["uco", b.emotion], ["ocu", b.emotion]];
+    for (const [who, emotion] of poses) {
+      const s = castSprites(who, emotion);
+      if (s) [s.closed, s.open].forEach((f) => add(f));
+    }
+    if (b.propImage) add(propFile(b.propImage));
+  }
+  return [...urls];
+}
+
+/** Loads and decodes images (8 at a time) so they're in the browser cache before playback; never throws. */
+async function preloadImages(urls: string[]) {
+  let i = 0;
+  const worker = async () => {
+    while (i < urls.length) {
+      const url = urls[i++];
+      const img = new Image();
+      img.src = url;
+      await img.decode().catch(() => {});
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
 }

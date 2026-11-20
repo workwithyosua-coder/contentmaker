@@ -2,7 +2,7 @@ import { propFile, sfxFile } from "./assets";
 import { KINETIC_SLAM, sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
 import type { RenderDirection } from "./direction";
-import { END_FRAMES, timeline, type EpisodeLine, type ManifestLine } from "./types";
+import { CTA_HOLD, END_FRAMES, ctaMergesIntoLastLine, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
 // The shared beat timeline. Every style can read an episode as a list of beats; the cue-based styles (Koran Kinetik,
 // Diagram Taktis) render only from it. One beat per spoken line (same start frames as the audio, from timeline()),
@@ -123,7 +123,7 @@ function defaultShot(l: EpisodeLine, emotion: Emotion, prevShot: CameraShot | nu
 }
 
 /** Emotion and shot for every line: explicit tags win, the defaults above fill the gaps in script order. */
-function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: CameraShot }[] {
+function directLines(lines: EpisodeLine[], exact = false): { emotion: Emotion; cameraShot: CameraShot }[] {
   const prev: Record<string, Emotion | null> = { uco: null, ocu: null };
   let prevShot: CameraShot | null = null;
   return lines.map((l) => {
@@ -133,8 +133,8 @@ function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: Came
     let cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
     // a line about an illustrated prop (the blender, a bubur bowl…) gets the speaker's solo shot, so the prop has the
     // whole visual stage; a face-filling close-up would leave it only a small corner
-    const png = wantedPropImage(l);
-    if (cameraShot === "closeup-punch" && !l.thought_bubble && png && propFile(png.name)) cameraShot = l.speaker === "uco" ? "solo-uco" : "solo-ocu";
+    const png = propImageFor(l, exact);
+    if (cameraShot === "closeup-punch" && !l.thought_bubble && png) cameraShot = l.speaker === "uco" ? "solo-uco" : "solo-ocu";
     // an explicit emotion the character has no sprite for still renders (castSprites falls back); the alternation
     // memory only tracks poses that show
     prev[l.speaker] = poses.includes(emotion) ? emotion : prev[l.speaker];
@@ -228,8 +228,11 @@ export type AssetCheck = { name: string; file: string; ready: boolean; lines: nu
  */
 export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { stamp?: boolean; direction?: RenderDirection | null } = {}) {
   const props = new Map<string, AssetCheck>();
+  const exact = Boolean(opts.direction?.exact);
   lines.forEach((l, i) => {
-    const w = wantedPropImage(l);
+    // exact (manual) scripts need only the props they name; others also get keyword matches
+    const tag = l.prop_tag?.trim() ?? "";
+    const w = exact ? (isPropName(tag) && tag !== "none" && !(PROP_TAGS as readonly string[]).includes(tag) ? { name: tag, explicit: true } : null) : wantedPropImage(l);
     if (!w) return;
     const file = propFile(w.name);
     const c = props.get(w.name) ?? { name: w.name, file: file ?? `props/${w.name}.png`, ready: Boolean(file), lines: [] };
@@ -371,24 +374,50 @@ function englishOf(l: Pick<EpisodeLine, "subtitle" | "text">) {
 
 export const CTA_CUE: ImportantMessage = { kicker: "UCO & OCU", headline: "FOLLOW KONTEN PINTER ANTI ZONK", stamp: "FOLLOW +" };
 
-function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot }) {
+/** The illustrated prop a line shows. Exact (manual) scripts: only the one the line names, never a keyword guess. */
+function propImageFor(l: EpisodeLine, exact: boolean): string | null {
+  if (exact) {
+    const tag = l.prop_tag?.trim() ?? "";
+    return isPropName(tag) && tag !== "none" && propFile(tag) ? tag : null;
+  }
   const want = wantedPropImage(l);
-  const propImage = want && propFile(want.name) ? want.name : null;
+  return want && propFile(want.name) ? want.name : null;
+}
+
+/**
+ * A short on-screen callout: quote marks stripped first (so a cut-off quote never shows as an unclosed `"KIRIM KE…`),
+ * then the first 4 words.
+ */
+export function cleanCallout(text: string | null | undefined, maxWords = 4): string | null {
+  const words = (text ?? "")
+    .replace(/["“”„«»]/g, "")
+    .replace(/(^|\s)['‘’]+|['‘’]+(?=\s|$)/g, "$1")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.length ? words.slice(0, maxWords).join(" ") : null;
+}
+
+function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot }, exact: boolean) {
+  const propImage = propImageFor(l, exact);
   const cue = clampCue(l.important_message, fallbackCue(l));
+  const explicitOverlay = oneOf(OVERLAYS, (l as { overlay?: string | null }).overlay);
   return {
     propImage,
-    callouts: calloutsFor(l, propImage, d.emotion),
-    overlay: overlayFor(l),
+    callouts: exact && !Array.isArray(l.callouts) ? [] : calloutsFor(l, propImage, d.emotion),
+    // exact scripts get a card only when the line asks for one
+    overlay: exact ? (explicitOverlay ? overlayFor(l) : null) : overlayFor(l),
     thought: Boolean(l.thought_bubble),
     // a manual line's own on-screen callout always shows (first 4 words); otherwise kinetic text only on emphasis beats
-    kinetic: l.thought_bubble ? null : l.kinetic_text?.trim() ? l.kinetic_text.trim().split(/\s+/).slice(0, 4).join(" ") : kineticFor(l.beat, d.cameraShot, cue),
+    kinetic: l.thought_bubble ? null : cleanCallout(l.kinetic_text) ?? (exact ? null : cleanCallout(kineticFor(l.beat, d.cameraShot, cue))),
     sfx: (Array.isArray(l.sfx) ? l.sfx : []).map((n) => String(n).trim().toLowerCase()).filter((n) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n)).slice(0, 4),
   };
 }
 
 export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | null): Beat[] {
   const { starts, end } = timeline(lines, direction);
-  const directed = directLines(lines);
+  const exact = Boolean(direction?.exact);
+  const directed = directLines(lines, exact);
   const beats: Beat[] = lines.map((l, i) => ({
     id: `b${i + 1}`,
     line: i,
@@ -401,11 +430,18 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     subtitleChunks: timeSubtitle(englishOf(l), l.envelope ?? [], Math.max(1, (starts[i + 1] ?? end) - starts[i])),
     cameraShot: directed[i].cameraShot,
     emotion: directed[i].emotion,
-    propTag: oneOf(PROP_TAGS, l.prop_tag) ?? defaultProp(l),
-    ...stageFor(l, directed[i]),
+    // exact (manual) scripts: a coded prop only when the line names one; no keyword-guessed props
+    propTag: oneOf(PROP_TAGS, l.prop_tag) ?? (exact ? "none" : defaultProp(l)),
+    ...stageFor(l, directed[i], exact),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
   }));
   if (direction?.cta === false) return beats;
+  if (ctaMergesIntoLastLine(lines, direction)) {
+    // the last line is the call to action: the outro two-shot plays while it's spoken, then holds 0.5 s
+    const last = beats[beats.length - 1];
+    Object.assign(last, { cameraShot: "cta-stinger", durationInFrames: last.durationInFrames + CTA_HOLD, propImage: null, propTag: "none", callouts: [], overlay: null, kinetic: null, thought: false });
+    return beats;
+  }
   beats.push({
     id: "cta",
     line: null,
