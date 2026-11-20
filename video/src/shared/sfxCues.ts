@@ -21,5 +21,11 @@ export function sfxCuesFor(beats: Beat[], opts: { stampAt?: number } = {}): SfxC
     b.sfx.forEach((name, k) => cues.push({ name, frame: b.startFrame + 2 + k * 6, volume: 0.6 }));
     if (opts.stampAt !== undefined && b.kinetic && b.durationInFrames > opts.stampAt) cues.push({ name: "stamp", frame: b.startFrame + opts.stampAt, volume: 0.7 });
   });
-  return cues;
+  // the same effect twice within half a second (a script's own "whoosh" on a cut that already whooshes) plays once
+  const out: SfxCue[] = [];
+  for (const c of cues.sort((a, b) => a.frame - b.frame)) {
+    if (out.some((o) => o.name === c.name && Math.abs(o.frame - c.frame) < 15)) continue;
+    out.push(c);
+  }
+  return out;
 }

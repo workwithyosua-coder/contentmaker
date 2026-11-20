@@ -54,3 +54,15 @@ test("without timestamps, lines follow each other (unchanged comedic timing)", (
   const lines = [line({ speaker: "uco", text: "a", frames: 100 }, 0), line({ speaker: "ocu", text: "b", frames: 100 }, 1), line({ speaker: "uco", text: "c", frames: 100 }, 2)];
   assert.deepEqual(timeline(lines).starts, [0, 104, 201]);
 });
+
+test("a line's own sound effect on a cut that already whooshes plays once (fewer overlapping audio tags)", async () => {
+  const { sfxCuesFor } = await import("../../video/src/shared/sfxCues.ts");
+  const lines = [
+    line({ speaker: "uco", text: "a", frames: 120 }, 0),
+    line({ speaker: "ocu", text: "b", frames: 120, sfx: ["whoosh", "pop"] }, 1),
+  ];
+  const cues = sfxCuesFor(buildBeats(lines), { stampAt: 10 });
+  const at = (name: string) => cues.filter((c) => c.name === name && c.frame >= 124 && c.frame < 140);
+  assert.equal(at("whoosh").length, 1, "cut whoosh + line whoosh → one");
+  assert.ok(cues.every((c, i) => !cues.some((d, j) => j !== i && d.name === c.name && Math.abs(d.frame - c.frame) < 15)));
+});

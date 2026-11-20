@@ -79,6 +79,9 @@ export function EpisodePreview({
             compositionHeight={preset.resolution.height ?? HEIGHT}
             fps={preset.fps ?? FPS}
             controls
+            // voice + several sound effects + music can overlap; the default 5 shared audio tags made busy moments
+            // (e.g. a beat's own whoosh on a cut plus pop, stamp and the voice) crash the preview with ⚠
+            numberOfSharedAudioTags={16}
             style={{ width: "100%", aspectRatio: "9 / 16" }}
             acknowledgeRemotionLicense
           />
