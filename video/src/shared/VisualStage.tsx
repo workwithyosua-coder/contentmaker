@@ -1,5 +1,7 @@
-import React from "react";
-import { Img, interpolate, spring, staticFile, useVideoConfig } from "remotion";
+import React, { useState } from "react";
+import { Img, interpolate, spring, useVideoConfig } from "remotion";
+import { propFile } from "../assets";
+import { assetSrc } from "../assets/src";
 import type { Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
@@ -120,6 +122,8 @@ export function containRect(box: Box, a: number): Box {
 export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt = 0, delay = 6, labels = "sides" }: { name: string; box: Box; skin: PropSkin; callouts: string[]; frame: number; reduced: boolean; tilt?: number; delay?: number; labels?: LabelMode }) {
   const { fps } = useVideoConfig();
   const prop = pngPropByName(name);
+  const src = assetSrc(propFile(name));
+  const [failed, setFailed] = useState(false);
   // "below-left" / "below-right": labels stack under the prop inside its column (solo shots, so they never cover a
   // face); "sides": labels sit left or right of the prop, on the side their part is on (two-shots)
   const n = prop ? callouts.filter((id) => prop.parts.some((p) => p.id === id)).length : 0;
@@ -144,7 +148,10 @@ export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt =
           filter: skin === "paper" ? `drop-shadow(8px 8px 0 rgba(20,22,25,0.9))` : "drop-shadow(0 0 16px rgba(56,189,248,0.45))",
         }}
       >
-        <Img src={staticFile(`props/${name}.png`)} style={{ width: "100%", height: "100%" }} />
+        {src && !failed && (
+          // an uploaded prop that can't be loaded (expired link, deleted file) drops out instead of failing the render
+          <Img src={src} maxRetries={2} onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+        )}
       </div>
       {prop && n > 0 && <Callouts rect={rect} col={box} mode={labels} ids={callouts} prop={prop} k={k} skin={skin} frame={frame} reduced={reduced} driftY={driftY} />}
     </>

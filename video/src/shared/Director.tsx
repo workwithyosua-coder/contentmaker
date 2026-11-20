@@ -5,7 +5,7 @@ import { SAFE_ZONE, type Beat } from "../beats";
 import { CastPuppet, SpeedLines } from "../cast/CastPuppet";
 import { OCU_FINGERTIP, mouthOpenAt, type CastVariant } from "../cast/CastSvg";
 import { headBoxFor } from "../cast/spriteCalibration";
-import { CastFigure, FollowArrow, FollowTarget, SafeFrame, toFrame } from "../cast/CueShared";
+import { CastFigure, HEAVY } from "../cast/CueShared";
 import type { EpisodeLine } from "../types";
 import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
@@ -18,7 +18,8 @@ import { ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight,
 //                        the open side
 //   closeup-punch        the speaker's face filling the frame, with a frame-driven micro-shake
 //   two-shot             both characters side by side (the listener dimmed), stage above and between them
-//   cta-stinger          two-shot, Ocu pointing at TikTok's + Follow (x 920, y 780), wordmark + stamp up top
+//   cta-stinger          smaller two-shot with clear air between the heads; Ocu points along his finger into an
+//                        in-video FOLLOW + pill in the upper-right safe zone (curved arrow), wordmark up top
 //   thought lines        dimmed backdrop, the thinker lit, a comic thought bubble with the prop inside
 // Layers, back to front: background wash → speed lines → (thought dim) → cast → stage (props, cards, labels, text).
 // Faces always end above y 1100 (above TikTok's caption area; subtitles sit far lower, y 1480..1620); the stage stays
@@ -65,6 +66,12 @@ const STAGE_BOTTOM = 1080;
 const SOLO_H = 1760;
 /** two-shot / CTA figure frame height */
 const PAIR_H = 1440;
+/** pointing CTA: figure frame height and face positions (heads clear of each other, see the layout below) */
+const CTA_H = 1200;
+const CTA_FACE = { uco: 150, ocu: 610 } as const;
+/** in-video FOLLOW + button: upper-right safe zone, left of the TikTok / Reels icon rail (x ≥ 950) and under the
+ *  top search bar, above Ocu's head and on his pointing side */
+const FOLLOW_PILL = { x: 590, y: 600, w: 340, h: 96 } as const;
 /** mouths stay above TikTok's caption area (y 1260+), and so far above the subtitles (y 1480..1620) */
 const MOUTH_MAX_Y = 1100;
 
@@ -177,20 +184,21 @@ export function DirectorStage({
     if (beat.thought) bubbleBox = { x: who === "uco" ? 640 : 60, y: hairMin, w: 300, h: 260 };
     // the line's prop still shows: an inset low on the open side, under the face and above the subtitles
     else if (hasProp) {
-      propBox = { x: who === "uco" ? 620 : 60, y: 1110, w: 320, h: 350 };
+      propBox = { x: who === "uco" ? 620 : 60, y: 1100, w: 320, h: 290 }; // above the subtitles (y ≥ 1410)
       closeInset = true;
     }
     washFor = who;
   } else {
-    // two-shot / CTA: one size for both, shoulders slightly overlapping, bottoms on the frame edge
-    const H = Math.min(fit(U.frac, PAIR_H), fit(O.frac, PAIR_H));
-    // CTA with a pointing sprite: Ocu nearer the centre (Uco half behind him on the left) so the arrow can leave his
-    // fingertip up-right into + Follow without crossing a face
+    // two-shot: one size for both, shoulders slightly overlapping, bottoms on the frame edge.
+    // CTA with the pointing sprite: a smaller pair with clear air between the heads (Uco's hair reaches 287 px right
+    // of his face on the 900 px sprite, Ocu's head 333 px left of his: at this scale the faces sit 460 px apart, so
+    // Uco's hair never crosses Ocu's glasses), and Ocu's fingertip lands right of centre, under the FOLLOW + pill.
     const pointing = cta && O.tip;
-    const uco = place("uco", U.frac, H, pointing ? 175 : cta ? 290 : 300, ucoOn);
-    const ocu = place("ocu", O.frac, H, pointing ? 500 : cta ? 740 : 790, ocuOn);
-    // the speaker stands in front; in the pointing CTA Uco does (he only overlaps Ocu's folded arm, not the hand)
-    placed = ocuOn && !ucoOn && !pointing ? [uco, ocu] : [ocu, uco];
+    const H = pointing ? CTA_H : Math.min(fit(U.frac, PAIR_H), fit(O.frac, PAIR_H));
+    const uco = place("uco", U.frac, H, pointing ? CTA_FACE.uco : cta ? 290 : 300, ucoOn);
+    const ocu = place("ocu", O.frac, H, pointing ? CTA_FACE.ocu : cta ? 740 : 790, ocuOn);
+    // the speaker stands in front; in the pointing CTA Ocu does (he's the one pointing)
+    placed = ocuOn && !ucoOn && !pointing ? [uco, ocu] : pointing ? [uco, ocu] : [ocu, uco];
     const hairTop = Math.min(uco.head.top, ocu.head.top);
     if (!cta) {
       if (beat.thought) {
@@ -206,27 +214,16 @@ export function DirectorStage({
   const speaker = placed.find((p) => p.on) ?? placed[0];
   const energetic = !cta && !beat.thought && placed.length === 1 && speaker.who === "uco" && (beat.emotion === "triumphant" || beat.emotion === "shocked");
 
-  // CTA arrow: from Ocu's pointing fingertip (sprite or coded figure), else from just above his head
+  // CTA arrow: leaves Ocu's pointing fingertip along the finger (≈ 43° up-right on the sprite) and curves onto the
+  // in-video FOLLOW + pill. Without the pointing sprite: from just above his head; coded figure: from its hand.
   let arrowFrom: { x: number; y: number } | null = null;
   if (cta) {
     const o = placed.find((p) => p.who === "ocu")!;
     const w = 180 * o.s;
     const left = o.cx - w / 2;
-    if (O.tip) {
-      // from his pointing fingertip, a little clear of the nail, toward + Follow
-      const tx = left + O.tip.x * w;
-      const ty = o.top + O.tip.y * 340 * o.s;
-      const dx = SAFE_ZONE.followX - tx;
-      const dy = SAFE_ZONE.followY - ty;
-      const len = Math.hypot(dx, dy) || 1;
-      arrowFrom = { x: tx + (dx / len) * 14, y: ty + (dy / len) * 14 };
-    } else if (O.sprite) {
-      // no pointing sprite: from just above his hair, sweeping down-right into + Follow
-      arrowFrom = { x: o.head.cx - o.head.height * 0.1, y: Math.min(SAFE_ZONE.followY - 60, Math.max(STAGE_TOP + 8, o.head.top - 40)) };
-    } else {
-      // coded figure: from its raised pointing hand
-      arrowFrom = { x: left + OCU_FINGERTIP.x * o.s + 12, y: o.top + OCU_FINGERTIP.y * o.s };
-    }
+    if (O.tip) arrowFrom = { x: left + O.tip.x * w + 10, y: o.top + O.tip.y * 340 * o.s - 10 };
+    else if (O.sprite) arrowFrom = { x: o.head.cx + o.head.height * 0.3, y: Math.max(STAGE_TOP + 8, o.head.top - 30) };
+    else arrowFrom = { x: left + OCU_FINGERTIP.x * o.s + 12, y: o.top + OCU_FINGERTIP.y * o.s };
   }
 
   // the prop itself (illustrated PNG first, then the scene image or the coded prop), in a stage box
@@ -280,21 +277,118 @@ export function DirectorStage({
           <div style={{ position: "absolute", left: 540 - ctaMark / 2, top: STAGE_TOP, width: ctaMark, height: ctaMark / WORDMARK_ASPECT }}>
             <UcoOcuWordmark height={ctaMark / WORDMARK_ASPECT} />
           </div>
-          {kinetic && <KineticText text={kinetic} box={{ x: 140, y: STAGE_TOP + ctaMark / WORDMARK_ASPECT + 6, w: 800, h: 140 }} skin={skin.prop} frame={frame} reduced={reduced} />}
+          {/* a custom CTA line from the direction notes sits under the wordmark; the pill always says FOLLOW + */}
+          {kinetic && kinetic !== "FOLLOW +" && (
+            <KineticText
+              text={kinetic}
+              box={{ x: 60, y: STAGE_TOP + ctaMark / WORDMARK_ASPECT + 10, w: FOLLOW_PILL.x - 60 - 24, h: FOLLOW_PILL.y + FOLLOW_PILL.h - (STAGE_TOP + ctaMark / WORDMARK_ASPECT + 10) }}
+              skin={skin.prop}
+              frame={frame}
+              reduced={reduced}
+              align="left"
+            />
+          )}
+          <FollowPill skin={skin.prop} frame={frame} reduced={reduced} />
+          {arrowFrom && <CtaArrow from={arrowFrom} color={skin.arrow.color} outline={skin.arrow.outline} frame={frame} reduced={reduced} />}
         </>
       )}
-      {arrowFrom && (
-        <SafeFrame>
-          <FollowArrow
-            from={toFrame(arrowFrom)}
-            color={skin.arrow.color}
-            outline={skin.arrow.outline}
-            progress={reduced ? 1 : interpolate(frame, [10, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) })}
-          />
-          <FollowTarget color={skin.arrow.ring} scale={reduced ? 1 : 1 + 0.15 * Math.sin((frame / 30) * Math.PI * 2)} />
-        </SafeFrame>
-      )}
     </AbsoluteFill>
+  );
+}
+
+/** The in-video FOLLOW + button (upper-right safe zone): pops in, then pulses gently. */
+function FollowPill({ skin, frame, reduced }: { skin: PropSkin; frame: number; reduced: boolean }) {
+  const pop = reduced ? 1 : interpolate(frame, [4, 12], [0.4, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.back(2)) });
+  const pulse = reduced ? 1 : 1 + 0.04 * Math.sin((frame / 30) * Math.PI * 2);
+  const paper = skin === "paper";
+  const { x, y, w, h } = FOLLOW_PILL;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        width: w,
+        height: h,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        padding: "0 18px 0 26px",
+        borderRadius: h / 2,
+        background: paper ? "#D9381E" : "#0F172A",
+        border: paper ? "6px solid #141619" : "5px solid #F59E0B",
+        boxShadow: paper ? "8px 8px 0 #141619" : "0 0 24px rgba(245,158,11,0.45)",
+        transform: `scale(${pop * pulse})`,
+        opacity: Math.min(1, pop * 1.4),
+        fontFamily: HEAVY,
+        fontWeight: 900,
+        fontSize: 44,
+        letterSpacing: 1,
+        whiteSpace: "nowrap",
+        color: paper ? "#FFFFFF" : "#F59E0B",
+      }}
+    >
+      FOLLOW
+      <span
+        aria-hidden
+        style={{
+          width: 54,
+          height: 54,
+          flexShrink: 0,
+          borderRadius: 27,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: paper ? "#FFE600" : "#F59E0B",
+          color: "#141619",
+          fontSize: 46,
+          lineHeight: 1,
+        }}
+      >
+        +
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The CTA arrow: a curve that leaves the fingertip along the finger (≈ 43° up-right), swings up and lands on the
+ * bottom of the FOLLOW + pill, drawn on over frames 10–24 with its head aligned to the curve's end.
+ */
+function CtaArrow({ from, color, outline, frame, reduced }: { from: { x: number; y: number }; color: string; outline: string; frame: number; reduced: boolean }) {
+  const progress = reduced ? 1 : interpolate(frame, [10, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
+  const to = { x: FOLLOW_PILL.x + FOLLOW_PILL.w * 0.62, y: FOLLOW_PILL.y + FOLLOW_PILL.h + 18 };
+  const dir = { x: Math.cos((43 * Math.PI) / 180), y: -Math.sin((43 * Math.PI) / 180) };
+  const reach = Math.max(80, Math.min(160, (from.y - to.y) * 0.35));
+  const c1 = { x: Math.min(930, from.x + dir.x * reach), y: from.y + dir.y * reach };
+  const c2 = { x: Math.min(930, to.x + 40), y: to.y + (from.y - to.y) * 0.45 };
+  const at = (t: number) => {
+    const u = 1 - t;
+    return {
+      x: u * u * u * from.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * to.x,
+      y: u * u * u * from.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * to.y,
+    };
+  };
+  // sample the curve up to `progress` so it draws on; the head follows the tangent at the drawn end
+  const n = 40;
+  const pts = Array.from({ length: Math.max(2, Math.round(n * progress) + 1) }, (_, i) => at(Math.min(progress, i / n)));
+  const end = pts[pts.length - 1];
+  const prev = at(Math.max(0, progress - 0.02));
+  const ang = Math.atan2(end.y - prev.y, end.x - prev.x);
+  const head = 40;
+  const p1 = { x: end.x - head * Math.cos(ang - 0.5), y: end.y - head * Math.sin(ang - 0.5) };
+  const p2 = { x: end.x - head * Math.cos(ang + 0.5), y: end.y - head * Math.sin(ang + 0.5) };
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const hd = `M${p1.x} ${p1.y} L${end.x} ${end.y} L${p2.x} ${p2.y}`;
+  return (
+    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0 }} aria-hidden>
+      <path d={d} fill="none" stroke={outline} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />
+      {progress > 0.05 && <path d={hd} fill="none" stroke={outline} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />}
+      <path d={d} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" strokeLinejoin="round" />
+      {progress > 0.05 && <path d={hd} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
   );
 }
 

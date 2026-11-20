@@ -8,6 +8,8 @@ import { createHmac } from "node:crypto";
 // Local tests: STORAGE_DRIVER=local writes to ./.local-storage and serves files through /api/media (dev only).
 
 const BUCKET = "recordings";
+/** Local driver: the default bucket's objects sit at the top of ./.local-storage, other buckets in a folder each. */
+const localPath = (objectPath: string, bucket: string) => path.join(LOCAL_DIR, bucket === BUCKET ? objectPath : `${bucket}/${objectPath}`);
 const local = () => process.env.STORAGE_DRIVER === "local" && !process.env.VERCEL; // never on Vercel
 const LOCAL_DIR = path.join(process.cwd(), ".local-storage");
 
@@ -59,10 +61,10 @@ export async function signedUrls(paths: string[], seconds = 3600) {
 }
 
 /** Downloads a private object (server-side only). Returns null if it doesn't exist. */
-export async function getObject(objectPath: string): Promise<ArrayBuffer | null> {
-  if (local()) return readFile(path.join(LOCAL_DIR, objectPath)).then((b) => new Uint8Array(b).buffer, () => null);
+export async function getObject(objectPath: string, bucket = BUCKET): Promise<ArrayBuffer | null> {
+  if (local()) return readFile(localPath(objectPath, bucket)).then((b) => new Uint8Array(b).buffer, () => null);
   const { url, headers } = supabase();
-  const res = await fetch(`${url}/storage/v1/object/authenticated/${BUCKET}/${objectPath}`, { headers });
+  const res = await fetch(`${url}/storage/v1/object/authenticated/${bucket}/${objectPath}`, { headers });
   if (res.status === 404 || res.status === 400) return null;
   if (!res.ok) throw new Error(`Download failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
   return res.arrayBuffer();
@@ -72,15 +74,16 @@ export async function getObject(objectPath: string): Promise<ArrayBuffer | null>
  * A one-time URL the browser can PUT a file to directly (bypasses the 4.5 MB request limit of our functions).
  * Supabase: storage "upload/sign". Local driver: /api/media/<path> with a signature (dev/tests only).
  */
-export async function signedUploadUrl(objectPath: string): Promise<string> {
+export async function signedUploadUrl(objectPath: string, bucket = BUCKET, upsert = false): Promise<string> {
   if (local()) {
+    const p = bucket === BUCKET ? objectPath : `${bucket}/${objectPath}`;
     const exp = Math.floor(Date.now() / 1000) + 900;
-    return `/api/media/${objectPath}?exp=${exp}&sig=${localSig(`put:${objectPath}`, exp)}`;
+    return `/api/media/${p}?exp=${exp}&sig=${localSig(`put:${p}`, exp)}`;
   }
   const { url, headers } = supabase();
-  const res = await fetch(`${url}/storage/v1/object/upload/sign/${BUCKET}/${objectPath}`, {
+  const res = await fetch(`${url}/storage/v1/object/upload/sign/${bucket}/${objectPath}`, {
     method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json", ...(upsert ? { "x-upsert": "true" } : {}) },
     body: "{}",
   });
   const json = (await res.json()) as { url?: string; message?: string; error?: string };
@@ -101,18 +104,72 @@ export async function objectSize(objectPath: string): Promise<number | null> {
   return j.size ?? j.metadata?.size ?? 0;
 }
 
-export async function deleteObjects(paths: string[]) {
+/** File names directly under a folder ("assets/props" → ["sate-padang.png", …]), sorted. Empty when there's none. */
+export async function listObjects(prefix: string, bucket = BUCKET): Promise<string[]> {
+  const clean = prefix.replace(/^\/+|\/+$/g, "");
+  if (local()) {
+    const { readdir } = await import("node:fs/promises");
+    const dir = localPath(clean, bucket);
+    if (!dir.startsWith(LOCAL_DIR + path.sep)) return [];
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    return entries.filter((e) => e.isFile()).map((e) => e.name).sort();
+  }
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ prefix: clean, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } }),
+  });
+  if (res.status === 404 || res.status === 400) return []; // bucket not created yet
+  if (!res.ok) throw new Error(`Couldn't list ${clean} (${res.status})`);
+  const rows = (await res.json()) as { name: string; id: string | null }[];
+  return rows.filter((r) => r.id && !r.name.startsWith(".")).map((r) => r.name);
+}
+
+export async function deleteObjects(paths: string[], bucket = BUCKET) {
   if (!paths.length) return;
   if (local()) {
-    await Promise.all(paths.map((p) => rm(path.join(LOCAL_DIR, p), { force: true })));
+    await Promise.all(paths.map((p) => rm(localPath(p, bucket), { force: true })));
     return;
   }
   const { url, headers } = supabase();
-  await fetch(`${url}/storage/v1/object/${BUCKET}`, {
+  await fetch(`${url}/storage/v1/object/${bucket}`, {
     method: "DELETE",
     headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify({ prefixes: paths }),
   });
+}
+
+/**
+ * Makes sure a public bucket exists (created on first use: files there are readable by anyone with the URL, so only
+ * put things in it that end up in published videos anyway, never recordings). Allowed types and size are enforced
+ * by Supabase too. No-op for the local driver.
+ */
+export async function ensurePublicBucket(bucket: string, opts: { maxBytes: number; types: string[] }) {
+  if (local()) return;
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
+  if (res.ok) return;
+  const made = await fetch(`${url}/storage/v1/bucket`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: bucket, name: bucket, public: true, file_size_limit: opts.maxBytes, allowed_mime_types: opts.types }),
+  });
+  if (!made.ok && made.status !== 409) throw new Error(`Couldn't create the ${bucket} storage bucket (${made.status}): ${(await made.text()).slice(0, 200)}`);
+}
+
+/**
+ * Permanent HTTPS URL of an object in a public bucket. Local driver: an /api/media URL signed for 10 years (pass
+ * `origin` to make it absolute, as the renderer needs).
+ */
+export function publicObjectUrl(objectPath: string, bucket: string, origin?: string) {
+  if (local()) {
+    const p = `${bucket}/${objectPath}`;
+    const exp = Math.floor(Date.now() / 1000) + 10 * 365 * 86400;
+    const u = `/api/media/${p}?exp=${exp}&sig=${localSig(p, exp)}`;
+    return origin ? new URL(u, origin).toString() : u;
+  }
+  return `${process.env.SUPABASE_URL!.trim().replace(/\/$/, "")}/storage/v1/object/public/${bucket}/${objectPath}`;
 }
 
 // ---- local driver helpers (dev/test only) ----

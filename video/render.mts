@@ -14,8 +14,10 @@ import { renderMedia, selectComposition } from "@remotion/renderer";
 import { COMPOSITION_FOR, styleById } from "./src/styles/registry.ts";
 import { cpSync } from "node:fs";
 import { writeAssetManifest } from "../scripts/asset-manifest.mts";
-import { FPS, totalFrames, type EpisodeProps, type ManifestLine } from "./src/types.ts";
+import { FPS, totalFrames, type AssetUrls, type EpisodeProps, type ManifestLine } from "./src/types.ts";
 import { buildBeats } from "./src/beats.ts";
+import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
+import { parseDirection } from "./src/direction.ts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--base");
@@ -72,8 +74,22 @@ const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) 
   videoStyle?: string;
   version: number;
   lines: ManifestLine[];
+  /** custom scripts: direction / pacing notes (parsed by rules, video/src/direction.ts) */
+  direction?: string | null;
+  custom?: boolean;
+  /** uploaded custom props / SFX: name → HTTPS URL (Supabase Storage), loaded directly by Remotion */
+  assetUrls?: AssetUrls;
 };
-log(`"${manifest.title}" v${manifest.version}: ${manifest.lines.length} lines`);
+log(`"${manifest.title}" v${manifest.version}: ${manifest.lines.length} lines${manifest.custom ? " (custom script, no AI)" : ""}`);
+const direction = parseDirection(manifest.direction);
+if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: undefined })}`);
+// Props and SFX uploaded in the app (public Supabase bucket): Remotion loads them from their HTTPS URLs, saved on the
+// beats and listed by the app (nothing is written to public/).
+const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {} };
+registerRemoteAssets(assetUrls);
+registerLineAssets(manifest.lines);
+const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {})];
+if (uploaded.length) log(`uploaded assets (loaded by URL): ${uploaded.join(", ")}`);
 
 rmSync(path.join(pub, episodeId), { recursive: true, force: true });
 mkdirSync(path.join(pub, episodeId), { recursive: true });
@@ -104,8 +120,11 @@ for (const line of manifest.lines) {
   progress(2 + (10 * line.index) / Math.max(1, manifest.lines.length), "Preparing the voices");
   const n = String(line.index + 1).padStart(2, "0");
   if (!line.hasAudio) {
-    // No take yet: show the subtitle for a reading-speed duration, silent.
-    const frames = Math.max(2 * FPS, Math.round((line.subtitle.split(/\s+/).length / 2.6) * FPS));
+    // No take yet: silent, for the script's own timestamps (start–end) when it has them, else a speaking-speed
+    // length for the Indonesian line (~2.6 words a second, at least 1.5 s).
+    const timed = line.start_s != null && line.end_s != null && line.end_s > line.start_s ? line.end_s - line.start_s : null;
+    const words = (line.text || line.subtitle).split(/\s+/).filter(Boolean).length;
+    const frames = Math.round((timed ?? Math.max(1.5, words / 2.6 + 0.4)) * FPS);
     lines.push({ ...line, audio: null, frames, envelope: [] });
     log(`line ${n} (${line.speaker}): no recording, ${frames} silent frames`);
     continue;
@@ -141,13 +160,13 @@ for (const line of manifest.lines) {
   log(`line ${n} (${line.speaker}): ${(envelope.length / FPS).toFixed(1)} s after trimming`);
 }
 
-const props: EpisodeProps = { title: manifest.title, lines };
-const total = totalFrames(lines);
+const props: EpisodeProps = { title: manifest.title, lines, direction, assetUrls };
+const total = totalFrames(lines, direction);
 log(`timeline: ${(total / FPS).toFixed(1)} s including the end card`);
 // Beat sheet: when each line starts and ends in the video (m:ss.ss), its shot, pose and stage, for checking timing
 // and props from the run log.
 const clock = (f: number) => `${Math.floor(f / FPS / 60)}:${((f / FPS) % 60).toFixed(2).padStart(5, "0")}`;
-for (const b of buildBeats(props.lines)) {
+for (const b of buildBeats(props.lines, direction)) {
   const l = b.line === null ? null : props.lines[b.line];
   const stage = [b.propImage ?? (b.propTag !== "none" ? b.propTag : null), b.overlay?.kind, b.thought ? "thought" : null, b.kinetic ? `"${b.kinetic}"` : null].filter(Boolean).join(" ");
   log(`beat ${b.id.padEnd(4)} ${clock(b.startFrame)}–${clock(b.startFrame + b.durationInFrames)} ${b.speaker.padEnd(4)} ${b.cameraShot} ${b.emotion}${stage ? ` · ${stage}` : ""}${l ? ` · ${l.text.slice(0, 48)}` : ""}`);

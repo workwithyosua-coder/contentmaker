@@ -1,8 +1,9 @@
 import React from "react";
 import { AbsoluteFill, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
-import { MONO, SafeFrame, VoiceTrack } from "../cast/CueShared";
-import { GrainVignette, SfxCues } from "../shared/Compositing";
+import { VoiceTrack } from "../cast/CueShared";
+import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
 import { sfxCuesFor } from "../shared/sfxCues";
@@ -35,8 +36,11 @@ const SKIN: DirectorSkin = {
   ),
 };
 
-export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
-  const beats = buildBeats(lines);
+export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = false }: CueProps) {
+  // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
+  registerRemoteAssets(assetUrls);
+  registerLineAssets(lines);
+  const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill
       style={{
@@ -54,6 +58,7 @@ export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="dark" />
       <SfxCues cues={sfxCuesFor(beats)} />
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );
 }
@@ -61,7 +66,6 @@ export function DiagramTaktis({ lines, reducedMotion = false }: CueProps) {
 function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const cta = beat.beatType === "cta-stinger";
   const snap = reduced ? 1 : spring({ frame: f, fps, config: G.springConfig });
   const rise = (1 - Math.min(1, snap)) * 40;
 
@@ -73,36 +77,8 @@ function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | n
         <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
 
-      <SafeFrame>
-        {/* BOTTOM: the CTA box (subtitles are drawn below, at y 1480..1620) */}
-        {cta ? (
-          <div
-            style={{
-              position: "absolute",
-              // bottom-left, so Ocu's pointing hand and the arrow (right side) stay clear
-              left: 0,
-              bottom: 0,
-              border: `5px solid ${P.accent}`,
-              background: P.surface,
-              padding: "16px 22px",
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              fontFamily: MONO,
-              fontWeight: 700,
-              fontSize: 34,
-              color: P.accent,
-              transform: `scale(${0.92 + 0.08 * Math.min(1, snap)})`,
-              transformOrigin: "0% 100%",
-            }}
-          >
-            <span>LOCK TARGET + FOLLOW</span>
-            <svg width={50} height={36} viewBox="0 0 20 14" aria-hidden>
-              <path d="M1 7 H17 M12 2 L18 7 L12 12" fill="none" stroke={P.accent} strokeWidth={2.5} />
-            </svg>
-          </div>
-        ) : null}
-      </SafeFrame>
+      {/* the CTA end card's FOLLOW + button and arrow are drawn by the Director (upper-right safe zone); no banner
+          over the chests, where TikTok's caption overlay sits */}
 
       {/* movie-style English subtitle, timed to the voice, no box, low in the frame (y 1480..1620, under every face); italic for inner thoughts */}
       <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />

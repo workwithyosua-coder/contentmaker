@@ -26,14 +26,47 @@ export function castSprites(who: "uco" | "ocu", emotion: string): { emotion: str
   return pair(who, emotion) ?? DEFAULT_EMOTION[who].map((e) => pair(who, e)).find(Boolean) ?? null;
 }
 
-/** `sfx/whoosh.mp3` (or .wav) when that effect has been added, else null. */
+/** Uploaded SFX URL, else `sfx/whoosh.mp3` (or .wav) when that effect is in the repo, else null. */
 export function sfxFile(name: string): string | null {
+  const remote = remoteSfx.get(name);
+  if (remote !== undefined) return remote || `remote:${name}`;
   if (sfx.has(`${name}.mp3`)) return `sfx/${name}.mp3`;
   if (sfx.has(`${name}.wav`)) return `sfx/${name}.wav`;
   return null;
 }
 
-/** `props/{name}.png` when that illustrated prop has been added, else null. */
+// Custom props and SFX uploaded in the app live in Supabase Storage, not in public/ (Vercel's filesystem is read-only).
+// The render handoff (and the in-app preview) passes their HTTPS URLs; the video loads those directly.
+const remoteProps = new Map<string, string>();
+const remoteSfx = new Map<string, string>();
+
+/**
+ * Registers uploaded assets by name → HTTPS URL ({ props: { "sate-padang": "https://…" }, sfx: { slurp: "https://…" } }).
+ * A remote file wins over a repo file of the same name. Re-registering replaces the URL (signed URLs expire).
+ */
+export function registerRemoteAssets(urls: { props?: Record<string, string>; sfx?: Record<string, string> } | null | undefined) {
+  const ok = (u: string) => /^https?:\/\//.test(u) || /^\/[^/]/.test(u); // HTTPS, or root-relative in the in-app preview
+  for (const [name, url] of Object.entries(urls?.props ?? {})) if (ok(url)) remoteProps.set(name, url);
+  for (const [name, url] of Object.entries(urls?.sfx ?? {})) if (ok(url)) remoteSfx.set(name, url);
+}
+
+/** Registers the asset URLs saved on the lines themselves (manual mode stores each upload's public URL on its beats). */
+export function registerLineAssets(lines: { asset_urls?: { props?: Record<string, string>; sfx?: Record<string, string> } | null }[]) {
+  for (const l of lines) registerRemoteAssets(l.asset_urls);
+}
+
+/** Adds uploaded asset *names* as available without URLs yet (the app's checklist and inspector only need to know). */
+export function addAvailableAssets(extra: { props?: string[]; sfx?: string[] }) {
+  for (const p of extra.props ?? []) if (!remoteProps.has(p.replace(/\.(png|webp)$/, ""))) remoteProps.set(p.replace(/\.(png|webp)$/, ""), "");
+  for (const s of extra.sfx ?? []) if (!remoteSfx.has(s.replace(/\.(mp3|wav)$/, ""))) remoteSfx.set(s.replace(/\.(mp3|wav)$/, ""), "");
+}
+
+/**
+ * Where an illustrated prop is: its uploaded HTTPS URL, else `props/{name}.png` in the repo, else null.
+ * (An uploaded prop registered by name only, with no URL yet, counts as available: "remote:{name}".)
+ */
 export function propFile(name: string): string | null {
+  const remote = remoteProps.get(name);
+  if (remote !== undefined) return remote || `remote:${name}`;
   return props.has(`${name}.png`) ? `props/${name}.png` : null;
 }

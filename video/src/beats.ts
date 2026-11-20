@@ -1,6 +1,7 @@
 import { propFile, sfxFile } from "./assets";
 import { KINETIC_SLAM, sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
+import type { RenderDirection } from "./direction";
 import { END_FRAMES, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
 // The shared beat timeline. Every style can read an episode as a list of beats; the cue-based styles (Koran Kinetik,
@@ -46,6 +47,8 @@ export type Beat = {
   thought: boolean;
   /** 2–4 word floating kinetic text on emphasis beats (hook, insight, button, close-ups) and the CTA; else null */
   kinetic: string | null;
+  /** sound effects the script asks for at the start of this beat (public/sfx names) */
+  sfx: string[];
   sceneImageUrl: string | null;
 };
 
@@ -70,7 +73,7 @@ const oneOf = <T extends string>(list: readonly T[], v: string | null | undefine
 // When nothing in the line decides, the pose alternates from that speaker's previous line so it never sits still.
 
 const UCO_POSES = ["triumphant", "defensive", "shocked", "phone"] as const satisfies readonly Emotion[];
-const OCU_POSES = ["deadpan", "explaining", "inspecting"] as const satisfies readonly Emotion[];
+const OCU_POSES = ["deadpan", "explaining", "inspecting", "cta"] as const satisfies readonly Emotion[];
 
 const RX = {
   phone: /\b(phone|hp|handphone|smartphone|checkout|check out|keranjang|cart|scroll(ing)?|app|apps|aplikasi|paylater|pay later|spaylater|gopaylater|klik|click|tap|order|pesan online|flash ?sale|e-?wallet|ovo|gopay|shopee|tokopedia|tiktok shop|notif\w*)\b/i,
@@ -125,8 +128,13 @@ function directLines(lines: EpisodeLine[]): { emotion: Emotion; cameraShot: Came
   let prevShot: CameraShot | null = null;
   return lines.map((l) => {
     const poses: readonly Emotion[] = l.speaker === "uco" ? UCO_POSES : OCU_POSES;
-    const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
-    const cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
+    // "cta" (Ocu pointing) is a pose Ocu may use on any line; for Uco it isn't drawn
+    const emotion = oneOf(EMOTIONS.filter((x) => x !== "cta" || l.speaker === "ocu"), l.emotion) ?? defaultEmotion(l, prev[l.speaker] ?? null);
+    let cameraShot = oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), l.camera_shot) ?? defaultShot(l, emotion, prevShot);
+    // a line about an illustrated prop (the blender, a bubur bowl…) gets the speaker's solo shot, so the prop has the
+    // whole visual stage; a face-filling close-up would leave it only a small corner
+    const png = wantedPropImage(l);
+    if (cameraShot === "closeup-punch" && !l.thought_bubble && png && propFile(png.name)) cameraShot = l.speaker === "uco" ? "solo-uco" : "solo-ocu";
     // an explicit emotion the character has no sprite for still renders (castSprites falls back); the alternation
     // memory only tracks poses that show
     prev[l.speaker] = poses.includes(emotion) ? emotion : prev[l.speaker];
@@ -191,6 +199,7 @@ function overlayFor(l: EpisodeLine): { kind: Overlay; title: string } | null {
 function calloutsFor(l: EpisodeLine, name: string | null, emotion: Emotion): string[] {
   const prop = name ? pngPropByName(name) : null;
   if (!prop) return [];
+  if (Array.isArray(l.callouts)) return l.callouts.filter((id) => prop.parts.some((p) => p.id === id)).slice(0, 3); // set by hand
   const v = `${l.text} ${l.subtitle ?? ""} ${l.visual ?? ""}`;
   const named = prop.parts
     .map((p) => ({ id: p.id, at: v.search(p.rx) }))
@@ -217,7 +226,7 @@ export type AssetCheck = { name: string; file: string; ready: boolean; lines: nu
  * What an episode needs from public/props and public/sfx (for the pre-render checklist): the PNG props its lines
  * call for and the sound effects the cue styles cue. `lines` are 1-based line numbers that need the prop.
  */
-export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { stamp?: boolean } = {}) {
+export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { stamp?: boolean; direction?: RenderDirection | null } = {}) {
   const props = new Map<string, AssetCheck>();
   lines.forEach((l, i) => {
     const w = wantedPropImage(l);
@@ -227,11 +236,20 @@ export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" 
     c.lines.push(i + 1);
     props.set(w.name, c);
   });
-  const beats = buildBeats(lines.map((l, i) => ({ ...l, index: l.index ?? i, hasAudio: false, audio: null, frames: 90, envelope: [] }) as EpisodeLine));
+  const beats = buildBeats(lines.map((l, i) => ({ ...l, index: l.index ?? i, hasAudio: false, audio: null, frames: 90, envelope: [] }) as EpisodeLine), opts.direction);
   const sfx = new Map<string, AssetCheck>();
-  for (const cue of new Set(sfxCuesFor(beats, { stampAt: opts.stamp ? KINETIC_SLAM : undefined }).map((c) => c.name))) {
-    const file = sfxFile(cue);
-    sfx.set(cue, { name: cue, file: file ?? `sfx/${cue}.mp3`, ready: Boolean(file), lines: [] });
+  const cues = sfxCuesFor(beats, { stampAt: opts.stamp ? KINETIC_SLAM : undefined });
+  for (const cue of cues) {
+    const file = sfxFile(cue.name);
+    const c = sfx.get(cue.name) ?? { name: cue.name, file: file ?? `sfx/${cue.name}.mp3`, ready: Boolean(file), lines: [] };
+    // which lines ask for it (by name in the script); automatic cues (whoosh on cuts…) list none
+    const b = beats.find((x) => x.startFrame <= cue.frame && cue.frame < x.startFrame + x.durationInFrames);
+    if (b && b.line !== null && b.sfx.includes(cue.name) && !c.lines.includes(b.line + 1)) c.lines.push(b.line + 1);
+    sfx.set(cue.name, c);
+  }
+  if (opts.direction?.bgm) {
+    const file = sfxFile("bgm");
+    sfx.set("bgm", { name: "bgm", file: file ?? "sfx/bgm.mp3", ready: Boolean(file), lines: [] });
   }
   return { props: [...props.values()], sfx: [...sfx.values()] };
 }
@@ -362,12 +380,14 @@ function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot 
     callouts: calloutsFor(l, propImage, d.emotion),
     overlay: overlayFor(l),
     thought: Boolean(l.thought_bubble),
-    kinetic: l.thought_bubble ? null : kineticFor(l.beat, d.cameraShot, cue),
+    // a manual line's own on-screen callout always shows (first 4 words); otherwise kinetic text only on emphasis beats
+    kinetic: l.thought_bubble ? null : l.kinetic_text?.trim() ? l.kinetic_text.trim().split(/\s+/).slice(0, 4).join(" ") : kineticFor(l.beat, d.cameraShot, cue),
+    sfx: (Array.isArray(l.sfx) ? l.sfx : []).map((n) => String(n).trim().toLowerCase()).filter((n) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n)).slice(0, 4),
   };
 }
 
-export function buildBeats(lines: EpisodeLine[]): Beat[] {
-  const { starts, end } = timeline(lines);
+export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | null): Beat[] {
+  const { starts, end } = timeline(lines, direction);
   const directed = directLines(lines);
   const beats: Beat[] = lines.map((l, i) => ({
     id: `b${i + 1}`,
@@ -385,6 +405,7 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     ...stageFor(l, directed[i]),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
   }));
+  if (direction?.cta === false) return beats;
   beats.push({
     id: "cta",
     line: null,
@@ -402,7 +423,8 @@ export function buildBeats(lines: EpisodeLine[]): Beat[] {
     callouts: [],
     overlay: null,
     thought: false,
-    kinetic: CTA_CUE.stamp ?? null,
+    kinetic: direction?.ctaText || CTA_CUE.stamp || null,
+    sfx: [],
     sceneImageUrl: null,
   });
   return beats;

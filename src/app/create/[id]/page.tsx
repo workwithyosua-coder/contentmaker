@@ -8,6 +8,11 @@ import { EpisodePreview } from "@/components/episode-preview";
 import { VideoStylePicker } from "@/components/video-style";
 import { ShotPrompts } from "@/components/shot-prompts";
 import { AssetChecklist } from "@/components/asset-checklist";
+import { BeatTable, type TableLine } from "@/components/beat-inspector";
+import { DirectionForm, ReplaceScriptForm } from "@/components/manual-import";
+import { attachedAssetUrls, loadAttachedAssets } from "@/lib/attached-assets";
+import { parseDirection } from "../../../../video/src/direction";
+import { replaceCustomScriptAction, saveBeatsAction, saveDirectionAction } from "../studio-actions";
 import { requiredAssets } from "../../../../video/src/beats";
 import { usesImportantMessages } from "../../../../video/src/styles/registry";
 import { shotPrompts } from "@/lib/shot-prompts";
@@ -105,6 +110,12 @@ async function Episode({
     getBooth(owner.id, project.id).catch(() => null),
     latestRenderJob(project.id).catch(() => null),
   ]);
+  // props / SFX attached in the app count as available for the beats, the inspector and the checklist
+  const attached = await loadAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
+  // uploaded props / SFX (public URLs) so the beat list and the in-app preview show them like the render does
+  const assetUrls = await attachedAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string> }));
+  const custom = Boolean(latestScript?.custom);
+  const direction = latestScript?.direction ?? "";
   const rendering = job?.status === "queued" || job?.status === "running";
   const [[pubProject], pubAccounts, pubs] = await Promise.all([
     db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null; video_style: string }[]>`
@@ -223,7 +234,34 @@ async function Episode({
         />
       )}
 
-      {latestScript && !working && (
+      {latestScript && custom && (
+        <Card title="Manual / Exact Import">
+          <div className="space-y-6">
+            <p className="text-xs text-muted">
+              Your own script, parsed by fixed rules: no AI is used here or when the video renders. Blank fields are picked automatically from the
+              line (punctuation, keywords, cues); the grey text shows the pick.
+            </p>
+            <BeatTable
+              key={`${latestScript.id}-${JSON.stringify(latestScript.lines).length}`}
+              lines={latestScript.lines as unknown as TableLine[]}
+              recordedMs={Object.fromEntries(Object.entries(booth?.recorded ?? {}).map(([i, t]) => [i, t.durationMs]))}
+              direction={direction}
+              attached={attached}
+              assetUrls={assetUrls}
+              onSave={saveBeatsAction.bind(null, project.id, latestScript.id)}
+            />
+            <DirectionForm action={saveDirectionAction.bind(null, project.id, latestScript.id)} initial={direction} />
+            <details>
+              <summary className="cursor-pointer text-sm font-semibold">Paste a new version of the script</summary>
+              <div className="mt-3">
+                <ReplaceScriptForm action={replaceCustomScriptAction.bind(null, project.id)} direction={direction} />
+              </div>
+            </details>
+          </div>
+        </Card>
+      )}
+
+      {latestScript && !working && !custom && (
         <Card title={latestScript.approved_at ? "Change the script" : "Happy with it?"}>
           <div className="space-y-4">
             {!latestScript.approved_at && (
@@ -263,14 +301,17 @@ async function Episode({
         </Card>
       )}
 
-      {booth?.script && progress.recorded > 0 && (
+      {booth?.script && (progress.recorded > 0 || custom) && (
         <Card title="Animation">
           <div className="space-y-4">
             <VideoStylePicker value={pubProject?.video_style ?? "classic"} action={setVideoStyleAction.bind(null, project.id)} />
             <EpisodePreview
               style={pubProject?.video_style ?? "classic"}
               title={booth.script.title || project.title || "Episode"}
+              direction={custom ? direction : null}
+              assetUrls={assetUrls}
               lines={booth.lines.map((l) => ({
+                ...l, // custom scripts carry start_s / end_s / sfx / overlay / callouts too
                 index: l.index,
                 beat: l.beat,
                 speaker: l.speaker,
@@ -296,8 +337,11 @@ async function Episode({
             <div className="space-y-2 border-t border-border pt-4">
               {usesImportantMessages(pubProject?.video_style) && (
                 <AssetChecklist
+                  projectId={project.id}
+                  urls={assetUrls}
                   {...requiredAssets(
                     booth.lines.map((l) => ({
+                      ...l,
                       index: l.index,
                       beat: l.beat,
                       speaker: l.speaker,
@@ -312,7 +356,7 @@ async function Episode({
                       emotion: l.emotion ?? null,
                       prop_tag: l.prop_tag ?? null,
                     })),
-                    { stamp: pubProject?.video_style === "editorial-paper-cutout" },
+                    { stamp: pubProject?.video_style === "editorial-paper-cutout", direction: custom ? parseDirection(direction) : null },
                   )}
                 />
               )}
