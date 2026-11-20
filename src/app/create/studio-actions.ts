@@ -8,6 +8,8 @@ import { ASSET_BUCKET, ASSET_MAX_BYTES, ASSET_TYPES, assetPath, ensureAssetBucke
 import { db } from "@/lib/db";
 import { POSES, parseManualScript, spokenSeconds } from "@/lib/manualScriptParser";
 import { BEATS, EXPRESSIONS } from "@/lib/script-parse";
+import { saveCaptions } from "@/lib/publish/approval";
+import { hookLine, manualCaptions } from "@/lib/publish/manualCaptions";
 import { getOwner } from "@/lib/queries";
 import { CAMERA_SHOTS, OVERLAYS, wantedPropImage } from "../../../video/src/beats";
 import { styleById } from "../../../video/src/styles/registry";
@@ -109,10 +111,12 @@ export async function createManualEpisodeAction(topic: string, style: string, di
       INSERT INTO content_projects (user_id, direction_id, title, format, target_platforms, status, video_style)
       VALUES (${o.id}, ${d.id}, ${t.slice(0, 80)}, 'short_video', ${ALL_PLATFORMS}::platform_t[], 'awaiting_recording', ${styleById(style).id})
       RETURNING id`;
+    // the user wrote this script, so it starts approved, with editable default captions for every platform (no AI)
     await sql`
-      INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom)
+      INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
       VALUES (${p.id}, 1, ${t.slice(0, 120)}, ${lengthOf(read.lines)}, ${sql.json(read.lines as never)}, '[]',
-              ${"Manual / Exact Import (no AI)."}, ${dir || null}, true)`;
+              ${"Manual / Exact Import (no AI)."}, ${dir || null}, true, now())`;
+    await saveCaptions(p.id, manualCaptions({ title: t, hook: hookLine(read.lines) }));
     projectId = p.id;
   } catch (err) {
     return { ok: false, message: message(err) };
@@ -136,9 +140,12 @@ export async function replaceCustomScriptAction(projectId: string, _prev: StepRe
     const dir = [parsed.directionText].filter(Boolean).join("\n");
     const [{ v }] = await sql<{ v: number }[]>`SELECT COALESCE(max(version), 0) + 1 AS v FROM scripts WHERE project_id = ${projectId}`;
     await sql`
-      INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom)
+      INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
       VALUES (${projectId}, ${v}, ${parsed.title}, ${lengthOf(parsed.lines)}, ${sql.json(parsed.lines as never)}, '[]',
-              ${"Pasted again (Manual / Exact Import, no AI)."}, ${dir || null}, true)`;
+              ${"Pasted again (Manual / Exact Import, no AI)."}, ${dir || null}, true, now())`;
+    // captions the user already has (edited or AI-written) stay; an episode without any gets editable defaults
+    const [{ has }] = await sql<{ has: boolean }[]>`SELECT platform_captions IS NOT NULL AS has FROM content_projects WHERE id = ${projectId}`;
+    if (!has) await saveCaptions(projectId, manualCaptions({ title: parsed.title, hook: hookLine(parsed.lines) }));
     await sql`UPDATE content_projects SET status = 'awaiting_recording', updated_at = now() WHERE id = ${projectId}`;
     revalidatePath(`/create/${projectId}`);
     const warn = parsed.warnings.length ? ` ${parsed.warnings.length} note${parsed.warnings.length > 1 ? "s" : ""}: ${parsed.warnings[0]}` : "";

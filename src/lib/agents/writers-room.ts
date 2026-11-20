@@ -1,4 +1,5 @@
 import "server-only";
+import { saveCaptions } from "../publish/approval";
 import { z } from "zod";
 import { db } from "../db";
 import { CAMERA_SHOTS, EMOTIONS, PROP_TAGS, clampCue } from "../../../video/src/beats";
@@ -367,23 +368,5 @@ Rules:
     },
     facebook: { title: clean(c.facebook.title), description: clean(c.facebook.description) },
   };
-  const sql = db();
-  await sql`UPDATE content_projects SET platform_captions = ${sql.json(captions)} WHERE id = ${p.projectId}`;
-  await sql`DELETE FROM caption_options WHERE project_id = ${p.projectId}`;
-  const rows: { platform: string; caption: string; hashtags: string[]; title: string | null }[] = [
-    { platform: "tiktok", caption: captions.tiktok.caption, hashtags: captions.tiktok.hashtags, title: null },
-    {
-      platform: "instagram",
-      caption: `${captions.instagram.hook}\n\n${captions.instagram.context}\n\n${captions.instagram.comment_prompt}`,
-      hashtags: captions.instagram.hashtags,
-      title: null,
-    },
-    { platform: "facebook", caption: captions.facebook.description, hashtags: [], title: captions.facebook.title },
-    { platform: "youtube", caption: captions.youtube.description, hashtags: captions.youtube.tags, title: `${captions.youtube.title} #Shorts` },
-  ];
-  for (const r of rows) {
-    await sql`
-      INSERT INTO caption_options (project_id, platform, caption, hashtags, title, is_selected, rank)
-      VALUES (${p.projectId}, ${r.platform}, ${r.caption}, ${r.hashtags}, ${r.title}, true, 1)`;
-  }
+  await saveCaptions(p.projectId, captions);
 }

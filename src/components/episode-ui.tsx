@@ -13,8 +13,7 @@ export function Status({ state }: { state: StepResult }) {
   );
 }
 
-const primary = "btn btn-primary";
-const secondary = "btn btn-secondary";
+const VARIANT = { primary: "btn btn-primary", secondary: "btn btn-secondary", outline: "btn btn-outline" } as const;
 
 /** A button that runs one server action step, with a "working…" label (agent steps take 20–90 s). */
 export function StepButton({
@@ -23,12 +22,15 @@ export function StepButton({
   pendingLabel,
   variant = "primary",
   confirmText,
+  wide = false,
 }: {
   action: () => Promise<StepResult>;
   label: string;
   pendingLabel: string;
-  variant?: "primary" | "secondary";
+  variant?: keyof typeof VARIANT;
   confirmText?: string;
+  /** full width, label may wrap (long labels on phones) */
+  wide?: boolean;
 }) {
   const [state, run, pending] = useActionState(action, null);
   return (
@@ -37,9 +39,9 @@ export function StepButton({
       onSubmit={(e) => {
         if (confirmText && !confirm(confirmText)) e.preventDefault();
       }}
-      className="flex flex-col items-start gap-1"
+      className={`flex flex-col gap-1 ${wide ? "items-stretch" : "items-start"}`}
     >
-      <button disabled={pending} className={variant === "primary" ? primary : secondary}>
+      <button disabled={pending} aria-busy={pending} className={`${VARIANT[variant]}${wide ? " btn-wide" : ""}`}>
         {pending ? pendingLabel : label}
       </button>
       <Status state={state} />
@@ -63,7 +65,7 @@ export function NewEpisodeForm({ action }: { action: (prev: StepResult, form: Fo
         className="field"
       />
       <div className="flex flex-wrap items-center gap-3">
-        <button disabled={pending} className={primary}>
+        <button disabled={pending} className={VARIANT.primary}>
           {pending ? "Starting…" : "Pitch me 5 ideas"}
         </button>
         <Status state={state} />
@@ -87,7 +89,7 @@ export function ReviseForm({ action }: { action: (prev: StepResult, form: FormDa
         className="field"
       />
       <div className="flex flex-wrap items-center gap-3">
-        <button disabled={pending} className={secondary}>
+        <button disabled={pending} className={VARIANT.secondary}>
           {pending ? "Starting…" : "Revise script"}
         </button>
         <Status state={state} />

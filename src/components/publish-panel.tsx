@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useId, useRef, useState, useTransition } from "react";
 import type { StepResult } from "@/app/create/actions";
 import { Status } from "@/components/episode-ui";
+import { CAPTION_LIMITS, REQUIRED, captionProblems, type CaptionProblem } from "@/lib/publish/manualCaptions";
 
 type Platform = "youtube" | "tiktok" | "instagram" | "facebook";
 type Account = {
@@ -62,12 +63,27 @@ export function PublishPanel({
 }) {
   const [state, run, pending] = useActionState(action, null);
   const [auto, setAuto] = useState(autoPublish);
+  // caption fields live here (not in each row) so one shared caption can be applied to every selected platform
+  const [fields, setFields] = useState<Record<string, { title: string; text: string }>>(() =>
+    Object.fromEntries(
+      accounts.map((a) => [a.platform, { title: saved[a.platform]?.title ?? defaults[a.platform]?.title ?? "", text: saved[a.platform]?.text ?? defaults[a.platform]?.text ?? "" }]),
+    ),
+  );
+  const [enabledLocal, setEnabledLocal] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(accounts.map((a) => [a.platform, a.health === "ok" && saved[a.platform]?.enabled !== false])),
+  );
+  const [showErrors, setShowErrors] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [autoState, setAutoState] = useState<StepResult>(null);
   const [autoPending, startAuto] = useTransition();
   const failed = publications.some((p) => p.status === "failed");
   const tt = useTikTokChoices();
   const ttAccount = accounts.find((a) => a.platform === "tiktok" && a.health === "ok");
   const ttProblem = ttAccount && tt.enabled ? tiktokProblem(tt, tiktok, videoSeconds) : null;
+  const isOn = (a: Account) => a.health === "ok" && (a.platform === "tiktok" ? tt.enabled : Boolean(enabledLocal[a.platform]));
+  const problems = captionProblems(Object.fromEntries(accounts.map((a) => [a.platform, { enabled: isOn(a), ...fields[a.platform] }])));
+  const setField = (p: Platform, k: "title" | "text", v: string) => setFields((f) => ({ ...f, [p]: { ...f[p], [k]: v } }));
+  const selected = accounts.filter(isOn).map((a) => a.platform);
 
   if (!accounts.length) {
     return <p className="text-sm text-muted">No social accounts connected yet. Connect them on the Accounts page.</p>;
@@ -75,19 +91,65 @@ export function PublishPanel({
   return (
     <div className="space-y-4">
       {ready && <p className="rounded-control border border-border bg-surface-2 p-3 text-sm">{ready}</p>}
-      <form action={run} className="space-y-4">
+      <form
+        ref={formRef}
+        action={run}
+        noValidate
+        onSubmit={(e) => {
+          // Empty state: a switched-on platform with a blank required title or caption is not posted
+          const mode = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.value;
+          if ((mode === "now" || mode === "schedule") && problems.length) {
+            e.preventDefault();
+            setShowErrors(true);
+            const first = problems[0];
+            const el = formRef.current?.querySelector<HTMLElement>(`[name="${first.platform}.${first.field}"]`);
+            el?.closest("details")?.setAttribute("open", "");
+            el?.focus();
+          }
+        }}
+        className="min-w-0 space-y-4"
+      >
+        {Object.keys(defaults).length > 0 && (
+          <SharedCaption
+            selected={selected}
+            onApply={(text) =>
+              setFields((f) => {
+                const next = { ...f };
+                for (const p of selected) next[p] = { ...next[p], text };
+                return next;
+              })
+            }
+          />
+        )}
         <ul className="divide-y divide-border">
           {accounts.map((a) => (
             <AccountRow
               key={a.id}
               account={a}
-              preview={defaults[a.platform]}
+              fields={fields[a.platform]}
+              setField={(k, v) => setField(a.platform, k, v)}
+              on={isOn(a)}
+              setOn={(v) => (a.platform === "tiktok" ? tt.setEnabled(v) : setEnabledLocal((m) => ({ ...m, [a.platform]: v })))}
+              problems={problems.filter((x) => x.platform === a.platform)}
+              showErrors={showErrors}
               saved={saved[a.platform] ?? {}}
               pub={publications.find((p) => p.platform === a.platform)}
               tt={a.platform === "tiktok" ? { choices: tt, live: tiktok, videoSeconds } : undefined}
             />
           ))}
         </ul>
+        {showErrors && problems.length > 0 && (
+          <div role="alert" className="rounded-control border p-3 text-sm" style={{ borderColor: "var(--bad)", background: "var(--bad-bg)" }}>
+            <p className="font-semibold" style={{ color: "var(--bad)" }}>
+              Fix {problems.length === 1 ? "this caption" : `these ${problems.length} captions`} before posting:
+            </p>
+            <ul className="mt-1 list-disc pl-5">
+              {problems.map((x) => (
+                <li key={`${x.platform}.${x.field}`}>{x.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {ttAccount && tt.enabled && (
           <p className="text-xs text-muted">
@@ -112,8 +174,8 @@ export function PublishPanel({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
-          <button name="mode" value="now" disabled={pending || Boolean(ready) || Boolean(ttProblem)} className="btn btn-primary">
-            {pending ? "Starting…" : "Post now to selected"}
+          <button name="mode" value="now" disabled={pending || Boolean(ready) || Boolean(ttProblem)} aria-busy={pending} className="btn btn-primary">
+            {pending ? "Working…" : "Post now to selected"}
           </button>
           {failed && (
             <button name="mode" value="retry" disabled={pending || Boolean(ready)} className="btn btn-secondary">
@@ -122,12 +184,12 @@ export function PublishPanel({
           )}
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs font-semibold">
+          <label className="min-w-0 text-xs font-semibold">
             Schedule (WIB)
-            <input type="datetime-local" name="at" className="field mt-1 w-auto" />
+            <input type="datetime-local" name="at" className="field mt-1 w-auto max-w-full" />
           </label>
-          <button name="mode" value="schedule" disabled={pending || Boolean(ready) || Boolean(ttProblem)} className="btn btn-secondary">
-            Schedule post
+          <button name="mode" value="schedule" disabled={pending || Boolean(ready) || Boolean(ttProblem)} aria-busy={pending} className="btn btn-secondary">
+            {pending ? "Working…" : "Schedule post"}
           </button>
           {publishAt && (
             <>
@@ -164,26 +226,44 @@ export function PublishPanel({
 
 function AccountRow({
   account: a,
-  preview,
+  fields,
+  setField,
+  on,
+  setOn,
+  problems,
+  showErrors,
   saved,
   pub,
   tt,
 }: {
   account: Account;
-  preview?: { title?: string; text: string };
+  fields: { title: string; text: string };
+  setField: (k: "title" | "text", v: string) => void;
+  on: boolean;
+  setOn: (v: boolean) => void;
+  problems: CaptionProblem[];
+  showErrors: boolean;
   saved: Settings;
   pub?: Pub;
   tt?: { choices: TikTokChoices; live?: { info?: TikTokInfo; error?: string }; videoSeconds: number | null };
 }) {
   const ok = a.health === "ok";
-  const [onLocal, setOnLocal] = useState(ok && saved.enabled !== false);
-  const on = tt ? tt.choices.enabled : onLocal;
-  const setOn = tt ? tt.choices.setEnabled : setOnLocal;
   const p = a.platform;
+  const id = useId();
+  const lim = CAPTION_LIMITS[p];
+  const hasTitle = p === "youtube" || p === "facebook";
+  // a field the user has edited shows its problem right away; untouched ones only after a post attempt
+  const [touched, setTouched] = useState<{ title?: boolean; text?: boolean }>({});
+  const problemFor = (k: "title" | "text") => {
+    const x = problems.find((q) => q.field === k);
+    return x && (showErrors || touched[k]) ? x.message : null;
+  };
+  const titleProblem = problemFor("title");
+  const textProblem = problemFor("text");
   return (
-    <li className="space-y-2 py-3">
+    <li className="min-w-0 space-y-2 py-3">
       <input type="hidden" name={`${p}.present`} value="1" />
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {(tt?.live?.info?.creator_avatar_url ?? a.avatar_url) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={tt?.live?.info?.creator_avatar_url ?? a.avatar_url ?? ""} alt="" className="h-9 w-9 rounded-full" referrerPolicy="no-referrer" />
@@ -213,19 +293,49 @@ function AccountRow({
         </p>
       )}
       {pub && <PubStatus pub={pub} />}
-      <details open={p === "tiktok" && on}>
-        <summary className="cursor-pointer text-xs font-semibold text-muted">Caption and settings</summary>
-        <div className="mt-2 space-y-2">
-          {(p === "youtube" || p === "facebook") && (
-            <label className="block text-xs font-semibold">
-              Title
-              <input name={`${p}.title`} defaultValue={saved.title ?? preview?.title ?? ""} maxLength={p === "youtube" ? 100 : 255} className="field mt-1 text-sm" />
-            </label>
+      <details open={(p === "tiktok" && on) || Boolean(on && (titleProblem || textProblem))}>
+        <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-muted">
+          Caption and settings{on && (titleProblem || textProblem) ? <span style={{ color: "var(--bad)" }}>&nbsp;· needs a caption</span> : null}
+        </summary>
+        <div className="mt-2 min-w-0 space-y-3">
+          {hasTitle && (
+            <div>
+              <label htmlFor={`${id}-title`} className="block text-xs font-semibold">
+                {LABEL[p]} title{REQUIRED[p].title ? " (required)" : " (optional)"}
+              </label>
+              <input
+                id={`${id}-title`}
+                name={`${p}.title`}
+                value={fields.title}
+                onChange={(e) => setField("title", e.target.value)}
+                onBlur={() => setTouched((t) => ({ ...t, title: true }))}
+                maxLength={lim.title}
+                aria-invalid={Boolean(on && titleProblem)}
+                aria-describedby={`${id}-title-count${on && titleProblem ? ` ${id}-title-err` : ""}`}
+                className="field mt-1 w-full min-w-0 text-sm"
+              />
+              <FieldMeta id={`${id}-title`} count={fields.title.length} limit={lim.title!} problem={on ? titleProblem : null} />
+            </div>
           )}
-          <label className="block text-xs font-semibold">
-            {p === "youtube" || p === "facebook" ? "Description" : "Caption"}
-            <textarea name={`${p}.text`} defaultValue={saved.text ?? preview?.text ?? ""} rows={5} maxLength={p === "tiktok" || p === "instagram" ? 2200 : 5000} className="field mt-1 text-xs" />
-          </label>
+          <div>
+            <label htmlFor={`${id}-text`} className="block text-xs font-semibold">
+              {LABEL[p]} {hasTitle ? "description" : "caption"}
+              {REQUIRED[p].text ? " (required)" : " (optional)"}
+            </label>
+            <textarea
+              id={`${id}-text`}
+              name={`${p}.text`}
+              value={fields.text}
+              onChange={(e) => setField("text", e.target.value)}
+              onBlur={() => setTouched((t) => ({ ...t, text: true }))}
+              rows={5}
+              maxLength={lim.text}
+              aria-invalid={Boolean(on && textProblem)}
+              aria-describedby={`${id}-text-count${on && textProblem ? ` ${id}-text-err` : ""}`}
+              className="field mt-1 w-full min-w-0 text-sm"
+            />
+            <FieldMeta id={`${id}-text`} count={fields.text.length} limit={lim.text} problem={on ? textProblem : null} />
+          </div>
           {p === "youtube" && (
             <label className="block text-xs font-semibold">
               Visibility{" "}
@@ -251,6 +361,74 @@ function AccountRow({
         </div>
       </details>
     </li>
+  );
+}
+
+/** Character count under a caption field, plus its inline problem (blank required field / over the limit). */
+function FieldMeta({ id, count, limit, problem }: { id: string; count: number; limit: number; problem: string | null }) {
+  return (
+    <div className="mt-1 flex flex-wrap items-start justify-between gap-x-3 text-xs">
+      {problem ? (
+        <p id={`${id}-err`} style={{ color: "var(--bad)" }}>
+          {problem}
+        </p>
+      ) : (
+        <span />
+      )}
+      <span id={`${id}-count`} className="text-muted tabular-nums" style={count > limit * 0.95 ? { color: "var(--bad)" } : undefined}>
+        {count.toLocaleString("en-US")} / {limit.toLocaleString("en-US")}
+      </span>
+    </div>
+  );
+}
+
+/** One caption for every selected platform: write or paste it once, apply it, then tweak per platform below. */
+function SharedCaption({ selected, onApply }: { selected: Platform[]; onApply: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState<StepResult>(null);
+  const limit = Math.min(...selected.map((p) => CAPTION_LIMITS[p].text), 2200);
+  return (
+    <div className="min-w-0 space-y-2 rounded-control border border-border p-3">
+      <label htmlFor="shared-caption" className="block text-sm font-semibold">
+        Caption for all selected platforms
+      </label>
+      <p id="shared-caption-help" className="text-xs text-muted">
+        Paste one caption, apply it to every platform switched on below, then adjust any of them in its own Caption and settings.
+      </p>
+      <textarea
+        id="shared-caption"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setNote(null);
+        }}
+        rows={4}
+        maxLength={limit}
+        aria-describedby="shared-caption-help shared-caption-count"
+        className="field w-full min-w-0 text-sm"
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!selected.length}
+          onClick={() => {
+            if (!text.trim()) return setNote({ ok: false, message: "Write or paste a caption first." });
+            onApply(text.trim());
+            setNote({ ok: true, message: `Applied to ${selected.map((p) => LABEL[p]).join(", ")}.` });
+          }}
+        >
+          Apply to selected platforms
+        </button>
+        <span id="shared-caption-count" className="text-xs text-muted tabular-nums">
+          {text.length.toLocaleString("en-US")} / {limit.toLocaleString("en-US")}
+        </span>
+      </div>
+      {!selected.length && <p className="text-xs text-muted">Switch on at least one platform below to apply a caption.</p>}
+      <div aria-live="polite">
+        <Status state={note} />
+      </div>
+    </div>
   );
 }
 

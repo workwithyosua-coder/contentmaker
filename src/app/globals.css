@@ -195,6 +195,25 @@
     background: var(--surface-2);
     border-color: var(--muted);
   }
+  /* secondary action on a card: transparent fill, crisp slate border, no glow */
+  .btn-outline {
+    background: transparent;
+    border-color: var(--muted);
+    color: var(--text);
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: var(--surface-2);
+    border-color: var(--text);
+  }
+  /* full-width button whose label may wrap onto two lines on narrow phones */
+  .btn-wide {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.3;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
   .btn-danger {
     background: transparent;
     border-color: var(--border);
