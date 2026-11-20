@@ -13,6 +13,8 @@ export type PublishPlatform = "youtube" | "tiktok" | "instagram" | "facebook";
 export const PUBLISH_PLATFORMS: PublishPlatform[] = ["tiktok", "instagram", "youtube", "facebook"];
 
 const tags = (h: string[]) => h.map((t) => `#${t.replace(/^#/, "").replace(/\s+/g, "")}`).join(" ");
+/** Paragraphs separated by a blank line, skipping empty ones. */
+const paras = (...parts: string[]) => parts.map((x) => x.trim()).filter(Boolean).join("\n\n");
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
 
 /** YouTube title: ≤ 100 characters (API limit), always ending in #Shorts. */
@@ -27,9 +29,9 @@ export function defaultText(platform: PublishPlatform, c: PlatformCaptions): { t
     case "youtube":
       return { title: youtubeTitle(c.youtube), text: clip(`${c.youtube.description}\n\n#Shorts`, 5000) };
     case "tiktok":
-      return { text: clip(`${c.tiktok.caption}\n\n${tags(c.tiktok.hashtags)}`, 2200) };
+      return { text: clip(paras(c.tiktok.caption, tags(c.tiktok.hashtags)), 2200) };
     case "instagram":
-      return { text: clip(`${c.instagram.hook}\n\n${c.instagram.context}\n\n${c.instagram.comment_prompt}\n\n${tags(c.instagram.hashtags)}`, 2200) };
+      return { text: clip(paras(c.instagram.hook, c.instagram.context, c.instagram.comment_prompt, tags(c.instagram.hashtags)), 2200) };
     case "facebook":
       return { title: clip(c.facebook.title, 255), text: clip(c.facebook.description, 5000) };
   }

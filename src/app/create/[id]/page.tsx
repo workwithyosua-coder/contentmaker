@@ -38,13 +38,11 @@ import {
   approveScriptAction,
   deleteEpisodeAction,
   importScriptAction,
-  publishAction,
   renderVideoAction,
   moreIdeasAction,
   pickIdeaAction,
   reviseScriptAction,
   saveVideoToDriveAction,
-  setAutoPublishAction,
   setVideoStyleAction,
   startVideoUploadAction,
   finishVideoUploadAction,
@@ -52,6 +50,7 @@ import {
   unpickIdeaAction,
   updateLineAction,
 } from "../actions";
+import { approveWithoutAiAction, publishAction, setAutoPublishAction } from "../publish-actions";
 
 export const maxDuration = 300;
 
@@ -137,6 +136,8 @@ async function Episode({
   const picked = concepts.find((c) => c.is_selected);
   const working = ["ideating", "scripting", "captioning"].includes(project.status);
   const scriptFailed = !latestScript && !!picked && !working && !!project.last_error;
+  // "Approve script & write captions" failed (e.g. a $0 Anthropic balance): offer the no-AI way through
+  const captionStepFailed = !!latestScript && !working && !!project.last_error && !pubProject?.platform_captions && project.status === "awaiting_script_approval";
 
   return (
     <div className="space-y-4">
@@ -162,9 +163,17 @@ async function Episode({
 
       {project.last_error && !working && (
         <div role="alert" className="rounded-card border p-4 text-sm" style={{ borderColor: "var(--bad)", background: "var(--bad-bg)" }}>
-          <p className="font-semibold" style={{ color: "var(--bad)" }}>The last step didn&apos;t finish.</p>
+          <p className="font-semibold" style={{ color: "var(--bad)" }}>
+            {aiCreditError(project.last_error) ? "The AI captions couldn't be written." : "The last step didn't finish."}
+          </p>
           <p className="mt-1">{project.last_error}</p>
+          {captionStepFailed && (
+            <p className="mt-2">You can approve the script and write the captions yourself instead. Posting and scheduling don&apos;t use AI.</p>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
+            {captionStepFailed && (
+              <StepButton action={approveWithoutAiAction.bind(null, project.id)} label="Continue without AI captions" pendingLabel="Approving…" />
+            )}
             {project.status === "draft" && (
               <StepButton action={moreIdeasAction.bind(null, project.id)} label="Try again" pendingLabel="Starting…" />
             )}
@@ -265,11 +274,10 @@ async function Episode({
         <Card title={latestScript.approved_at ? "Change the script" : "Happy with it?"}>
           <div className="space-y-4">
             {!latestScript.approved_at && (
-              <StepButton
-                action={approveScriptAction.bind(null, project.id)}
-                label="Approve script & write captions"
-                pendingLabel="Starting…"
-              />
+              <div className="space-y-2">
+                <StepButton action={approveScriptAction.bind(null, project.id)} label="Approve script & write captions" pendingLabel="Starting…" />
+                <StepButton action={approveWithoutAiAction.bind(null, project.id)} label="Approve without AI (write captions myself)" pendingLabel="Approving…" variant="outline" wide />
+              </div>
             )}
             <ScriptEditor
               reviseAction={reviseScriptAction.bind(null, project.id)}
@@ -438,18 +446,33 @@ async function Episode({
           {!latestScript.approved_at && !pubProject?.platform_captions && (
             <div className="mb-4 space-y-2">
               <p className="text-sm text-muted">
-                Titles and captions are written when you approve the script (v{latestScript.version}). Approve it here or in the script step above.
+                Approve the script (v{latestScript.version}) to unlock posting. The AI can write each platform&apos;s caption, or you can approve without AI and
+                write them yourself (no Anthropic credit needed).
               </p>
-              <StepButton action={approveScriptAction.bind(null, project.id)} label="Approve script & write captions" pendingLabel="Starting…" />
+              {custom ? (
+                <>
+                  {/* Manual / Exact Import episodes: the no-AI path comes first */}
+                  <StepButton action={approveWithoutAiAction.bind(null, project.id)} label="Approve without AI (write captions myself)" pendingLabel="Approving…" wide />
+                  <StepButton action={approveScriptAction.bind(null, project.id)} label="Approve script & write captions" pendingLabel="Starting…" variant="outline" wide />
+                </>
+              ) : (
+                <>
+                  <StepButton action={approveScriptAction.bind(null, project.id)} label="Approve script & write captions" pendingLabel="Starting…" wide />
+                  <StepButton action={approveWithoutAiAction.bind(null, project.id)} label="Approve without AI (write captions myself)" pendingLabel="Approving…" variant="outline" wide />
+                </>
+              )}
             </div>
           )}
           {latestScript.approved_at && !pubProject?.platform_captions && (
             <div className="mb-4 space-y-2">
-              <p className="text-sm text-muted">This episode was approved before platform captions existed. Write them once to start posting.</p>
-              <StepButton action={writePlatformCaptionsAction.bind(null, project.id)} label="Write platform captions" pendingLabel="Writing… (about 20 s)" />
+              <p className="text-sm text-muted">This script is approved but has no platform captions yet. Let the AI write them, or fill in defaults and edit them yourself.</p>
+              <StepButton action={writePlatformCaptionsAction.bind(null, project.id)} label="Write platform captions" pendingLabel="Writing… (about 20 s)" wide />
+              <StepButton action={approveWithoutAiAction.bind(null, project.id)} label="Write captions myself (no AI)" pendingLabel="Filling in…" variant="outline" wide />
             </div>
           )}
           <PublishPanel
+            // new default captions (approval, AI rewrite) start the editable fields afresh
+            key={JSON.stringify(pubProject?.platform_captions ?? null)}
             accounts={pubAccounts}
             defaults={Object.fromEntries(
               pubProject?.platform_captions ? PUBLISH_PLATFORMS.map((p) => [p, defaultText(p, pubProject.platform_captions!)]) : [],
@@ -467,7 +490,7 @@ async function Episode({
             publishAt={pubProject?.publish_at && pubProject.publish_at.getTime() > Date.now() ? pubProject.publish_at.toISOString() : null}
             ready={
               !pubProject?.platform_captions
-                ? "Approve the script first: that step writes each platform's caption."
+                ? "Approve the script first (with or without AI) to fill in each platform's title and caption."
                 : !video
                   ? "Render the video first, then post it here (or switch on auto-post below)."
                   : null
@@ -607,4 +630,9 @@ function ScriptView({
       )}
     </Card>
   );
+}
+
+/** Anthropic's "credit balance is too low" / billing errors, told apart from other failures. */
+function aiCreditError(err: string | null): boolean {
+  return Boolean(err && /credit balance|billing|insufficient (credit|funds|balance)|purchase credits/i.test(err));
 }
