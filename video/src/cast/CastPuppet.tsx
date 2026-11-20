@@ -1,13 +1,15 @@
-import React from "react";
+import React, { useId } from "react";
 import { Img, spring, staticFile, useVideoConfig } from "remotion";
 import { castSprites } from "../assets";
-import { headBoxFor, sweatPoint } from "./spriteCalibration";
+import { headBoxFor, sweatPoint, type HeadBox } from "./spriteCalibration";
+import { bodyMotion, type MouthStage } from "../shared/motion";
 import type { Emotion } from "../beats";
 import { OcuBust, UcoBust, type CastVariant, type OcuMood, type UcoMood } from "./CastSvg";
 
 // Layered puppet: illustrated PNG sprites (public/cast/{uco|ocu}/{emotion}-{closed|open}.png, see cast/README.md),
-// swapped closed/open from the voice loudness, with spring squash-and-stretch on entry, a talking bounce, idle
-// breathing and comic FX. When the sprites for an emotion aren't uploaded yet, the coded CastSvg figure stands in,
+// with a 3-stage mouth from the voice loudness (closed / half-open / wide-open: the open frame's mouth squashed or
+// stretched vertically over the closed or open frame), programmatic blinks, spring squash-and-stretch on entry, an
+// audio-reactive bob, pulse and tilt (bouncy Uco, steady Ocu), idle breathing and comic FX. When the sprites for an emotion aren't uploaded yet, the coded CastSvg figure stands in,
 // with the same motion and FX, so previews and renders always work.
 // Fills its parent box (the 180×340 figure frame from CastFigure).
 
@@ -15,8 +17,12 @@ export type PuppetProps = {
   who: "uco" | "ocu";
   variant: CastVariant;
   emotion: Emotion;
-  /** mouth open this frame (from the voice loudness) */
-  mouthOpen: boolean;
+  /** mouth this frame (from the voice loudness): 0 closed, 1 half-open, 2 wide-open */
+  mouth: MouthStage;
+  /** eyelids this frame: 0 open, 1 shut */
+  blink?: number;
+  /** inner thought: the body holds still */
+  thought?: boolean;
   /** voice loudness 0..1 this frame */
   level: number;
   /** frame inside the current shot (drives the entry spring) */
@@ -43,7 +49,9 @@ export function CastPuppet(p: PuppetProps) {
   const breathe = r ? 0 : Math.sin(p.globalFrame / 22) * 0.008;
   const sy = 0.9 + 0.1 * pop + breathe;
   const sx = 1 / Math.sqrt(sy);
-  const bounce = r ? 0 : -p.level * 1.4; // % of the figure height, while talking
+  // audio-reactive: a 2–4 px bob, a 1.00–1.025 pulse and a ±1.5° tilt while talking (Ocu about half as much)
+  const body = r ? { dy: 0, scale: 1, tilt: 0 } : bodyMotion(p.who, p.level, p.globalFrame, Boolean(p.thought));
+  const box = sprites ? headBoxFor(p.who, sprites.emotion) : null;
   const sweaty = (p.fx ?? "sweat") === "sweat" && (p.emotion === "shocked" || p.emotion === "defensive");
   // the coded Uco already sweats in his "sweat" mood
   const drop = !sweaty ? null : sprites ? { view: "0 0 900 1700", ...sweatPoint(headBoxFor(p.who, sprites.emotion)), size: 96 } : p.who === "ocu" ? { view: "0 0 180 340", x: 44, y: 62, size: 22 } : null;
@@ -54,18 +62,18 @@ export function CastPuppet(p: PuppetProps) {
         style={{
           position: "absolute",
           inset: 0,
-          transform: `translateY(${bounce}%) scale(${sx}, ${sy})`,
+          transform: `translateY(${body.dy}px) rotate(${body.tilt}deg) scale(${sx * body.scale}, ${sy * body.scale})`,
           transformOrigin: "50% 100%",
           filter: p.rim ? `drop-shadow(0 0 10px ${p.rim}) drop-shadow(0 0 2px ${p.rim})` : undefined,
         }}
       >
         {sprites ? (
-          <SpriteImg src={staticFile(p.mouthOpen ? sprites.open : sprites.closed)} />
+          <SpriteMouth closed={staticFile(sprites.closed)} open={staticFile(sprites.open)} stage={p.mouth} mouth={box?.mouth ?? null} />
         ) : p.who === "uco" ? (
           <UcoBust
             variant={p.variant}
             mood={UCO_MOOD[p.emotion] ?? "loud"}
-            mouthOpen={p.mouthOpen}
+            mouthOpen={p.mouth > 0}
             sweatOffset={r ? 0 : Math.min(8, p.frame / 6)}
             motion={{ frame: p.globalFrame, look: p.look, talk: p.level, reduced: r }}
           />
@@ -73,11 +81,12 @@ export function CastPuppet(p: PuppetProps) {
           <OcuBust
             variant={p.variant}
             mood={OCU_MOOD[p.emotion] ?? "deadpan"}
-            mouthOpen={p.mouthOpen}
+            mouthOpen={p.mouth > 0}
             pointRight={p.emotion === "cta"}
             motion={{ frame: p.globalFrame, look: p.look, talk: p.level, reduced: r }}
           />
         )}
+        {sprites && box && !r && (p.blink ?? 0) > 0 && <Blink box={box} closed={p.blink ?? 0} />}
         {/* inside the squash/stretch layer, so the drop stays glued to the temple */}
         {drop && <SweatDrop {...drop} frame={p.frame} reduced={r} />}
       </div>
@@ -86,8 +95,64 @@ export function CastPuppet(p: PuppetProps) {
 }
 
 /** The 900×1700 sprite fills its figure frame exactly (same aspect, uniform scale, never stretched). */
-function SpriteImg({ src }: { src: string }) {
-  return <Img src={src} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />;
+function SpriteImg({ src, hidden = false }: { src: string; hidden?: boolean }) {
+  return <Img src={src} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", visibility: hidden ? "hidden" : "visible" }} />;
+}
+
+const SPRITE = { w: 900, h: 1700 };
+const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(3)}%`;
+
+/**
+ * Three mouth stages from two drawings: closed = the closed frame; half-open = the closed frame with the open
+ * frame's mouth squashed to 62 % height (hinged at the upper lip); wide-open = the open frame with its mouth
+ * stretched to 112 %. Only a feathered ellipse around the mouth is copied, over the same skin, so no seam shows.
+ */
+function SpriteMouth({ closed, open, stage, mouth }: { closed: string; open: string; stage: MouthStage; mouth: HeadBox["mouth"] | null }) {
+  if (!mouth) return <SpriteImg src={stage ? open : closed} />;
+  const k = stage === 1 ? 0.62 : 1.12;
+  // the stretched copy stops short of the chin so it never redraws the jaw line
+  const bottom = stage === 2 ? mouth.y1 - 12 : mouth.y1;
+  // a feathered ellipse around the mouth (not a hard box), so cheek shading never shows a seam
+  const cx = (mouth.x0 + mouth.x1) / 2;
+  const cy = (mouth.y0 + bottom) / 2;
+  const mask = `radial-gradient(ellipse ${pct((mouth.x1 - mouth.x0) * 0.74, SPRITE.w)} ${pct((bottom - mouth.y0) * 0.66, SPRITE.h)} at ${pct(cx, SPRITE.w)} ${pct(cy, SPRITE.h)}, #000 70%, transparent 100%)`;
+  return (
+    <>
+      {/* both frames stay mounted so the swap never waits on a decode */}
+      <SpriteImg src={closed} hidden={stage === 2} />
+      <SpriteImg src={open} hidden={stage !== 2} />
+      {stage > 0 && (
+        <div style={{ position: "absolute", inset: 0, transform: `scaleY(${k})`, transformOrigin: `50% ${pct(mouth.y0, SPRITE.h)}` }}>
+          <Img src={open} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", WebkitMaskImage: mask, maskImage: mask, WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat", WebkitMaskSize: "100% 100%", maskSize: "100% 100%" }} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Eyelids over the eye whites (sprite skin colour) with an ink lash line at the lid's edge. */
+function Blink({ box, closed }: { box: HeadBox; closed: number }) {
+  const id = useId().replace(/:/g, "");
+  if (!box.eyes || !box.skin) return null;
+  return (
+    <svg viewBox={`0 0 ${SPRITE.w} ${SPRITE.h}`} width="100%" height="100%" style={{ position: "absolute", inset: 0 }} aria-hidden>
+      {box.eyes.map((e, i) => {
+        const top = e.cy - e.ry - 3;
+        const h = (2 * e.ry + 6) * closed;
+        const edge = top + h;
+        const sag = e.ry * 0.28;
+        return (
+          <g key={i}>
+            <clipPath id={`${id}-lid-${i}`}>
+              <rect x={e.cx - e.rx - 4} y={top} width={2 * e.rx + 8} height={h} />
+            </clipPath>
+            <ellipse cx={e.cx} cy={e.cy} rx={e.rx + 3} ry={e.ry + 3} fill={box.skin} clipPath={`url(#${id}-lid-${i})`} />
+            <path d={`M${e.cx - e.rx} ${edge - sag} Q${e.cx} ${edge + sag} ${e.cx + e.rx} ${edge - sag}`} fill="none" stroke="#141619" strokeWidth={8} strokeLinecap="round" />
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 /** Comic speed lines radiating from behind a head, rotating slowly (frame-driven). Canvas coordinates; the Director

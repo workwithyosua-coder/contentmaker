@@ -5,7 +5,7 @@ import { assetSrc } from "../assets/src";
 import type { Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
-import type { Box, PropSkin } from "./PropStage";
+import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
 
 // The open "visual stage" beside or above the speaker: floating kinetic text, callout labels on a PNG prop, explainer
 // cards (wave / emulsion graph, brain / psychology badge) and the comic thought bubble. Canvas coordinates; the
@@ -129,8 +129,9 @@ export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt =
   const n = prop ? callouts.filter((id) => prop.parts.some((p) => p.id === id)).length : 0;
   const reserve = labels === "sides" || !n ? 0 : n * LABEL_STEP + 14;
   const rect = containRect({ ...box, h: Math.max(140, box.h - reserve) }, prop?.aspect ?? 1);
-  const pop = reduced ? 1 : spring({ frame: frame - delay, fps, config: { mass: 0.7, damping: 11, stiffness: 170 } });
-  const driftY = reduced ? 0 : Math.sin(frame / 38) * 6;
+  // pops in on a snappy spring at `delay` (the keyword, synced with the pop sound), then floats ±4 px
+  const pop = reduced ? 1 : spring({ frame: frame - delay, fps, config: PROP_SPRING });
+  const driftY = reduced ? 0 : Math.sin((frame - delay) / 20) * 4;
   const driftR = reduced ? 0 : Math.sin(frame / 52) * 1.2;
   const k = STAGE_INK[skin];
   return (
@@ -142,10 +143,10 @@ export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt =
           top: rect.y,
           width: rect.w,
           height: rect.h,
-          transform: `translateY(${driftY}px) rotate(${tilt + driftR}deg) scale(${0.55 + 0.45 * pop})`,
-          opacity: Math.min(1, pop * 1.5),
+          transform: `translateY(${driftY}px) rotate(${tilt + driftR}deg) scale(${0.3 + 0.7 * pop})`,
+          opacity: Math.min(1, pop * 2),
           transformOrigin: "50% 60%",
-          filter: skin === "paper" ? `drop-shadow(8px 8px 0 rgba(20,22,25,0.9))` : "drop-shadow(0 0 16px rgba(56,189,248,0.45))",
+          filter: PROP_SHADOW[skin],
         }}
       >
         {src && !failed && (
@@ -153,7 +154,7 @@ export function PngPropStage({ name, box, skin, callouts, frame, reduced, tilt =
           <Img src={src} maxRetries={2} onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         )}
       </div>
-      {prop && n > 0 && <Callouts rect={rect} col={box} mode={labels} ids={callouts} prop={prop} k={k} skin={skin} frame={frame} reduced={reduced} driftY={driftY} />}
+      {prop && n > 0 && <Callouts rect={rect} col={box} mode={labels} ids={callouts} prop={prop} k={k} skin={skin} frame={frame - delay} reduced={reduced} driftY={driftY} />}
     </>
   );
 }
@@ -188,7 +189,8 @@ function Callouts({ rect, col, mode, ids, prop, k, skin, frame, reduced, driftY 
       {(["lines", "labels"] as const).map((layer) => (
         <g key={layer}>
           {placed.map(({ p, i, ax, ay, w, lx, ly }) => {
-            const t0 = 16 + i * 10;
+            // `frame` counts from the prop's entrance: labels follow 10 frames after it lands, 10 frames apart
+            const t0 = 10 + i * 10;
             const dot = reduced ? 1 : interpolate(frame, [t0, t0 + 5], [0, 1], clamp);
             const draw = reduced ? 1 : interpolate(frame, [t0 + 3, t0 + 11], [0, 1], clamp);
             const lab = reduced ? 1 : interpolate(frame, [t0 + 9, t0 + 15], [0, 1], clamp);
@@ -221,8 +223,11 @@ function Callouts({ rect, col, mode, ids, prop, k, skin, frame, reduced, driftY 
 }
 
 // ------------------------------------------------------------------ explainer cards
-/** A card that springs in with a title bar, then draws its diagram. */
-export function ExplainerCard({ kind, title, box, skin, frame, reduced }: { kind: Overlay; title: string; box: Box; skin: PropSkin; frame: number; reduced: boolean }) {
+/**
+ * A card that springs in with a title bar, then keeps moving for the whole beat: the graph's bars rise and its wave
+ * settles toward the beat's midpoint; the brain pulses while ENDORFIN / DOPAMIN chips float up out of it.
+ */
+export function ExplainerCard({ kind, title, box, skin, frame, reduced, duration = 90 }: { kind: Overlay; title: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; duration?: number }) {
   const { fps } = useVideoConfig();
   const k = STAGE_INK[skin];
   const pop = reduced ? 1 : spring({ frame: frame - 8, fps, config: { mass: 0.6, damping: 12, stiffness: 190 } });
@@ -251,19 +256,32 @@ export function ExplainerCard({ kind, title, box, skin, frame, reduced }: { kind
         <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 30, color: skin === "paper" ? "#FFFFFF" : k.text, whiteSpace: "nowrap" }}>{title}</span>
       </div>
       <svg viewBox={`0 0 ${box.w} ${box.h - barH}`} width="100%" height={box.h - barH} aria-hidden style={{ display: "block" }}>
-        {kind === "wave-graph" ? <WaveGraph w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} /> : <BrainBadge w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} />}
+        {kind === "wave-graph" ? (
+          <WaveGraph w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} />
+        ) : (
+          <BrainBadge w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} title={title} />
+        )}
       </svg>
     </div>
   );
 }
 
 /** Two traces: a choppy "separate" line settling into one smooth "blended" wave as the beat goes on. */
-function WaveGraph({ w, h, k, skin, frame, reduced }: { w: number; h: number; k: StageInk; skin: PropSkin; frame: number; reduced: boolean }) {
+function WaveGraph({ w, h, k, skin, frame, reduced, mid: beatMid }: { w: number; h: number; k: StageInk; skin: PropSkin; frame: number; reduced: boolean; mid: number }) {
   const pad = 26;
   const mid = h / 2 + 6;
   const amp = h * 0.28;
   const draw = reduced ? 1 : interpolate(frame, [14, 40], [0, 1], clamp);
-  const settle = reduced ? 1 : interpolate(frame, [20, 70], [0, 1], clamp);
+  // the wave calms into one smooth blend by the beat's midpoint
+  const settle = reduced ? 1 : interpolate(frame, [20, Math.max(40, beatMid)], [0, 1], clamp);
+  // three bars behind the trace rise one after another, reaching full height at the midpoint, then breathe
+  const bars = [0.42, 0.66, 0.92].map((target, i) => {
+    const t0 = 16 + i * 8;
+    const grow = reduced ? 1 : interpolate(frame, [t0, Math.max(t0 + 12, beatMid - (2 - i) * 4)], [0, 1], { ...clamp, easing: (x: number) => 1 - Math.pow(1 - x, 3) });
+    const breathe = reduced || frame < beatMid ? 0 : Math.sin((frame - beatMid) / 9 + i) * 0.03;
+    return { h: (h - 24) * target * grow * (1 + breathe), x: pad + 30 + i * ((w - 2 * pad - 60) / 3) };
+  });
+  const bw = (w - 2 * pad - 60) / 3 - 22;
   const phase = reduced ? 0 : frame / 7;
   const n = 48;
   const xs = Array.from({ length: n + 1 }, (_, i) => pad + ((w - 2 * pad) * i) / n);
@@ -273,6 +291,9 @@ function WaveGraph({ w, h, k, skin, frame, reduced }: { w: number; h: number; k:
   const axis = skin === "paper" ? INK : k.muted;
   return (
     <g>
+      {bars.map((b, i) => (
+        <rect key={i} x={b.x} y={h - b.h} width={bw} height={b.h} fill={skin === "paper" ? "#FFE600" : "rgba(245,158,11,0.28)"} stroke={skin === "paper" ? INK : k.accent} strokeWidth={skin === "paper" ? 4 : 2} opacity={skin === "paper" ? 0.85 : 1} />
+      ))}
       <line x1={pad} y1={mid} x2={w - pad} y2={mid} stroke={axis} strokeWidth={3} strokeDasharray="10 8" opacity={0.6} />
       <line x1={pad} y1={10} x2={pad} y2={h} stroke={axis} strokeWidth={4} />
       <path d={choppy} fill="none" stroke={k.hot} strokeWidth={5} strokeLinejoin="round" opacity={1 - 0.6 * settle} />
@@ -282,11 +303,14 @@ function WaveGraph({ w, h, k, skin, frame, reduced }: { w: number; h: number; k:
 }
 
 /** A brain icon with a pulsing glow and little spark lines. */
-function BrainBadge({ w, h, k, skin, frame, reduced }: { w: number; h: number; k: StageInk; skin: PropSkin; frame: number; reduced: boolean }) {
-  const r = Math.min(w * 0.3, h * 0.42);
+function BrainBadge({ w, h, k, skin, frame, reduced, mid, title }: { w: number; h: number; k: StageInk; skin: PropSkin; frame: number; reduced: boolean; mid: number; title: string }) {
+  const r = Math.min(w * 0.26, h * 0.36);
   const cx = w / 2;
-  const cy = h / 2 + 8;
-  const pulse = reduced ? 1 : 1 + 0.06 * Math.sin(frame / 5);
+  const cy = h / 2 + 22;
+  // a heartbeat: two quick beats then a rest, getting stronger toward the beat's midpoint
+  const strength = reduced ? 0 : 0.04 + 0.05 * interpolate(frame, [10, mid], [0, 1], clamp);
+  const beatPhase = frame % 24;
+  const pulse = reduced ? 1 : 1 + strength * (beatPhase < 4 ? Math.sin((beatPhase / 4) * Math.PI) : beatPhase >= 6 && beatPhase < 10 ? 0.6 * Math.sin(((beatPhase - 6) / 4) * Math.PI) : 0);
   const sparks = reduced ? 1 : interpolate(frame, [16, 26], [0, 1], clamp);
   const pink = "#F9A8D4";
   const stroke = skin === "paper" ? INK : k.line;
@@ -298,7 +322,25 @@ function BrainBadge({ w, h, k, skin, frame, reduced }: { w: number; h: number; k
     [0, 0.12, 0.52],
     [0.52, 0.25, 0.44],
   ];
+  // chemical chips float up out of the brain, released one by one up to the midpoint
+  const named = title.toUpperCase().replace(/[^A-Z]/g, "");
+  const chems = [...new Set([named === "ENDORFIN" || named === "DOPAMIN" || named === "SEROTONIN" ? named : null, "ENDORFIN", "DOPAMIN"].filter((c): c is string => Boolean(c)))].slice(0, 2);
+  // each chip rises on its own side of the brain, kept inside the card
+  const chipX = (c: string, i: number) => {
+    const half = (c.length * 21 + 28) / 2;
+    return Math.min(w - half - 8, Math.max(half + 8, cx + (i ? 1 : -1) * r * 0.9));
+  };
+  const chips = reduced
+    ? chems.map((c, i) => ({ c, y: cy - r * (1.1 - i * 0.5), x: chipX(c, i), o: 1 }))
+    : chems.flatMap((c, i) => {
+        const period = 44;
+        const first = 14 + i * Math.max(8, (mid - 14) / 3);
+        if (frame < first) return [];
+        const t = ((frame - first) % period) / period;
+        return [{ c, x: chipX(c, i) + Math.sin((frame + i * 20) / 8) * 5, y: cy - r * 0.3 - t * (cy - r * 0.3 - 26), o: t < 0.15 ? t / 0.15 : t > 0.75 ? (1 - t) / 0.25 : 1 }];
+      });
   return (
+    <g>
     <g transform={`translate(${cx} ${cy}) scale(${pulse})`}>
       {skin === "hud" && <circle r={r * 1.25} fill="rgba(56,189,248,0.12)" />}
       {lobes.map(([x, y, s], i) => (
@@ -316,6 +358,15 @@ function BrainBadge({ w, h, k, skin, frame, reduced }: { w: number; h: number; k
         const r1 = r0 + r * 0.3 * sparks;
         return <line key={i} x1={Math.cos(a) * r0} y1={Math.sin(a) * r0} x2={Math.cos(a) * r1} y2={Math.sin(a) * r1} stroke={skin === "paper" ? "#D9381E" : k.accent} strokeWidth={7} strokeLinecap="round" />;
       })}
+    </g>
+    {chips.map(({ c, x, y, o }) => (
+      <g key={c} transform={`translate(${x} ${y})`} opacity={o}>
+        <rect x={-c.length * 10.5 - 14} y={-22} width={c.length * 21 + 28} height={40} rx={20} fill={skin === "paper" ? "#FFE600" : "#0F172A"} stroke={skin === "paper" ? INK : k.accent} strokeWidth={4} />
+        <text y={10} textAnchor="middle" fontFamily={HEAVY} fontWeight={900} fontSize={26} fill={skin === "paper" ? INK : k.accent}>
+          {c}
+        </text>
+      </g>
+    ))}
     </g>
   );
 }

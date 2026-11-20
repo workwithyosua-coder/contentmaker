@@ -3,12 +3,13 @@ import { AbsoluteFill, Easing, interpolate } from "remotion";
 import { castSprites } from "../assets";
 import { SAFE_ZONE, type Beat } from "../beats";
 import { CastPuppet, SpeedLines } from "../cast/CastPuppet";
-import { OCU_FINGERTIP, mouthOpenAt, type CastVariant } from "../cast/CastSvg";
+import { OCU_FINGERTIP, type CastVariant } from "../cast/CastSvg";
 import { headBoxFor } from "../cast/spriteCalibration";
 import { CastFigure, HEAVY } from "../cast/CueShared";
 import type { EpisodeLine } from "../types";
 import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
+import { CUT_FRAMES, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, whipOffset } from "./motion";
 import { ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
 
 // The Director lays out each beat as a camera shot over the style's background. There is no headline card: the
@@ -86,6 +87,7 @@ export function DirectorStage({
   frame,
   skin,
   reduced,
+  cutDir = 0,
 }: {
   beat: Beat;
   line: EpisodeLine | null;
@@ -93,12 +95,17 @@ export function DirectorStage({
   frame: number;
   skin: DirectorSkin;
   reduced: boolean;
+  /** the cut into this beat: +1 whips in from the right, −1 from the left, 0 a plain cut */
+  cutDir?: -1 | 0 | 1;
 }) {
   const shot = beat.cameraShot;
   const cta = shot === "cta-stinger";
   const g = frame + beat.startFrame;
-  const level = line && line.envelope.length ? (line.envelope[frame] ?? 0) : 0;
-  const talking = line && line.envelope.length ? mouthOpenAt(line.envelope, frame) : !reduced && !cta && Math.floor(frame / 4) % 2 === 0;
+  // smoothed voice loudness drives the mouth stage and the body; inner thoughts are silent-still
+  const level = beat.thought || !line || !line.envelope.length ? 0 : levelAt(line.envelope, frame);
+  const recorded = Boolean(line && line.envelope.length);
+  const mouth = beat.thought || (cta && beat.line === null) ? 0 : recorded ? mouthStage(level) : reduced || cta ? 0 : chatterStage(frame);
+  const tap = ctaTapFrame(beat.durationInFrames);
   const ucoOn = beat.speaker === "uco" || beat.speaker === "both";
   const ocuOn = beat.speaker === "ocu" || beat.speaker === "both";
   const emotionOf = (who: "uco" | "ocu") => (cta ? (who === "uco" ? "triumphant" : "cta") : beat.emotion);
@@ -232,16 +239,20 @@ export function DirectorStage({
   // the prop itself (illustrated PNG first, then the scene image or the coded prop), in a stage box
   const propNode = (box: Box, inBubble = false) =>
     beat.propImage && !beat.sceneImageUrl ? (
-      <PngPropStage name={beat.propImage} box={box} skin={skin.prop} callouts={inBubble || closeInset ? [] : beat.callouts} labels={labelMode} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : 6} />
+      <PngPropStage name={beat.propImage} box={box} skin={skin.prop} callouts={inBubble || closeInset ? [] : beat.callouts} labels={labelMode} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : beat.propEntry} />
     ) : (
-      <PropStage box={box} skin={skin.prop} tag={beat.propTag} label={label} sceneImageUrl={beat.sceneImageUrl} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} />
+      <PropStage box={box} skin={skin.prop} tag={beat.propTag} label={label} sceneImageUrl={beat.sceneImageUrl} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : beat.propEntry} />
     );
   const thinker = beat.thought ? speaker : null;
+  const whip = reduced ? 0 : whipOffset(cutDir, frame);
   const ctaMark = cta ? Math.min(820, 150 * WORDMARK_ASPECT) : 0;
 
   return (
     <AbsoluteFill>
       {washFor && <Wash color={skin.wash[washFor]} kind={skin.wash.kind} cx={placed[0].head.cx} cy={placed[0].head.top + placed[0].head.height / 2} />}
+      {/* everything but the backdrop wash whips in on a cut (the wash and the style's background stay put, so the
+          frame is always fully covered) */}
+      <AbsoluteFill style={{ transform: whip ? `translateX(${whip}px)` : undefined }}>
       {/* speed lines: background layer, behind the cast and every prop, card and label */}
       {energetic && <SpeedLines cx={speaker.head.cx} cy={speaker.head.top + speaker.head.height * 0.45} r={speaker.head.height * 0.62} color={skin.fxColor} frame={g} reduced={reduced} />}
       {/* thought-bubble mode: everything behind the thinker dims */}
@@ -249,12 +260,14 @@ export function DirectorStage({
       {placed.map((p) => (
         <React.Fragment key={p.who}>
           {skin.figureExtras && placed.length > 1 && skin.figureExtras({ who: p.who, head: p.head, on: p.on, level: p.on ? level : 0, frame })}
-          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on || cta ? 0 : beat.thought ? 0.6 : skin.dimListener} transform={p.transform}>
+          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on || cta ? 0 : beat.thought ? 0.6 : skin.dimListener} transform={cta && p.who === "ocu" && !reduced ? tapNudge(frame, tap) : p.transform}>
             <CastPuppet
               who={p.who}
               variant={skin.variant}
               emotion={emotionOf(p.who)}
-              mouthOpen={p.on && Boolean(talking) && (!cta || beat.line !== null) && !beat.thought}
+              mouth={p.on ? mouth : 0}
+              blink={reduced ? 0 : blinkAt(`${beat.id}-${p.who}`, frame, beat.durationInFrames)}
+              thought={beat.thought}
               level={p.on ? level : 0}
               frame={frame}
               globalFrame={g}
@@ -267,7 +280,7 @@ export function DirectorStage({
         </React.Fragment>
       ))}
       {/* the visual stage, in front of the cast */}
-      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} box={cardBox} skin={skin.prop} frame={frame} reduced={reduced} />}
+      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} box={cardBox} skin={skin.prop} frame={frame} reduced={reduced} duration={beat.durationInFrames} />}
       {propBox && propNode(propBox)}
       {bubbleBox && thinker && (
         <ThoughtBubble box={bubbleBox} toward={{ x: thinker.head.cx + (bubbleBox.x > thinker.head.cx ? 1 : -1) * thinker.head.height * 0.3, y: thinker.head.top + thinker.head.height * 0.1 }} skin={skin.prop} frame={frame} reduced={reduced}>
@@ -291,68 +304,175 @@ export function DirectorStage({
               align="left"
             />
           )}
-          <FollowPill skin={skin.prop} frame={frame} reduced={reduced} />
-          {arrowFrom && <CtaArrow from={arrowFrom} color={skin.arrow.color} outline={skin.arrow.outline} frame={frame} reduced={reduced} />}
+          <FollowPill skin={skin.prop} frame={frame} reduced={reduced} tap={tap} />
+          {arrowFrom && <CtaArrow from={arrowFrom} color={skin.arrow.color} outline={skin.arrow.outline} frame={frame} reduced={reduced} tap={tap} />}
+          <FollowHandle skin={skin.prop} frame={frame} reduced={reduced} tap={tap} />
         </>
       )}
+      </AbsoluteFill>
+      {whip !== 0 && <WhipStreaks dir={cutDir} frame={frame} color={skin.fxColor} />}
     </AbsoluteFill>
   );
 }
 
-/** The in-video FOLLOW + button (upper-right safe zone): pops in, then pulses gently. */
-function FollowPill({ skin, frame, reduced }: { skin: PropSkin; frame: number; reduced: boolean }) {
+/** Ocu leans into the tap: a quick 10 px push toward the button and back. */
+function tapNudge(frame: number, tap: number) {
+  const k = interpolate(frame, [tap - 6, tap, tap + 8], [0, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  return `translate(${10 * k}px, ${-8 * k}px)`;
+}
+
+const YELLOW = "#FFE600";
+
+/**
+ * The in-video FOLLOW + button (upper-right safe zone): pops in and pulses; when the arrow taps it, it presses in,
+ * flips over (squash to a line and back) and lands as FOLLOWED ✔ with a burst of yellow comic accents.
+ */
+function FollowPill({ skin, frame, reduced, tap }: { skin: PropSkin; frame: number; reduced: boolean; tap: number }) {
   const pop = reduced ? 1 : interpolate(frame, [4, 12], [0.4, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.back(2)) });
-  const pulse = reduced ? 1 : 1 + 0.04 * Math.sin((frame / 30) * Math.PI * 2);
+  const followed = reduced || frame >= tap + 3;
+  const press = reduced ? 1 : interpolate(frame, [tap - 3, tap, tap + 2], [1, 0.88, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  // the flip: squash to a line over 3 frames, swap the label, open back up over 4
+  const flip = reduced ? 1 : frame < tap ? 1 : frame < tap + 3 ? interpolate(frame, [tap, tap + 3], [1, 0.05]) : interpolate(frame, [tap + 3, tap + 7], [0.05, 1], { extrapolateRight: "clamp", easing: Easing.out(Easing.back(2.2)) });
+  const pulse = reduced || frame < tap + 7 ? 1 : 1 + 0.03 * Math.sin(((frame - tap) / 30) * Math.PI * 2);
   const paper = skin === "paper";
   const { x, y, w, h } = FOLLOW_PILL;
+  const fill = followed ? (paper ? "#1F8A4C" : "#14532D") : paper ? "#D9381E" : "#0F172A";
+  const text = followed ? (paper ? "#FFFFFF" : "#86EFAC") : paper ? "#FFFFFF" : "#F59E0B";
+  return (
+    <>
+      {!reduced && frame >= tap + 2 && <TapBurst cx={x + w / 2} cy={y + h / 2} frame={frame - tap - 2} paper={paper} />}
+      <div
+        style={{
+          position: "absolute",
+          left: x,
+          top: y,
+          width: w,
+          height: h,
+          boxSizing: "border-box",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          padding: "0 16px 0 22px",
+          borderRadius: h / 2,
+          background: fill,
+          border: paper ? "6px solid #141619" : `5px solid ${followed ? "#86EFAC" : "#F59E0B"}`,
+          boxShadow: paper ? "8px 8px 0 #141619" : `0 0 24px ${followed ? "rgba(134,239,172,0.45)" : "rgba(245,158,11,0.45)"}`,
+          transform: `scale(${pop * pulse * press}, ${pop * pulse * press * flip})`,
+          opacity: Math.min(1, pop * 1.4),
+          fontFamily: HEAVY,
+          fontWeight: 900,
+          fontSize: followed ? 36 : 44,
+          letterSpacing: 1,
+          whiteSpace: "nowrap",
+          color: text,
+        }}
+      >
+        {followed ? "FOLLOWED" : "FOLLOW"}
+        <span
+          aria-hidden
+          style={{
+            width: 52,
+            height: 52,
+            flexShrink: 0,
+            borderRadius: 26,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: paper ? YELLOW : followed ? "#86EFAC" : "#F59E0B",
+            color: "#141619",
+            fontSize: followed ? 34 : 46,
+            lineHeight: 1,
+          }}
+        >
+          {followed ? "✔" : "+"}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** Comic accents bursting out of the button as it flips: yellow rays and three little stars, gone in ~0.5 s. */
+function TapBurst({ cx, cy, frame, paper }: { cx: number; cy: number; frame: number; paper: boolean }) {
+  if (frame > 16) return null;
+  const t = frame / 16;
+  const grow = 1 - Math.pow(1 - Math.min(1, frame / 6), 3);
+  const fade = frame < 8 ? 1 : 1 - (frame - 8) / 8;
+  const ink = "#141619";
+  return (
+    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0 }} aria-hidden>
+      <g opacity={fade}>
+        {Array.from({ length: 10 }, (_, i) => {
+          const a = (i / 10) * Math.PI * 2 + 0.2;
+          const r0 = 150 + 40 * grow;
+          const r1 = r0 + 30 + 50 * grow * (i % 2 ? 0.6 : 1);
+          const ry = 0.55; // the button is wide: an elliptical burst
+          return (
+            <line key={i} x1={cx + Math.cos(a) * r0} y1={cy + Math.sin(a) * r0 * ry} x2={cx + Math.cos(a) * r1} y2={cy + Math.sin(a) * r1 * ry} stroke={YELLOW} strokeWidth={paper ? 12 : 9} strokeLinecap="round" style={paper ? { filter: `drop-shadow(3px 3px 0 ${ink})` } : undefined} />
+          );
+        })}
+        {[
+          [-0.95, -1.1],
+          [0.9, -1.25],
+          [-0.2, 1.35],
+        ].map(([dx, dy], i) => {
+          const sx = cx + dx * (190 + 30 * t);
+          const sy = cy + dy * (60 + 20 * t);
+          const r = 18 * grow;
+          const star = Array.from({ length: 10 }, (_, k) => {
+            const a = (k / 10) * Math.PI * 2 - Math.PI / 2;
+            const rr = k % 2 ? r * 0.45 : r;
+            return `${(sx + Math.cos(a) * rr).toFixed(1)},${(sy + Math.sin(a) * rr).toFixed(1)}`;
+          }).join(" ");
+          return <polygon key={i} points={star} fill={YELLOW} stroke={ink} strokeWidth={4} strokeLinejoin="round" />;
+        })}
+      </g>
+    </svg>
+  );
+}
+
+/** The channel handle under the button, once it reads FOLLOWED ✔ (the arrow has faded out of that spot by then). */
+function FollowHandle({ skin, frame, reduced, tap }: { skin: PropSkin; frame: number; reduced: boolean; tap: number }) {
+  const k = reduced ? 1 : interpolate(frame, [tap + 6, tap + 12], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  if (!k) return null;
+  const paper = skin === "paper";
   return (
     <div
       style={{
         position: "absolute",
-        left: x,
-        top: y,
-        width: w,
-        height: h,
-        boxSizing: "border-box",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 12,
-        padding: "0 18px 0 26px",
-        borderRadius: h / 2,
-        background: paper ? "#D9381E" : "#0F172A",
-        border: paper ? "6px solid #141619" : "5px solid #F59E0B",
-        boxShadow: paper ? "8px 8px 0 #141619" : "0 0 24px rgba(245,158,11,0.45)",
-        transform: `scale(${pop * pulse})`,
-        opacity: Math.min(1, pop * 1.4),
+        left: FOLLOW_PILL.x - 20,
+        width: FOLLOW_PILL.w + 40,
+        top: FOLLOW_PILL.y + FOLLOW_PILL.h + 22 + (1 - k) * 12,
+        textAlign: "center",
+        opacity: k,
         fontFamily: HEAVY,
         fontWeight: 900,
-        fontSize: 44,
+        fontSize: 42,
         letterSpacing: 1,
-        whiteSpace: "nowrap",
         color: paper ? "#FFFFFF" : "#F59E0B",
+        WebkitTextStroke: paper ? "8px #141619" : undefined,
+        paintOrder: "stroke fill",
+        textShadow: paper ? "0 4px 0 #141619" : "0 0 14px rgba(245,158,11,0.5)",
       }}
     >
-      FOLLOW
-      <span
-        aria-hidden
-        style={{
-          width: 54,
-          height: 54,
-          flexShrink: 0,
-          borderRadius: 27,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: paper ? "#FFE600" : "#F59E0B",
-          color: "#141619",
-          fontSize: 46,
-          lineHeight: 1,
-        }}
-      >
-        +
-      </span>
+      @uco.ocu
     </div>
+  );
+}
+
+/** Horizontal speed streaks across the frame during the 4-frame whip cut, trailing the move. */
+function WhipStreaks({ dir, frame, color }: { dir: -1 | 0 | 1; frame: number; color: string }) {
+  if (!dir || frame >= CUT_FRAMES) return null;
+  const o = 0.55 * (1 - frame / CUT_FRAMES);
+  return (
+    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0, opacity: o }} aria-hidden>
+      {Array.from({ length: 9 }, (_, i) => {
+        const y = 300 + i * 120 + ((i * 37) % 50);
+        const len = 260 + ((i * 113) % 300);
+        const x0 = dir > 0 ? 1080 - ((i * 71) % 400) - len : (i * 71) % 400;
+        return <line key={i} x1={x0} y1={y} x2={x0 + len} y2={y} stroke={color} strokeWidth={i % 3 ? 6 : 10} strokeLinecap="round" />;
+      })}
+    </svg>
   );
 }
 
@@ -360,9 +480,13 @@ function FollowPill({ skin, frame, reduced }: { skin: PropSkin; frame: number; r
  * The CTA arrow: a curve that leaves the fingertip along the finger (≈ 43° up-right), swings up and lands on the
  * bottom of the FOLLOW + pill, drawn on over frames 10–24 with its head aligned to the curve's end.
  */
-function CtaArrow({ from, color, outline, frame, reduced }: { from: { x: number; y: number }; color: string; outline: string; frame: number; reduced: boolean }) {
+function CtaArrow({ from, color, outline, frame, reduced, tap }: { from: { x: number; y: number }; color: string; outline: string; frame: number; reduced: boolean; tap: number }) {
   const progress = reduced ? 1 : interpolate(frame, [10, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
-  const to = { x: FOLLOW_PILL.x + FOLLOW_PILL.w * 0.62, y: FOLLOW_PILL.y + FOLLOW_PILL.h + 18 };
+  // the tap: the head pulls back a little, jabs into the button's edge, then the arrow fades so the handle can show
+  const jab = reduced ? 0 : interpolate(frame, [tap - 8, tap - 4, tap, tap + 3], [0, -14, 22, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const fade = reduced ? 0 : interpolate(frame, [tap + 4, tap + 10], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  if (fade <= 0) return null;
+  const to = { x: FOLLOW_PILL.x + FOLLOW_PILL.w * 0.62, y: FOLLOW_PILL.y + FOLLOW_PILL.h + 18 - jab };
   const dir = { x: Math.cos((43 * Math.PI) / 180), y: -Math.sin((43 * Math.PI) / 180) };
   const reach = Math.max(80, Math.min(160, (from.y - to.y) * 0.35));
   const c1 = { x: Math.min(930, from.x + dir.x * reach), y: from.y + dir.y * reach };
@@ -386,7 +510,7 @@ function CtaArrow({ from, color, outline, frame, reduced }: { from: { x: number;
   const d = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   const hd = `M${p1.x} ${p1.y} L${end.x} ${end.y} L${p2.x} ${p2.y}`;
   return (
-    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0 }} aria-hidden>
+    <svg width={1080} height={1920} style={{ position: "absolute", left: 0, top: 0, opacity: fade }} aria-hidden>
       <path d={d} fill="none" stroke={outline} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />
       {progress > 0.05 && <path d={hd} fill="none" stroke={outline} strokeWidth={24} strokeLinecap="round" strokeLinejoin="round" />}
       <path d={d} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" strokeLinejoin="round" />

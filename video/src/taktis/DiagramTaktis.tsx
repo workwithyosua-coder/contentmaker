@@ -6,6 +6,7 @@ import { VoiceTrack } from "../cast/CueShared";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
+import { cameraAt, cutDirection } from "../shared/motion";
 import { sfxCuesFor } from "../shared/sfxCues";
 import type { CueProps } from "../koran/KoranKinetik";
 import { TACTICAL_VECTOR_HUD_STYLE } from "../styles/registry";
@@ -50,9 +51,9 @@ export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = fal
         backgroundSize: "54px 54px",
       }}
     >
-      {beats.map((b) => (
+      {beats.map((b, i) => (
         <Sequence key={b.id} from={b.startFrame} durationInFrames={b.durationInFrames} name={`${b.id} ${b.beatType} ${b.speaker}`}>
-          <TaktisBeat beat={b} line={b.line === null ? null : lines[b.line]} reduced={reducedMotion} />
+          <TaktisBeat beat={b} line={b.line === null ? null : lines[b.line]} reduced={reducedMotion} cutDir={cutDirection(beats, i)} />
         </Sequence>
       ))}
       <VoiceTrack lines={lines} beats={beats} />
@@ -63,24 +64,26 @@ export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = fal
   );
 }
 
-function TaktisBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
+function TaktisBeat({ beat, line, reduced, cutDir }: { beat: Beat; line: EpisodeLine | null; reduced: boolean; cutDir: -1 | 0 | 1 }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const snap = reduced ? 1 : spring({ frame: f, fps, config: G.springConfig });
   const rise = (1 - Math.min(1, snap)) * 40;
+  // camera: a gentle push only where the shared rules ask for one (explanations, shocks, long holds)
+  const cam = reduced ? { scale: 1, rotate: 0 } : cameraAt(beat, f, [1, 1]);
 
   return (
     <>
       {/* CAST + VISUAL STAGE: the director's camera shot for this beat, rising in on the HUD spring (no headline
           panel; kinetic readouts and props float on the open stage). Bodies may run below y 1260; faces never do. */}
-      <AbsoluteFill style={{ transform: `translateY(${rise}px)` }}>
-        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
+      <AbsoluteFill style={{ transform: `translateY(${rise}px) scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
+        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} cutDir={cutDir} />
       </AbsoluteFill>
 
       {/* the CTA end card's FOLLOW + button and arrow are drawn by the Director (upper-right safe zone); no banner
           over the chests, where TikTok's caption overlay sits */}
 
-      {/* movie-style English subtitle, timed to the voice, no box, low in the frame (y 1480..1620, under every face); italic for inner thoughts */}
+      {/* kinetic English subtitle: 3–5 word chunks, the spoken word highlighted, low in the frame (y 1420..1520, under every face); italic for inner thoughts */}
       <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />
     </>
   );

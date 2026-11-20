@@ -1,23 +1,23 @@
 import React from "react";
-import { AbsoluteFill, Sequence, interpolate, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
 import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
 import { VoiceTrack } from "../cast/CueShared";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, type DirectorSkin } from "../shared/Director";
 import { MovieSubtitle } from "../shared/MovieSubtitle";
+import { cameraAt, cutDirection } from "../shared/motion";
 import { KINETIC_SLAM, sfxCuesFor } from "../shared/sfxCues";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
 // "Koran Kinetik" (editorial-paper-cutout), ported from the Uco & Ocu Style Lab reference (PR #28). Frame-driven only:
-// slow 1.00→1.04 push-in, red kinetic stamps that slam in on emphasis beats, cut-out cast and props.
+// slow 1.00→1.04 push-in (camera moves in shared/motion.ts), red kinetic stamps that slam in on emphasis beats, cut-out cast and props.
 // On-screen text: short kinetic stamps on emphasis beats only, and the line's English subtitle (never the Indonesian
 // line).
 
 const P = EDITORIAL_PAPER_CUTOUT_STYLE.palette;
 const G = EDITORIAL_PAPER_CUTOUT_STYLE.editingGrammar;
-const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 export type CueProps = EpisodeProps & { reducedMotion?: boolean };
 
@@ -44,9 +44,9 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
         backgroundSize: "24px 24px",
       }}
     >
-      {beats.map((b) => (
+      {beats.map((b, i) => (
         <Sequence key={b.id} from={b.startFrame} durationInFrames={b.durationInFrames} name={`${b.id} ${b.beatType} ${b.speaker}`}>
-          <KoranBeat beat={b} line={b.line === null ? null : lines[b.line]} reduced={reducedMotion} />
+          <KoranBeat beat={b} line={b.line === null ? null : lines[b.line]} reduced={reducedMotion} cutDir={cutDirection(beats, i)} />
         </Sequence>
       ))}
       <VoiceTrack lines={lines} beats={beats} />
@@ -57,22 +57,24 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
   );
 }
 
-function KoranBeat({ beat, line, reduced }: { beat: Beat; line: EpisodeLine | null; reduced: boolean }) {
+function KoranBeat({ beat, line, reduced, cutDir }: { beat: Beat; line: EpisodeLine | null; reduced: boolean; cutDir: -1 | 0 | 1 }) {
   const f = useCurrentFrame();
-  const zoom = reduced ? 1 : interpolate(f, [0, beat.durationInFrames], [G.pushInScale[0], G.pushInScale[1]], clamp);
+  // camera: the paper push-in (a slower 1.00 → 1.06 Ken Burns on explanation beats), a 1.12× punch with a 2° tilt
+  // on shocked beats, and a micro punch-in halfway through long beats
+  const cam = reduced ? { scale: 1, rotate: 0 } : cameraAt(beat, f, [G.pushInScale[0], G.pushInScale[1]]);
 
   return (
     <>
       {/* CAST + VISUAL STAGE: the director's camera shot for this beat (no headline card; kinetic text and props
           float on the open stage), with the paper push-in */}
-      <AbsoluteFill style={{ transform: `scale(${zoom})`, transformOrigin: "50% 45%" }}>
-        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
+      <AbsoluteFill style={{ transform: `scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
+        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} cutDir={cutDir} />
       </AbsoluteFill>
 
       {/* the CTA end card's FOLLOW + button and arrow are drawn by the Director (upper-right safe zone); no banner
           over the chests, where TikTok's caption overlay sits */}
 
-      {/* movie-style English subtitle, timed to the voice, no box, low in the frame (y 1480..1620, under every face); italic for inner thoughts */}
+      {/* kinetic English subtitle: 3–5 word chunks, the spoken word highlighted, low in the frame (y 1420..1520, under every face); italic for inner thoughts */}
       <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />
     </>
   );

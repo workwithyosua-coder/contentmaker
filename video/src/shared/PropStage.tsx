@@ -12,6 +12,14 @@ export type Box = { x: number; y: number; w: number; h: number };
 
 const INK = "#141619";
 
+/** snappy pop: overshoots ~12 % and settles in ~0.4 s */
+export const PROP_SPRING = { mass: 0.5, damping: 9, stiffness: 230 } as const;
+/** props sit in the scene: the style's own shadow plus a soft contact shadow below */
+export const PROP_SHADOW: Record<PropSkin, string> = {
+  paper: "drop-shadow(8px 8px 0 rgba(20,22,25,0.9)) drop-shadow(0 22px 18px rgba(20,22,25,0.28))",
+  hud: "drop-shadow(0 0 16px rgba(56,189,248,0.45)) drop-shadow(0 22px 20px rgba(0,0,0,0.45))",
+};
+
 export function PropStage({
   box,
   skin,
@@ -21,6 +29,7 @@ export function PropStage({
   frame,
   reduced,
   tilt,
+  delay = 6,
 }: {
   box: Box;
   skin: PropSkin;
@@ -32,10 +41,14 @@ export function PropStage({
   reduced: boolean;
   /** resting tilt in degrees (paper props sit a little crooked) */
   tilt: number;
+  /** frame the prop pops in on (its keyword, else ~0.35 s) */
+  delay?: number;
 }) {
   const { fps } = useVideoConfig();
-  const pop = reduced ? 1 : spring({ frame: frame - 6, fps, config: { mass: 0.7, damping: 11, stiffness: 170 } });
-  const driftY = reduced ? 0 : Math.sin(frame / 38) * 8;
+  const pop = reduced ? 1 : spring({ frame: frame - delay, fps, config: PROP_SPRING });
+  if (pop <= 0.001) return null;
+  // idle float: ±4 px
+  const driftY = reduced ? 0 : Math.sin((frame - delay) / 20) * 4;
   const driftR = reduced ? 0 : Math.sin(frame / 52) * 1.2;
   return (
     <div
@@ -45,9 +58,10 @@ export function PropStage({
         top: box.y,
         width: box.w,
         height: box.h,
-        transform: `translateY(${driftY}px) rotate(${tilt + driftR}deg) scale(${0.55 + 0.45 * pop})`,
-        opacity: Math.min(1, pop * 1.5),
+        transform: `translateY(${driftY}px) rotate(${tilt + driftR}deg) scale(${0.3 + 0.7 * pop})`,
+        opacity: Math.min(1, pop * 2),
         transformOrigin: "50% 60%",
+        filter: PROP_SHADOW[skin],
       }}
     >
       {sceneImageUrl ? (
