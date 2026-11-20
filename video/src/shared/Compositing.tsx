@@ -28,6 +28,10 @@ export function GrainVignette({ reduced, tone }: { reduced: boolean; tone: "pape
 /** Built-in cues are whoosh / stamp / pop / ding / record-scratch; scripts may name any other public/sfx file. */
 export type SfxCue = { name: string; frame: number; volume?: number };
 
+/** How long each built-in effect stays mounted (its real length plus a little); uploaded effects get 2 s. Short slots
+ *  keep few audio tags alive at once (the in-app Player shares a limited pool of them). */
+const SFX_FRAMES: Record<string, number> = { whoosh: 24, pop: 18, stamp: 24, ding: 30, "record-scratch": 36 };
+
 /** Sound-effect cues. Each plays only if public/sfx/{name}.mp3 (or .wav) has been added; otherwise nothing. */
 export function SfxCues({ cues }: { cues: SfxCue[] }) {
   return (
@@ -36,7 +40,7 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
         const file = assetSrc(sfxFile(c.name));
         if (!file) return null;
         return (
-          <Sequence key={`${c.name}-${i}`} from={Math.max(0, c.frame)} durationInFrames={60} layout="none" name={`sfx ${c.name}`}>
+          <Sequence key={`${c.name}-${i}`} from={Math.max(0, c.frame)} durationInFrames={SFX_FRAMES[c.name] ?? 60} layout="none" name={`sfx ${c.name}`}>
             {/* a sound that can't be loaded stays silent instead of failing the render */}
             <Audio src={file} volume={c.volume ?? 0.6} onError={() => undefined} />
           </Sequence>
