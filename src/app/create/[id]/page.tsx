@@ -309,6 +309,7 @@ async function Episode({
               style={pubProject?.video_style ?? "classic"}
               title={booth.script.title || project.title || "Episode"}
               direction={custom ? direction : null}
+              exact={custom}
               assetUrls={assetUrls}
               lines={booth.lines.map((l) => ({
                 ...l, // custom scripts carry start_s / end_s / sfx / overlay / callouts too
@@ -356,7 +357,7 @@ async function Episode({
                       emotion: l.emotion ?? null,
                       prop_tag: l.prop_tag ?? null,
                     })),
-                    { stamp: pubProject?.video_style === "editorial-paper-cutout", direction: custom ? parseDirection(direction) : null },
+                    { stamp: pubProject?.video_style === "editorial-paper-cutout", direction: custom ? { ...parseDirection(direction), exact: true } : null },
                   )}
                 />
               )}

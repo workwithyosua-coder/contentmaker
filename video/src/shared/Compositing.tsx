@@ -52,12 +52,13 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
 
 /**
  * Background music bed (public/sfx/bgm.mp3, looped) when the direction turns it on: at the bed level, ducked to a
- * third while someone talks, and to `thoughtDuck` of the bed under (thought) lines. Silent without the file.
+ * third while someone talks, and to `thoughtDuck` of the bed under (thought) lines (−12 dB by default, or silent),
+ * with ≈ 150 ms fades. Silent without the file.
  */
 export function BackgroundMusic({ volume, thoughtDuck, beats, lines }: { volume: number; thoughtDuck: number; beats: Beat[]; lines: EpisodeLine[] }) {
   const file = assetSrc(sfxFile("bgm"));
   if (!file) return null;
-  const level = (f: number) => {
+  const target = (f: number) => {
     const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);
     if (!b || b.line === null) return volume; // end card: full bed
     const l = lines[b.line];
@@ -65,5 +66,7 @@ export function BackgroundMusic({ volume, thoughtDuck, beats, lines }: { volume:
     const duck = b.thought ? thoughtDuck : 1;
     return volume * duck * (talking ? 0.35 : 1);
   };
+  // a 5-frame (≈ 150 ms) moving average: dips into and out of thoughts (and under speech) fade instead of clicking
+  const level = (f: number) => [0, 1, 2, 3, 4].reduce((s, k) => s + target(Math.max(0, f - k)), 0) / 5;
   return <Audio src={file} loop volume={level} onError={() => undefined} />;
 }

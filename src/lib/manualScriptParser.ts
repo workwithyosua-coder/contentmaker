@@ -220,7 +220,7 @@ const DIALOGUE = /^(?:(\d{1,3})\s*[.)\]:-]\s*)?(?:\*\*)?\s*(UCO|OCU)\b(?:\*\*)?\
 const EN = /^\s*(?:\[\s*EN\s*\]|EN\s*:|\(\s*EN\s*\)|English\s*:)\s*/i;
 const LINE_CUE = /^[-*•]?\s*line\s*(\d{1,3})\s*(?:\(([^)]*)\))?\s*[:：—–-]\s*(.*)$/i;
 
-type Raw = { n: number | null; speaker: "uco" | "ocu"; text: string; en: string | null; thought: boolean; cues: Cues; beat: string | null; delivery: string[] };
+type Raw = { n: number | null; speaker: "uco" | "ocu"; text: string; en: string | null; thought: boolean; cues: Cues; beat: string | null; delivery: string[]; poseHints: string[] };
 
 export function parseManualScript(input: { topic?: string; script: string; direction?: string }): ManualScript {
   const warnings: string[] = [];
@@ -327,7 +327,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       const { text, after } = unwrapQuoted(rest);
       if (after) readCues(after.replace(/^[([]|[)\]]$/g, ""), cues);
       if (!text.trim()) return;
-      raws.push({ n: m[1] ? Number(m[1]) : null, speaker, text: text.trim(), en, thought, cues, beat, delivery });
+      raws.push({ n: m[1] ? Number(m[1]) : null, speaker, text: text.trim(), en, thought, cues, beat, delivery, poseHints: [] });
       beat = null; // a [Beat] marker names the beat of the line under it; following lines keep it below
       return;
     }
@@ -358,6 +358,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
     }
     if (lc.speaker && !new RegExp(target.speaker, "i").test(lc.speaker)) warnings.push(`Cue for line ${lc.n} says ${lc.speaker}, but line ${lc.n} is ${target.speaker === "uco" ? "Uco" : "Ocu"}.`);
     if (lc.speaker && /thought|batin/i.test(lc.speaker)) target.thought = true;
+    if (lc.speaker) target.poseHints.push(lc.speaker); // "- Line 4 (Uco, triumphant): …"
     readCues(lc.body, target.cues);
   }
 
@@ -375,7 +376,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       thought_bubble: r.thought,
       visual: c.visual.filter(Boolean).join("; "),
       on_screen_text: c.text || null,
-      kinetic_text: c.text || c.stamp || null,
+      kinetic_text: (c.text || c.stamp || "").replace(/["“”„«»]/g, "").trim() || null,
       delivery: r.delivery.length ? r.delivery.join(", ") : null,
       important_message: null,
       camera_shot: null,
@@ -395,6 +396,15 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       if (v === "solo") line.camera_shot = `solo-${r.speaker}`;
       else if ((CAMERA_SHOTS as readonly string[]).includes(v) && v !== "cta-stinger") line.camera_shot = v;
       else warnings.push(`Line ${i + 1}: unknown shot "${c.shot}" (use solo, closeup or two-shot).`);
+    }
+    if (!c.pose) {
+      // a pose word written in the line's notes ("0:13–0:18 | triumphant", "Line 4 (Uco, triumphant)", "deadpan stare")
+      // counts as the pose; "cta" and "phone" only when they're the whole note, since they're also ordinary words
+      const notes = [...r.poseHints, ...r.delivery, ...c.visual].map((x) => x.toLowerCase());
+      const hit = POSES[r.speaker].find((p) =>
+        p === "cta" || p === "phone" ? notes.some((n) => n.replace(/^(uco|ocu)\s*,\s*/, "").trim() === p) : notes.some((n) => new RegExp(`\\b${p}\\b`).test(n)),
+      );
+      if (hit) line.emotion = hit;
     }
     if (c.pose) {
       if (POSES[r.speaker].includes(c.pose)) line.emotion = c.pose;

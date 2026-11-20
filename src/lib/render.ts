@@ -23,8 +23,8 @@ export async function renderSource(projectId: string) {
     SELECT id, version, title, target_duration_s, lines, sources, direction, custom FROM scripts
     WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
   if (!script) return { project, script: null, takes: [] };
-  const takes = await sql<{ line_index: number; storage_path: string; mime_type: string; duration_ms: number | null }[]>`
-    SELECT line_index, storage_path, mime_type, duration_ms FROM recordings
+  const takes = await sql<{ line_index: number; storage_path: string; mime_type: string; duration_ms: number | null; source: string }[]>`
+    SELECT line_index, storage_path, mime_type, duration_ms, source FROM recordings
     WHERE script_id = ${script.id} AND is_selected ORDER BY line_index`;
   return { project, script, takes };
 }

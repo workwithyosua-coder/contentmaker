@@ -112,5 +112,26 @@ export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" 
   return { starts, end: t };
 }
 
-/** Video length: the lines, plus the 3-second end card unless the direction turns the CTA off. */
+/** Video length (classic / comic styles): the lines, plus the 3-second end card unless the direction turns the CTA off. */
 export const totalFrames = (lines: EpisodeLine[], direction?: RenderDirection | null) => timeline(lines, direction).end + (direction?.cta === false ? 0 : END_FRAMES);
+
+/** After the last spoken word of a CTA line, the outro holds this long (0.5 s), instead of a separate silent end card. */
+export const CTA_HOLD = 15;
+const CTA_WORDS = /\b(follow|ikuti|subscribe|langganan|share|bagikan|kirim(?:in)? ke|tag (?:temen|teman)|komen|comment|like|save|simpan|klik|tap)\b/i;
+
+/**
+ * Cue styles: when the last line is itself a call to action ("Follow …", "Kirim ke temen lo"), the outro two-shot plays
+ * *during* that line and holds 0.5 s after it, instead of a 3-second silent end card after it.
+ */
+export function ctaMergesIntoLastLine(lines: Pick<EpisodeLine, "text" | "subtitle" | "on_screen_text" | "kinetic_text">[], direction?: RenderDirection | null) {
+  const last = lines[lines.length - 1];
+  if (!last || direction?.cta === false) return false;
+  return CTA_WORDS.test(`${last.text} ${last.subtitle ?? ""} ${last.on_screen_text ?? ""} ${last.kinetic_text ?? ""}`);
+}
+
+/** Video length for the cue styles (Koran Kinetik, Diagram Taktis): lines + 0.5 s hold (CTA line) or + the 3 s end card. */
+export function cueTotalFrames(lines: EpisodeLine[], direction?: RenderDirection | null) {
+  const { end } = timeline(lines, direction);
+  if (direction?.cta === false) return end;
+  return end + (ctaMergesIntoLastLine(lines, direction) ? CTA_HOLD : END_FRAMES);
+}
