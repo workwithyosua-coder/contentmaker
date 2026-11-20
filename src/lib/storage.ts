@@ -149,7 +149,20 @@ export async function ensurePublicBucket(bucket: string, opts: { maxBytes: numbe
   if (local()) return;
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
-  if (res.ok) return;
+  if (res.ok) {
+    // keep an existing bucket's limits in step with the app (e.g. new audio formats, a larger size limit)
+    const b = (await res.json()) as { file_size_limit?: number | null; allowed_mime_types?: string[] | null; public?: boolean };
+    const same = b.public && b.file_size_limit === opts.maxBytes && [...(b.allowed_mime_types ?? [])].sort().join() === [...opts.types].sort().join();
+    if (!same) {
+      const put = await fetch(`${url}/storage/v1/bucket/${bucket}`, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ public: true, file_size_limit: opts.maxBytes, allowed_mime_types: opts.types }),
+      });
+      if (!put.ok) throw new Error(`Couldn't update the ${bucket} storage bucket (${put.status}): ${(await put.text()).slice(0, 200)}`);
+    }
+    return;
+  }
   const made = await fetch(`${url}/storage/v1/bucket`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
