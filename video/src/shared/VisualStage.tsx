@@ -6,6 +6,7 @@ import type { BeatStat, Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
+import { badgeFit, badgeMaxScale, badgeRect, badgeScale } from "./motion";
 
 // The open "visual stage" beside or above the speaker: floating kinetic text, callout labels on a PNG prop, explainer
 // cards (wave / emulsion graph, brain / psychology badge) and the comic thought bubble. Canvas coordinates; the
@@ -21,90 +22,79 @@ export const STAGE_INK: Record<PropSkin, StageInk> = {
 };
 
 // ------------------------------------------------------------------ kinetic text
-/** Largest size (76 → 44 px) at which the text fits `w` in at most two lines. */
-function kineticFit(text: string, w: number) {
-  for (let size = 76; size >= 44; size -= 4) {
-    const lines = wrapHeadline(text, size, w - 40);
-    if (lines.length <= 2 && lines.every((l) => textWidth(l, size) <= w - 40)) return { size, lines };
-  }
-  return { size: 44, lines: wrapHeadline(text, 44, w - 40) };
-}
-
 /** Height a kinetic block needs for `text` in a box `w` wide. */
 export const kineticHeight = (text: string, w: number) => {
-  const { size, lines } = kineticFit(text, w);
+  const { size, lines } = badgeFit(text, w);
   return Math.ceil(lines.length * size * 1.05) + 44;
 };
 
 /**
- * 2–4 punchy words floating on the stage. Paper: a red stamp that slams in (frame 10). HUD: an amber bracketed
- * readout that types on.
+ * 2–4 punchy words floating on the stage. Paper: a red stamp that slams in as the voice starts. HUD: an amber bracketed
+ * readout that types on. The badge's exact box is computed (motion.ts) and kept inside the safe margins (x 48..1032,
+ * y ≥ 96) on every frame, its entrance scale included.
  */
-export function KineticText({ text, box, skin, frame: rawFrame, reduced, align = "center", at = 10 }: { text: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; align?: "left" | "center" | "right"; /** frame the callout lands on (the voice onset) */ at?: number }) {
-  // every animation below was drawn for a landing at frame 10; shift the clock so it lands at `at`
-  const frame = rawFrame - at + 10;
-  const { size, lines } = kineticFit(text, box.w);
+export function KineticText({ text, box, skin, frame, reduced, align = "center", at = 10 }: { text: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; align?: "left" | "center" | "right"; /** frame the callout lands on (the voice onset) */ at?: number }) {
+  const paper = skin === "paper";
+  const r = badgeRect(text, box, align, paper);
   const bob = reduced ? 0 : Math.sin(frame / 16) * 4;
-  const justify = align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center";
-  if (skin === "paper") {
-    const slam = reduced ? 1 : frame < 10 ? 0 : interpolate(frame, [10, 18], [1.7, 1], clamp);
+  const base: React.CSSProperties = {
+    position: "absolute",
+    left: r.x,
+    top: r.y,
+    width: r.w,
+    height: r.h,
+    boxSizing: "border-box",
+    padding: "12px 20px 14px",
+    fontFamily: HEAVY,
+    fontWeight: 900,
+    fontSize: r.size,
+    lineHeight: 1.05,
+    textAlign: align,
+  };
+  if (paper) {
+    const slam = reduced ? (frame >= at ? 1 : 0) : badgeScale(frame, at, badgeMaxScale(r));
     if (!slam) return null;
     return (
-      <div style={{ position: "absolute", left: box.x, top: box.y, width: box.w, height: box.h, display: "flex", alignItems: "flex-start", justifyContent: justify }}>
-        <div
-          style={{
-            background: "#D9381E",
-            border: `6px solid ${INK}`,
-            boxShadow: `9px 9px 0 ${INK}`,
-            padding: "12px 20px 14px",
-            transform: `translateY(${bob}px) rotate(-4deg) scale(${slam})`,
-            transformOrigin: "50% 50%",
-            fontFamily: HEAVY,
-            fontWeight: 900,
-            fontSize: size,
-            lineHeight: 1.05,
-            color: "#FFFFFF",
-            textAlign: align,
-          }}
-        >
-          {lines.map((l, i) => (
-            <div key={i} style={{ whiteSpace: "nowrap" }}>
-              {l}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  const shown = reduced ? text.length : Math.floor(interpolate(frame, [6, 6 + text.length * 1.5], [0, text.length], clamp));
-  // characters typed so far, line by line (each line break counts as one character)
-  const starts = lines.map((_, i) => lines.slice(0, i).reduce((a, l) => a + l.length + 1, 0));
-  const typed = lines.map((l, i) => l.slice(0, Math.max(0, shown - starts[i])));
-  return (
-    <div style={{ position: "absolute", left: box.x, top: box.y, width: box.w, height: box.h, display: "flex", alignItems: "flex-start", justifyContent: justify }}>
       <div
         style={{
-          background: "rgba(15,23,42,0.88)",
-          borderLeft: "8px solid #F59E0B",
-          boxShadow: "0 0 22px rgba(245,158,11,0.35)",
-          padding: "12px 20px 14px",
-          transform: `translateY(${bob}px)`,
-          fontFamily: HEAVY,
-          fontWeight: 900,
-          fontSize: size,
-          lineHeight: 1.05,
-          color: "#F59E0B",
-          textAlign: align,
-          minWidth: 120,
+          ...base,
+          background: "#D9381E",
+          border: `6px solid ${INK}`,
+          boxShadow: `9px 9px 0 ${INK}`,
+          transform: `translateY(${bob}px) rotate(-4deg) scale(${slam})`,
+          transformOrigin: "50% 50%",
+          color: "#FFFFFF",
         }}
       >
-        {lines.map((l, i) => (
-          <div key={i} style={{ whiteSpace: "nowrap", minHeight: size * 1.05 }}>
-            {typed[i]}
-            {i === lines.length - 1 && !reduced && Math.floor(frame / 8) % 2 === 0 ? "▌" : ""}
+        {r.lines.map((l, i) => (
+          <div key={i} style={{ whiteSpace: "nowrap" }}>
+            {l}
           </div>
         ))}
       </div>
+    );
+  }
+  const shown = reduced ? text.length : Math.floor(interpolate(frame - at + 10, [6, 6 + text.length * 1.5], [0, text.length], clamp));
+  // characters typed so far, line by line (each line break counts as one character)
+  const starts = r.lines.map((_, i) => r.lines.slice(0, i).reduce((a, l) => a + l.length + 1, 0));
+  const typed = r.lines.map((l, i) => l.slice(0, Math.max(0, shown - starts[i])));
+  return (
+    <div
+      style={{
+        ...base,
+        background: "rgba(15,23,42,0.88)",
+        borderLeft: "8px solid #F59E0B",
+        boxShadow: "0 0 22px rgba(245,158,11,0.35)",
+        transform: `translateY(${bob}px)`,
+        color: "#F59E0B",
+      }}
+    >
+      {r.lines.map((l, i) => (
+        <div key={i} style={{ whiteSpace: "nowrap", minHeight: r.size * 1.05 }}>
+          {typed[i]}
+          {i === r.lines.length - 1 && !reduced && Math.floor(frame / 8) % 2 === 0 ? "▌" : ""}
+        </div>
+      ))}
     </div>
   );
 }
@@ -438,12 +428,9 @@ export function EvidenceStage({
   duration,
   at,
   stat,
-  callout = null,
   reduced,
   children,
 }: {
-  /** the line's on-screen callout, stamped across the top edge of the frame as the voice starts */
-  callout?: string | null;
   hero: Box;
   skin: PropSkin;
   frame: number;
@@ -523,9 +510,6 @@ export function EvidenceStage({
               </div>
             ))}
         </div>
-      )}
-      {callout && (
-        <KineticText text={callout} box={{ x: hero.x - 20, y: hero.y - 66, w: hero.w + 40, h: 120 }} skin={skin} frame={frame} reduced={reduced} align="center" at={at} />
       )}
     </div>
   );

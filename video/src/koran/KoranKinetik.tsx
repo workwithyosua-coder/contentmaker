@@ -3,6 +3,7 @@ import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
 import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
 import { VoiceTrack } from "../cast/CueShared";
+import { useSpriteFrames } from "../cast/useSpriteFrames";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, WhipStreaks, type DirectorSkin } from "../shared/Director";
 import { BeatSubtitle, SubtitleScrim } from "../shared/MovieSubtitle";
@@ -41,6 +42,8 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
   // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
   registerRemoteAssets(assetUrls);
   registerLineAssets(lines);
+  // uploaded sprites are measured once so they're framed like the calibrated ones (spriteFrame.ts)
+  useSpriteFrames(Object.values(assetUrls?.cast ?? {}));
   const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill style={BACKGROUND}>
@@ -77,7 +80,7 @@ function KoranBeat({ beat, line, reduced, cutDir }: { beat: Beat; line: EpisodeL
   return (
     <AbsoluteFill style={{ ...BACKGROUND, transform: x ? `translateX(${x}px)` : undefined }}>
       <AbsoluteFill style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
-        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
+        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} camera={{ ...cam, y: cam.y, slideX: x }} />
       </AbsoluteFill>
       {x !== 0 && <WhipStreaks dir={cutDir} frame={raw} color={SKIN.fxColor} />}
     </AbsoluteFill>

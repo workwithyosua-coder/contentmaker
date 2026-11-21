@@ -306,3 +306,81 @@ export function activeWord(c: SubtitleChunk, frame: number): number {
   });
   return k;
 }
+
+// ------------------------------------------------------------------ on-screen callout badge
+/** Safe margins a callout badge never crosses, on any frame of its entrance (canvas px). */
+export const BADGE_SAFE = { left: 48, right: 1032, top: 96 } as const;
+const BADGE_PAD = { x: 20, top: 12, bottom: 14, border: 6 };
+const BADGE_TILT = 4; // degrees (paper stamp)
+const BADGE_BOB = 4; // px idle float
+export const BADGE_SLAM = 1.7;
+
+/** Largest size (76 → 44 px) at which the callout fits `w` in at most two lines. */
+export function badgeFit(text: string, w: number): { size: number; lines: string[] } {
+  for (let size = 76; size >= 44; size -= 4) {
+    const lines = wrapHeadline(text, size, w - 40);
+    if (lines.length <= 2 && lines.every((l) => textWidth(l, size) <= w - 40)) return { size, lines };
+  }
+  return { size: 44, lines: wrapHeadline(text, 44, w - 40) };
+}
+
+export type BadgeRect = { x: number; y: number; w: number; h: number; size: number; lines: string[] };
+
+/**
+ * The callout badge's resting rectangle on the canvas: sized to its text, aligned in its stage box, then pushed back
+ * inside the safe margins with room for its tilt and idle float.
+ */
+export function badgeRect(text: string, box: { x: number; y: number; w: number }, align: "left" | "center" | "right", tilted = true): BadgeRect {
+  // never wider than the safe area minus room for the tilt and the drop shadow
+  const { size, lines } = badgeFit(text, Math.min(box.w, BADGE_SAFE.right - BADGE_SAFE.left - 40));
+  const w = Math.ceil(Math.max(...lines.map((l) => textWidth(l, size))) + 2 * BADGE_PAD.x + 2 * BADGE_PAD.border);
+  const h = Math.ceil(lines.length * size * 1.05 + BADGE_PAD.top + BADGE_PAD.bottom + 2 * BADGE_PAD.border);
+  let x = align === "left" ? box.x : align === "right" ? box.x + box.w - w : box.x + (box.w - w) / 2;
+  let y = box.y;
+  const { hw, hh } = halfExtent(w, h, tilted ? BADGE_TILT : 0, 1);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const ncx = Math.min(BADGE_SAFE.right - hw, Math.max(BADGE_SAFE.left + hw, cx));
+  const ncy = Math.max(BADGE_SAFE.top + hh + BADGE_BOB, cy);
+  x += ncx - cx;
+  y += ncy - cy;
+  return { x, y, w, h, size, lines };
+}
+
+/** Half the width / height of a w × h box rotated by `deg` and scaled by `k` (its axis-aligned bounds). */
+function halfExtent(w: number, h: number, deg: number, k: number) {
+  const r = (Math.abs(deg) * Math.PI) / 180;
+  return { hw: (k * (w * Math.cos(r) + h * Math.sin(r))) / 2, hh: (k * (w * Math.sin(r) + h * Math.cos(r))) / 2 };
+}
+
+/** The largest entrance scale at which the badge, tilted and floating, still stays inside the safe margins. */
+export function badgeMaxScale(r: BadgeRect, tilted = true): number {
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const one = halfExtent(r.w, r.h, tilted ? BADGE_TILT : 0, 1);
+  const k = Math.min((cx - BADGE_SAFE.left) / one.hw, (BADGE_SAFE.right - cx) / one.hw, (cy - BADGE_BOB - BADGE_SAFE.top) / one.hh);
+  return Math.max(1, Math.min(BADGE_SLAM, k));
+}
+
+/** The badge's scale on a frame: hidden before it lands, a slam from (at most) 1.7× down to 1 over 8 frames. */
+export function badgeScale(frame: number, at: number, maxScale: number): number {
+  const k = frame - at;
+  if (k < 0) return 0;
+  const t = Math.min(1, k / 8);
+  return Math.min(maxScale, BADGE_SLAM) + (1 - Math.min(maxScale, BADGE_SLAM)) * t;
+}
+
+/** The badge's on-screen bounds on a frame (for the safe-margin tests). */
+export function badgeBounds(r: BadgeRect, frame: number, at: number, tilted = true) {
+  const k = badgeScale(frame, at, badgeMaxScale(r, tilted));
+  if (!k) return null;
+  const { hw, hh } = halfExtent(r.w, r.h, tilted ? BADGE_TILT : 0, k);
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  return { left: cx - hw, right: cx + hw, top: cy - hh - BADGE_BOB, bottom: cy + hh + BADGE_BOB };
+}
+
+/** Undoes the camera move around the same origin, for overlays that must not zoom or shake off-screen. */
+export function inverseCamera(cam: { scale: number; rotate: number; x: number; y: number }): string {
+  return `rotate(${-cam.rotate}deg) scale(${1 / cam.scale}) translate(${-cam.x}px, ${-cam.y}px)`;
+}

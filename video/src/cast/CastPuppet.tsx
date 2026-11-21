@@ -3,6 +3,7 @@ import { Img, spring, staticFile, useVideoConfig } from "remotion";
 import { castSprites } from "../assets";
 import { headBoxFor, sweatPoint, type HeadBox } from "./spriteCalibration";
 import { bodyMotion, type MouthStage } from "../shared/motion";
+import { framedRect, spriteBox } from "./spriteFrame";
 import type { Emotion } from "../beats";
 import { OcuBust, UcoBust, type CastVariant, type OcuMood, type UcoMood } from "./CastSvg";
 
@@ -68,7 +69,7 @@ export function CastPuppet(p: PuppetProps) {
         }}
       >
         {sprites ? (
-          <SpriteMouth closed={spriteSrc(sprites.closed)} open={spriteSrc(sprites.open)} stage={p.mouth} mouth={box?.mouth ?? null} />
+          <SpriteMouth closed={spriteSrc(sprites.closed)} open={spriteSrc(sprites.open)} stage={p.mouth} mouth={box?.mouth ?? null} rect={sprites.remote && box ? uploadRect(sprites.closed, sprites.open, box) : null} />
         ) : p.who === "uco" ? (
           <UcoBust
             variant={p.variant}
@@ -94,10 +95,27 @@ export function CastPuppet(p: PuppetProps) {
   );
 }
 
-/** The 900×1700 sprite fills its figure frame exactly (same aspect, uniform scale, never stretched). */
-function SpriteImg({ src, hidden = false }: { src: string; hidden?: boolean }) {
-  // contain, feet on the frame's bottom: an uploaded sprite with another aspect is never stretched
-  return <Img src={src} maxRetries={2} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "50% 100%", visibility: hidden ? "hidden" : "visible" }} />;
+type Rect = { left: number; top: number; width: number; height: number };
+
+/**
+ * An uploaded sprite's placement: its measured content framed like the calibrated sprites (spriteFrame.ts), measured
+ * on the closed frame so both mouth frames line up. Null until measured (then it's drawn contained, as before).
+ */
+function uploadRect(closed: string, open: string, box: HeadBox): Rect | null {
+  const m = spriteBox(closed) ?? spriteBox(open);
+  return m ? framedRect(m, box.hairTop, box.faceX) : null;
+}
+
+/**
+ * The 900×1700 sprite fills its figure frame exactly (same aspect, uniform scale, never stretched). An uploaded one is
+ * placed by its measured content (`rect`), else contained with its feet on the frame's bottom. The Player waits for a
+ * sprite that is still loading instead of showing a frame without the character.
+ */
+function SpriteImg({ src, hidden = false, rect = null }: { src: string; hidden?: boolean; rect?: Rect | null }) {
+  const place: React.CSSProperties = rect
+    ? { left: `${rect.left}%`, top: `${rect.top}%`, width: `${rect.width}%`, height: `${rect.height}%` }
+    : { inset: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "50% 100%" };
+  return <Img src={src} maxRetries={2} pauseWhenLoading style={{ position: "absolute", ...place, visibility: hidden ? "hidden" : "visible" }} />;
 }
 
 const SPRITE = { w: 900, h: 1700 };
@@ -110,8 +128,15 @@ const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(3)}%`;
  * frame's mouth squashed to 62 % height (hinged at the upper lip); wide-open = the open frame with its mouth
  * stretched to 112 %. Only a feathered ellipse around the mouth is copied, over the same skin, so no seam shows.
  */
-function SpriteMouth({ closed, open, stage, mouth }: { closed: string; open: string; stage: MouthStage; mouth: HeadBox["mouth"] | null }) {
-  if (!mouth) return <SpriteImg src={stage ? open : closed} />;
+function SpriteMouth({ closed, open, stage, mouth, rect = null }: { closed: string; open: string; stage: MouthStage; mouth: HeadBox["mouth"] | null; rect?: Rect | null }) {
+  // uploaded sprites have no measured mouth: both frames stay mounted (no decode gap on a swap), one shows
+  if (!mouth || rect)
+    return (
+      <>
+        <SpriteImg src={closed} hidden={stage > 0} rect={rect} />
+        <SpriteImg src={open} hidden={stage === 0} rect={rect} />
+      </>
+    );
   const k = stage === 1 ? 0.62 : 1.12;
   // the stretched copy stops short of the chin so it never redraws the jaw line
   const bottom = stage === 2 ? mouth.y1 - 12 : mouth.y1;

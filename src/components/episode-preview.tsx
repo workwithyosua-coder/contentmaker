@@ -10,6 +10,7 @@ import { COMPOSITION_FOR, DEFAULT_STYLE_ID, styleById } from "../../video/src/st
 import { parseDirection } from "../../video/src/direction";
 import { FPS, HEIGHT, WIDTH, cueTotalFrames, totalFrames, type AssetUrls, type EpisodeLine, type EpisodeProps } from "../../video/src/types";
 import { castSprites, propFile, registerLineAssets, registerRemoteAssets } from "../../video/src/assets";
+import { measureSprite } from "../../video/src/cast/spriteFrame";
 import { buildBeats } from "../../video/src/beats";
 
 // Live preview of the episode animation (the same Remotion composition the renderer uses), built in the browser
@@ -68,6 +69,8 @@ export function EpisodePreview({
       // download every sprite and prop the episode shows before playing: a pose or prop that's still loading would
       // flash an empty frame at a cut
       await preloadImages(imagesFor(props, composition)).catch(() => {});
+      // uploaded sprites (Studio Assets) are measured before playback, so they're framed like the repo's sprites
+      await Promise.all(Object.values(props.assetUrls?.cast ?? {}).map((u) => measureSprite(u))).catch(() => {});
       setState({ status: "ready", props });
     } catch (err) {
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
