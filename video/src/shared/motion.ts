@@ -192,10 +192,17 @@ export const SPEECH_THRESHOLD = 0.12;
  * First and last spoken frames of a beat from its loudness envelope: the first frame where two frames in a row are
  * over the threshold, and the frame after the last such frame. No envelope (or silence): the whole beat.
  */
+/** A voice onset later than this (1.5 s, or half the beat) is treated as bad loudness data, not a real pause. */
+export const LATE_ONSET = Math.round(1.5 * FPS);
+
 export function speechBounds(envelope: number[] | null | undefined, durationInFrames: number): { start: number; end: number } {
-  const env = envelope ?? [];
-  const n = Math.min(env.length, durationInFrames);
-  const loud = (i: number) => (env[i] ?? 0) > SPEECH_THRESHOLD;
+  const whole = { start: 0, end: Math.max(1, Math.round(Number.isFinite(durationInFrames) ? durationInFrames : 1)) };
+  const env = Array.isArray(envelope) ? envelope : [];
+  const n = Math.min(env.length, whole.end);
+  const loud = (i: number) => {
+    const v = Number(env[i]);
+    return Number.isFinite(v) && v > SPEECH_THRESHOLD;
+  };
   let start = -1;
   for (let i = 0; i < n; i++) {
     if (loud(i) && (i + 1 >= n || loud(i + 1))) {
@@ -203,7 +210,9 @@ export function speechBounds(envelope: number[] | null | undefined, durationInFr
       break;
     }
   }
-  if (start < 0) return { start: 0, end: durationInFrames };
+  // missing, flat or silent data, or an onset so late it can't be the line's real start: the whole beat, so props,
+  // callouts and takeover cards always show (live preview and cached audio included)
+  if (start < 0 || start > Math.min(LATE_ONSET, whole.end * 0.5)) return whole;
   let end = start + 1;
   for (let i = n - 1; i > start; i--) {
     if (loud(i) && loud(i - 1)) {
@@ -211,7 +220,7 @@ export function speechBounds(envelope: number[] | null | undefined, durationInFr
       break;
     }
   }
-  return { start, end: Math.max(start + 1, Math.min(durationInFrames, end)) };
+  return { start, end: Math.max(start + 1, Math.min(whole.end, end)) };
 }
 
 /**

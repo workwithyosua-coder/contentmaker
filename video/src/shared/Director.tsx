@@ -554,7 +554,7 @@ function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, l
   const paper = skin.prop === "paper";
   return (
     <AbsoluteFill>
-      <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} reduced={reduced}>
+      <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} callout={stat === beat.stat ? beat.kinetic : null} reduced={reduced}>
         {hasProp
           ? (pb) =>
               beat.propImage && !beat.sceneImageUrl ? (

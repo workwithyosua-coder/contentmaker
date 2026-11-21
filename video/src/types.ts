@@ -127,15 +127,37 @@ const CTA_WORDS = /\b(follow|ikuti|subscribe|langganan|share|bagikan|kirim(?:in)
  * Cue styles: when the last line is itself a call to action ("Follow …", "Kirim ke temen lo"), the outro two-shot plays
  * *during* that line and holds 0.5 s after it, instead of a 3-second silent end card after it.
  */
-export function ctaMergesIntoLastLine(lines: Pick<EpisodeLine, "text" | "subtitle" | "on_screen_text" | "kinetic_text">[], direction?: RenderDirection | null) {
-  const last = lines[lines.length - 1];
-  if (!last || direction?.cta === false) return false;
-  return CTA_WORDS.test(`${last.text} ${last.subtitle ?? ""} ${last.on_screen_text ?? ""} ${last.kinetic_text ?? ""}`);
+export function ctaMergesIntoLastLine(lines: OutroLine[], direction?: RenderDirection | null) {
+  return outroMode(lines, direction) === "merge";
 }
 
-/** Video length for the cue styles (Koran Kinetik, Diagram Taktis): lines + 0.5 s hold (CTA line) or + the 3 s end card. */
+type OutroLine = Pick<EpisodeLine, "text" | "subtitle" | "on_screen_text" | "kinetic_text" | "emotion">;
+
+/** A serious ending (no Follow outro) holds on the last speaker this long (0.5 s) after the last word. */
+export const END_HOLD = 15;
+
+/**
+ * How the episode ends (cue styles):
+ * - "merge": the FOLLOW + outro plays during the last line and holds 0.5 s after it
+ * - "card":  a separate 3-second FOLLOW + end card after the last line
+ * - "none":  no Follow outro; the last beat holds 0.5 s (a serious closing)
+ * Exact (manual) scripts get the outro only when they ask for it: the last line's pose is `cta` (merge), or the
+ * direction notes ask for a CTA ("CTA: on", "CTA: Follow buat part 2": card). Other scripts keep the defaults: a
+ * call-to-action last line merges, anything else gets the end card. "CTA: off" always means none.
+ */
+export function outroMode(lines: OutroLine[], direction?: RenderDirection | null): "merge" | "card" | "none" {
+  const last = lines[lines.length - 1];
+  if (!last || direction?.cta === false) return "none";
+  if (direction?.exact) {
+    if (last.emotion === "cta") return "merge";
+    return direction.ctaExplicit ? "card" : "none";
+  }
+  return CTA_WORDS.test(`${last.text} ${last.subtitle ?? ""} ${last.on_screen_text ?? ""} ${last.kinetic_text ?? ""}`) ? "merge" : "card";
+}
+
+/** Video length for the cue styles (Koran Kinetik, Diagram Taktis): lines + the outro (see outroMode). */
 export function cueTotalFrames(lines: EpisodeLine[], direction?: RenderDirection | null) {
   const { end } = timeline(lines, direction);
-  if (direction?.cta === false) return end;
-  return end + (ctaMergesIntoLastLine(lines, direction) ? CTA_HOLD : END_FRAMES);
+  const mode = outroMode(lines, direction);
+  return end + (mode === "merge" ? CTA_HOLD : mode === "card" ? END_FRAMES : END_HOLD);
 }

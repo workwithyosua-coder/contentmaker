@@ -61,8 +61,8 @@ test("beats are gapless: each starts where the previous ends, the last ends at t
   assert.equal(last.startFrame + last.durationInFrames, cueTotalFrames(lines, exact));
 });
 
-test("a closing call-to-action line becomes the outro: the CTA two-shot plays during it and holds 0.5 s", () => {
-  const lines = [line({ speaker: "uco", text: "Pedas itu seni.", frames: 120 }, 0), line({ speaker: "ocu", text: "Kirim ke temen lo yang sok kuat.", frames: 120 }, 1)];
+test("a last line posed cta becomes the outro: the CTA two-shot plays during it and holds 0.5 s", () => {
+  const lines = [line({ speaker: "uco", text: "Pedas itu seni.", frames: 120 }, 0), line({ speaker: "ocu", text: "Kirim ke temen lo yang sok kuat.", frames: 120, emotion: "cta" }, 1)];
   const beats = buildBeats(lines, exact);
   assert.equal(beats.length, 2, "no extra silent end card");
   assert.equal(beats[1].cameraShot, "cta-stinger");
@@ -70,11 +70,15 @@ test("a closing call-to-action line becomes the outro: the CTA two-shot plays du
   const { end } = timeline(lines, exact);
   assert.equal(cueTotalFrames(lines, exact), end + CTA_HOLD);
   assert.equal(CTA_HOLD, 15);
-  // a last line that isn't a call to action keeps the 3-second end card
+  // exact scripts: call-to-action words alone don't add the Follow outro any more; the line stays a normal beat
+  const words = [lines[0], line({ speaker: "ocu", text: "Kirim ke temen lo yang sok kuat.", frames: 120, emotion: "explaining" }, 1)];
+  assert.notEqual(buildBeats(words, exact).at(-1)!.cameraShot, "cta-stinger");
+  // the AI writers' room path keeps its defaults: a CTA line merges, a plain last line gets the 3-second end card
+  const auto = parseDirection("");
+  assert.equal(buildBeats(words, auto).at(-1)!.cameraShot, "cta-stinger");
   const plain = [lines[0], line({ speaker: "ocu", text: "Iya.", frames: 60 }, 1)];
-  assert.equal(buildBeats(plain, exact).at(-1)!.cameraShot, "cta-stinger");
-  assert.equal(buildBeats(plain, exact).length, 3);
-  assert.equal(cueTotalFrames(plain, exact), timeline(plain, exact).end + END_FRAMES);
+  assert.equal(buildBeats(plain, auto).length, 3);
+  assert.equal(cueTotalFrames(plain, auto), timeline(plain, auto).end + END_FRAMES);
 });
 
 test("thought lines duck the music −12 dB by default", () => {

@@ -9,6 +9,7 @@ import { requiredAssets, wantedPropImage } from "../../video/src/beats";
 import { parseDirection } from "../../video/src/direction";
 import { AssetChecklist } from "./asset-checklist";
 import { needsAngry, type StudioAssetStatus } from "@/lib/studioAssets";
+import { storedDirection } from "@/lib/manualScriptParser";
 import { BeatTable, type TableLine } from "./beat-inspector";
 import { NewEpisodeForm, Status } from "./episode-ui";
 
@@ -133,7 +134,8 @@ function ManualComposer({
     setParsed(r);
     setBase(r.lines);
     setEdited(r.lines);
-    setDirection(r.directionText);
+    // the cue block is stored with the pacing notes, so a later re-pasted script or direction edit applies it again
+    setDirection(storedDirection(r));
     setListKey((k) => k + 1);
   };
 
@@ -331,9 +333,18 @@ export function DirectionForm({ action, initial }: { action: (prev: StepResult, 
   return (
     <form action={run} className="space-y-2">
       <label htmlFor="sd-direction" className="label">
-        Direction &amp; pacing notes
+        Direction &amp; visual cues
       </label>
-      <textarea id="sd-direction" name="direction" rows={4} defaultValue={initial} className="field font-mono text-sm" placeholder={"Pause 0.3s between lines\nBGM on, duck BGM on thought lines\nCTA: Follow buat part 2"} />
+      <textarea
+        id="sd-direction"
+        name="direction"
+        rows={8}
+        defaultValue={initial}
+        aria-describedby="sd-direction-help"
+        className="field font-mono text-sm"
+        placeholder={"Pause 0.3s between lines\nBGM on, duck BGM on thought lines\n\nLINE-BY-LINE VISUAL, ON-SCREEN TEXT & SFX CUES\n- Line 1 (Uco): prop: peta-relokasi-jawa · layout: takeover · stat: \"20 KM | MATI DALAM 2 HARI\" · SFX: stamp · on screen: \"PINDAH?!\""}
+      />
+      <p id="sd-direction-help" className="text-xs text-muted">Line cues are applied to the beats when you save (recorded voices stay).</p>
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className="btn btn-secondary">
           {pending ? "Saving…" : "Save direction"}

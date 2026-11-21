@@ -438,9 +438,12 @@ export function EvidenceStage({
   duration,
   at,
   stat,
+  callout = null,
   reduced,
   children,
 }: {
+  /** the line's on-screen callout, stamped across the top edge of the frame as the voice starts */
+  callout?: string | null;
   hero: Box;
   skin: PropSkin;
   frame: number;
@@ -459,8 +462,9 @@ export function EvidenceStage({
   const statH = stat ? (children ? 200 : hero.h - 2 * pad) : 0;
   const propBox: Box = { x: hero.x + pad, y: hero.y + pad, w: hero.w - 2 * pad, h: hero.h - 2 * pad - (stat ? statH + 18 : 0) };
   const statBox: Box = { x: hero.x + pad, y: hero.y + hero.h - pad - statH, w: hero.w - 2 * pad, h: statH };
-  const headSize = stat ? statFit(stat.headline, statBox.w - 40, children ? 84 : 150) : 0;
-  const subSize = stat?.subline ? statFit(stat.subline, statBox.w - 40, children ? 40 : 54) : 0;
+  // the headline wraps (2 lines under a prop, 3 alone) rather than shrinking to one tiny line
+  const head = stat ? statWrap(stat.headline, statBox.w - 48, children ? 64 : 132, children ? 2 : 3) : null;
+  const sub = stat?.subline ? statWrap(stat.subline, statBox.w - 48, children ? 36 : 56, 2) : null;
   return (
     <div
       style={{
@@ -507,19 +511,32 @@ export function EvidenceStage({
             padding: "10px 20px",
           }}
         >
-          <div style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: headSize, lineHeight: 1, letterSpacing: 1, whiteSpace: "nowrap" }}>{stat.headline}</div>
-          {stat.subline && (
-            <div style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: subSize, lineHeight: 1.1, letterSpacing: 0.5, whiteSpace: "nowrap", color: paper ? "#FFE600" : k.text }}>{stat.subline}</div>
-          )}
+          {head!.lines.map((l, i) => (
+            <div key={`h${i}`} style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: head!.size, lineHeight: 1.02, letterSpacing: 1, whiteSpace: "nowrap" }}>
+              {l}
+            </div>
+          ))}
+          {sub &&
+            sub.lines.map((l, i) => (
+              <div key={`s${i}`} style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: sub.size, lineHeight: 1.08, letterSpacing: 0.5, whiteSpace: "nowrap", color: paper ? "#FFE600" : k.text, marginTop: i ? 0 : 6 }}>
+                {l}
+              </div>
+            ))}
         </div>
+      )}
+      {callout && (
+        <KineticText text={callout} box={{ x: hero.x - 20, y: hero.y - 66, w: hero.w + 40, h: 120 }} skin={skin} frame={frame} reduced={reduced} align="center" at={at} />
       )}
     </div>
   );
 }
 
-/** Largest size (≤ max) at which one line of `text` fits `w` px. */
-function statFit(text: string, w: number, max: number) {
-  let size = max;
-  while (size > 24 && textWidth(text.toUpperCase(), size) > w) size -= 2;
-  return size;
+/** Largest size (≤ max, ≥ 24) at which `text` wraps into at most `maxLines` lines that each fit `w` px. */
+export function statWrap(text: string, w: number, max: number, maxLines: number): { size: number; lines: string[] } {
+  const t = text.toUpperCase();
+  for (let size = max; size >= 24; size -= 2) {
+    const lines = wrapHeadline(t, size, w);
+    if (lines.length <= maxLines && lines.every((l) => textWidth(l, size) <= w)) return { size, lines };
+  }
+  return { size: 24, lines: wrapHeadline(t, 24, w).slice(0, maxLines) };
 }

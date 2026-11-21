@@ -24,6 +24,8 @@ export type RenderDirection = {
   cta: boolean;
   /** custom CTA stamp (≤ 4 words), or null for the default */
   ctaText: string | null;
+  /** the notes ask for the outro themselves ("CTA: on", "CTA: Follow buat part 2"), not just the default */
+  ctaExplicit?: boolean;
   /** the notes as written */
   notes: string;
   /**
@@ -48,10 +50,27 @@ function seconds(s: string): number | null {
 
 const OFF = /\b(off|no|none|nggak|gak|tidak|tanpa|mati|false|0)\b/i;
 
+/** The pacing notes only: the stored line-by-line cue block ("- Line 4 (Ocu): pose: cta …") is not direction. */
+export function stripCueBlock(text: string): string {
+  const out: string[] = [];
+  let inCues = false;
+  for (const row of text.replace(/\r/g, "").split("\n")) {
+    const t = row.trim();
+    if (/^#*\s*\**\s*line[- ]by[- ]line\b/i.test(t)) {
+      inCues = true;
+      continue;
+    }
+    if (inCues && /^#*\s*\**\s*(direction|directions|arahan|visual notes|notes|catatan)\b[^:]*:?\s*\**\s*$/i.test(t)) inCues = false;
+    if (inCues || /^[-*•]?\s*line\s*\d{1,3}\b/i.test(t)) continue;
+    out.push(row);
+  }
+  return out.join("\n");
+}
+
 export function parseDirection(text: string | null | undefined): RenderDirection {
   const notes = (text ?? "").trim();
   const d: RenderDirection = { ...DEFAULT_DIRECTION, notes };
-  for (const raw of notes.split(/\n|;|(?<=\.)\s+/)) {
+  for (const raw of stripCueBlock(notes).split(/\n|;|(?<=\.)\s+/)) {
     const line = raw.trim();
     if (!line) continue;
     const low = line.toLowerCase();
@@ -79,9 +98,14 @@ export function parseDirection(text: string | null | undefined): RenderDirection
     if (/\b(cta|outro|follow stinger|end card)\b/.test(low)) {
       const rest = line.replace(/^.*?\b(cta|outro|end card)\b\s*[:=-]?\s*/i, "").trim();
       if (/\b(no|tanpa|without|skip|hapus|remove)\s+(the\s+)?(cta|outro|end card|follow stinger)\b/i.test(low)) d.cta = false;
-      else if (!rest || /^(on|yes|ya|true)$/i.test(rest)) d.cta = true;
-      else if (OFF.test(rest.split(/\s+/)[0]) || /^(no|tanpa)\b/i.test(low)) d.cta = false;
-      else d.ctaText = rest.replace(/["“”]/g, "").split(/\s+/).slice(0, 4).join(" ").toUpperCase();
+      else if (!rest || /^(on|yes|ya|true)$/i.test(rest)) {
+        d.cta = true;
+        d.ctaExplicit = true;
+      } else if (OFF.test(rest.split(/\s+/)[0]) || /^(no|tanpa)\b/i.test(low)) d.cta = false;
+      else {
+        d.ctaText = rest.replace(/["“”]/g, "").split(/\s+/).slice(0, 4).join(" ").toUpperCase();
+        d.ctaExplicit = true;
+      }
     }
   }
   return d;
