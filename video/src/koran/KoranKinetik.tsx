@@ -4,9 +4,9 @@ import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
 import { VoiceTrack } from "../cast/CueShared";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
-import { DirectorStage, type DirectorSkin } from "../shared/Director";
-import { MovieSubtitle } from "../shared/MovieSubtitle";
-import { cameraAt, cutDirection } from "../shared/motion";
+import { DirectorStage, WhipStreaks, type DirectorSkin } from "../shared/Director";
+import { BeatSubtitle, SubtitleScrim } from "../shared/MovieSubtitle";
+import { cameraAt, cutDirection, holdFrames, whipOffset } from "../shared/motion";
 import { KINETIC_SLAM, sfxCuesFor } from "../shared/sfxCues";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
@@ -31,22 +31,30 @@ const SKIN: DirectorSkin = {
   arrow: { color: P.accent, outline: P.ink, ring: P.primary },
 };
 
+const BACKGROUND: React.CSSProperties = {
+  backgroundColor: P.canvas,
+  backgroundImage: "radial-gradient(rgba(20,22,25,0.14) 2.4px, transparent 2.4px)",
+  backgroundSize: "24px 24px",
+};
+
 export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = false }: CueProps) {
   // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
   registerRemoteAssets(assetUrls);
   registerLineAssets(lines);
   const beats = buildBeats(lines, direction);
   return (
-    <AbsoluteFill
-      style={{
-        backgroundColor: P.canvas,
-        backgroundImage: "radial-gradient(rgba(20,22,25,0.14) 2.4px, transparent 2.4px)",
-        backgroundSize: "24px 24px",
-      }}
-    >
+    <AbsoluteFill style={BACKGROUND}>
+      {/* each beat is a full-canvas opaque layer; it stays mounted (held on its last frame) while the next beat
+          whips in over it, so no frame ever shows an empty background */}
       {beats.map((b, i) => (
-        <Sequence key={b.id} from={b.startFrame} durationInFrames={b.durationInFrames} name={`${b.id} ${b.beatType} ${b.speaker}`}>
+        <Sequence key={b.id} from={b.startFrame} durationInFrames={b.durationInFrames + holdFrames(beats, i)} name={`${b.id} ${b.beatType} ${b.speaker}`}>
           <KoranBeat beat={b} line={b.line === null ? null : lines[b.line]} reduced={reducedMotion} cutDir={cutDirection(beats, i)} />
+        </Sequence>
+      ))}
+      <SubtitleScrim />
+      {beats.map((b, i) => (
+        <Sequence key={`s-${b.id}`} from={b.startFrame} durationInFrames={b.durationInFrames} name={`subtitle ${b.id}`} layout="none">
+          <BeatSubtitle beat={b} reduced={reducedMotion} cutDir={cutDirection(beats, i)} />
         </Sequence>
       ))}
       <VoiceTrack lines={lines} beats={beats} />
@@ -58,24 +66,20 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
 }
 
 function KoranBeat({ beat, line, reduced, cutDir }: { beat: Beat; line: EpisodeLine | null; reduced: boolean; cutDir: -1 | 0 | 1 }) {
-  const f = useCurrentFrame();
+  const raw = useCurrentFrame();
+  // past its end the beat holds its last frame underneath the next beat's whip
+  const held = raw >= beat.durationInFrames;
+  const f = held ? beat.durationInFrames - 1 : raw;
+  const x = held || reduced ? 0 : whipOffset(cutDir, raw);
   // camera: the paper push-in (a slower 1.00 → 1.06 Ken Burns on explanation beats), a 1.12× punch with a 2° tilt
-  // on shocked beats, and a micro punch-in halfway through long beats
-  const cam = reduced ? { scale: 1, rotate: 0 } : cameraAt(beat, f, [G.pushInScale[0], G.pushInScale[1]]);
-
+  // on shocked beats, a micro punch-in halfway through long beats, and a short shake on urgent impacts
+  const cam = reduced ? { scale: 1, rotate: 0, x: 0, y: 0 } : cameraAt(beat, f, [G.pushInScale[0], G.pushInScale[1]]);
   return (
-    <>
-      {/* CAST + VISUAL STAGE: the director's camera shot for this beat (no headline card; kinetic text and props
-          float on the open stage), with the paper push-in */}
-      <AbsoluteFill style={{ transform: `scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
-        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} cutDir={cutDir} />
+    <AbsoluteFill style={{ ...BACKGROUND, transform: x ? `translateX(${x}px)` : undefined }}>
+      <AbsoluteFill style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
+        <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} />
       </AbsoluteFill>
-
-      {/* the CTA end card's FOLLOW + button and arrow are drawn by the Director (upper-right safe zone); no banner
-          over the chests, where TikTok's caption overlay sits */}
-
-      {/* kinetic English subtitle: 3–5 word chunks, the spoken word highlighted, low in the frame (y 1420..1520, under every face); italic for inner thoughts */}
-      <MovieSubtitle chunks={beat.subtitleChunks} frame={f} reduced={reduced} italic={beat.thought} />
-    </>
+      {x !== 0 && <WhipStreaks dir={cutDir} frame={raw} color={SKIN.fxColor} />}
+    </AbsoluteFill>
   );
 }

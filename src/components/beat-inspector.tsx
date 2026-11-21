@@ -33,6 +33,8 @@ type Row = {
   prop: string;
   callouts: string;
   sfx: string;
+  layout: "standard" | "takeover";
+  stat: string;
 };
 
 const toRow = (l: TableLine): Row => ({
@@ -49,6 +51,8 @@ const toRow = (l: TableLine): Row => ({
   prop: l.prop_tag ?? "",
   callouts: l.callouts ? l.callouts.join(", ") : "",
   sfx: (l.sfx ?? []).join(", "),
+  layout: l.layout === "takeover" ? "takeover" : "standard",
+  stat: l.stat ?? "",
 });
 
 const list = (s: string) =>
@@ -86,6 +90,8 @@ function rowToLine(r: Row, base: TableLine, uploads: AssetUrlMap): ManualLine & 
     prop_tag: prop,
     callouts: r.callouts.trim() ? list(r.callouts) : null,
     sfx,
+    layout: r.layout,
+    stat: r.stat.trim() || null,
     asset_urls,
   };
 }
@@ -309,6 +315,21 @@ export function BeatTable({
                       Prop labels
                     </label>
                     <input id={id("callouts")} className="field" value={r.callouts} placeholder={b?.callouts.length ? `Auto: ${b.callouts.join(", ")}` : "e.g. ayam, cakwe"} onChange={(e) => set(i, { callouts: e.target.value })} />
+                  </div>
+                  <div>
+                    <label htmlFor={id("layout")} className="label">
+                      Layout
+                    </label>
+                    <select id={id("layout")} className="field" value={r.layout} onChange={(e) => set(i, { layout: e.target.value === "takeover" ? "takeover" : "standard" })}>
+                      <option value="standard">Standard</option>
+                      <option value="takeover">Evidence takeover (prop centre stage)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor={id("stat")} className="label">
+                      Stat card <span className="font-normal text-muted">(takeover only)</span>
+                    </label>
+                    <input id={id("stat")} className="field" value={r.stat} maxLength={90} placeholder="e.g. 20 KM | MATI DALAM 2 HARI" onChange={(e) => set(i, { stat: e.target.value })} />
                   </div>
                   <div className="sm:col-span-2">
                     <label htmlFor={id("sfx")} className="label">
