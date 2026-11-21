@@ -63,6 +63,9 @@ export type ManualScript = {
   lines: ManualLine[];
   /** the direction notes that apply (the DIRECTION block plus the separate direction box), as text */
   directionText: string;
+  /** the line-by-line cue rows as written (with their header), kept with the episode so a re-pasted script or an
+   *  edited direction box applies them again */
+  cueText: string;
   direction: RenderDirection;
   warnings: string[];
 };
@@ -234,6 +237,41 @@ function readCues(s: string, c: Cues) {
 }
 
 // ------------------------------------------------------------------ the parser
+export const CUE_HEADER = "LINE-BY-LINE VISUAL, ON-SCREEN TEXT & SFX CUES";
+
+/**
+ * What an episode stores as its direction: the pacing / BGM / CTA notes plus the line-by-line cue block, so the cues
+ * survive a re-pasted script ("Paste a new version") and show in the direction box for editing.
+ */
+export function storedDirection(p: Pick<ManualScript, "directionText" | "cueText">): string {
+  return [p.directionText.trim(), p.cueText.trim()].filter(Boolean).join("\n\n");
+}
+
+/** Fields the line-by-line cues set on a line (everything else on a stored line is left alone). */
+const CUE_FIELDS = ["prop_tag", "layout", "stat", "sfx", "kinetic_text", "on_screen_text", "important_message", "overlay", "callouts", "camera_shot", "emotion", "expression", "thought_bubble"] as const;
+
+/**
+ * Applies the line-by-line cues in `direction` to stored lines (the episode page's direction box): each field a cue
+ * sets on a line replaces the stored value; lines and fields the cues don't mention keep their saved values (beat
+ * table edits included). The dialogue itself is never touched. Pure: same input, same output.
+ */
+export function applyCuesToLines<L extends { speaker: "uco" | "ocu"; text: string } & Record<string, unknown>>(lines: L[], direction: string): { lines: L[]; changed: number[] } {
+  const script = lines.map((l, i) => `${i + 1}. ${l.speaker.toUpperCase()}: "${String(l.text).replace(/"/g, "”")}"`).join("\n");
+  const bare = parseManualScript({ script }).lines;
+  const cued = parseManualScript({ script, direction }).lines;
+  const changed: number[] = [];
+  const out = lines.map((l, i) => {
+    const a = bare[i] as unknown as Record<string, unknown>;
+    const b = cued[i] as unknown as Record<string, unknown>;
+    if (!a || !b) return l;
+    const patch: Record<string, unknown> = {};
+    for (const f of CUE_FIELDS) if (JSON.stringify(a[f]) !== JSON.stringify(b[f]) && JSON.stringify(l[f] ?? null) !== JSON.stringify(b[f] ?? null)) patch[f] = b[f];
+    if (!Object.keys(patch).length) return l;
+    changed.push(i);
+    return { ...l, ...patch };
+  });
+  return { lines: out, changed };
+}
 const SECTION_DIRECTION = /^#*\s*\**\s*(direction|directions|arahan|visual notes|direction (&|and) visual notes)\b[^:]*:?\s*\**\s*$/i;
 const SECTION_CUES = /^#*\s*\**\s*line[- ]by[- ]line\b.*$/i;
 const SECTION_OTHER = /^#*\s*\**\s*(notes|catatan|captions?|hashtags|sources|references|script|naskah|dialogue|dialog)\b[^:]*:?\s*\**\s*$/i;
@@ -248,6 +286,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
   const raws: Raw[] = [];
   const directionRows: string[] = [];
   const lineCues: { n: number; speaker: string | null; body: string }[] = [];
+  const cueRows: string[] = [];
   const meta: { title: string | null; runtime: number | null } = { title: null, runtime: null };
   let beat: string | null = null;
   let section: "script" | "direction" | "cues" | "other" = "script";
@@ -282,11 +321,15 @@ export function parseManualScript(input: { topic?: string; script: string; direc
     const lc = LINE_CUE.exec(row);
     if (lc && (section === "cues" || section === "direction" || !DIALOGUE.test(row))) {
       lineCues.push({ n: Number(lc[1]), speaker: lc[2]?.trim() ?? null, body: lc[3] });
+      cueRows.push(row);
       return;
     }
     if (section === "cues") {
       // a continuation row of the previous line cue
-      if (lineCues.length) lineCues[lineCues.length - 1].body += ` · ${row.replace(/^[-*•]\s*/, "")}`;
+      if (lineCues.length) {
+        lineCues[lineCues.length - 1].body += ` · ${row.replace(/^[-*•]\s*/, "")}`;
+        cueRows.push(row);
+      }
       return;
     }
     if (section === "direction") {
@@ -425,7 +468,8 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       // counts as the pose; "cta" and "phone" only when they're the whole note, since they're also ordinary words
       const notes = [...r.poseHints, ...r.delivery, ...c.visual].map((x) => x.toLowerCase());
       const hit = POSES[r.speaker].find((p) =>
-        p === "cta" || p === "phone" ? notes.some((n) => n.replace(/^(uco|ocu)\s*,\s*/, "").trim() === p) : notes.some((n) => new RegExp(`\\b${p}\\b`).test(n)),
+        // "cta" / "phone" as the whole note, or after a label ("Outro - cta", "Closing: phone")
+        p === "cta" || p === "phone" ? notes.some((n) => new RegExp(`^(?:[^,]*?\\s*[-–—:]\\s*)?${p}$`).test(n.replace(/^(uco|ocu)\s*,\s*/, "").trim())) : notes.some((n) => new RegExp(`\\b${p}\\b`).test(n)),
       );
       if (hit) line.emotion = hit;
     }
@@ -474,6 +518,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
     targetRuntimeS: meta.runtime,
     lines,
     directionText,
+    cueText: cueRows.length ? `${CUE_HEADER}\n${cueRows.join("\n")}` : "",
     direction: parseDirection(directionText),
     warnings,
   };

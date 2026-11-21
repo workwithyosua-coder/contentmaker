@@ -6,7 +6,9 @@ import { z } from "zod";
 import { headers } from "next/headers";
 import { ASSET_BUCKET, ASSET_MAX_BYTES, ASSET_TYPES, assetPath, ensureAssetBucket, isAssetName, isAttachedAssetPath, type AssetKind } from "@/lib/attached-assets";
 import { db } from "@/lib/db";
-import { POSES, parseManualScript, spokenSeconds } from "@/lib/manualScriptParser";
+import { POSES, applyCuesToLines, parseManualScript, spokenSeconds, storedDirection } from "@/lib/manualScriptParser";
+import { reusableTakes } from "@/lib/takeReuse";
+import { stripCueBlock } from "../../../video/src/direction";
 import { BEATS, EXPRESSIONS } from "@/lib/script-parse";
 import { saveCaptions } from "@/lib/publish/approval";
 import { hookLine, manualCaptions } from "@/lib/publish/manualCaptions";
@@ -31,6 +33,24 @@ async function account() {
 async function ownProject(userId: string, projectId: string) {
   const [p] = await db()<{ id: string }[]>`SELECT id FROM content_projects WHERE id = ${projectId} AND user_id = ${userId}`;
   if (!p) throw new Error("Episode not found.");
+}
+
+/** Copies the previous version's selected take onto each unchanged line of the new version. Returns how many. */
+async function reuseTakes(projectId: string, prevId: string, prevLines: { speaker: string; text: string }[], nextId: string, nextLines: { speaker: string; text: string }[]) {
+  const sql = db();
+  const rows = await sql<{ line_index: number }[]>`SELECT DISTINCT line_index FROM recordings WHERE script_id = ${prevId} AND is_selected`;
+  const map = reusableTakes(prevLines, nextLines, new Set(rows.map((r) => r.line_index)));
+  let kept = 0;
+  for (const [i, j] of map.entries()) {
+    if (j < 0) continue;
+    const copied = await sql`
+      INSERT INTO recordings (project_id, script_id, line_index, speaker, take, storage_path, mime_type, size_bytes, duration_ms, source, is_selected, ai_prompt)
+      SELECT project_id, ${nextId}, ${i}, speaker, 1, storage_path, mime_type, size_bytes, duration_ms, source, true, ai_prompt
+      FROM recordings WHERE script_id = ${prevId} AND line_index = ${j} AND is_selected AND project_id = ${projectId}
+      ORDER BY created_at DESC LIMIT 1`;
+    kept += copied.count ? 1 : 0;
+  }
+  return kept;
 }
 
 const lengthOf = (lines: { text: string; start_s?: number | null; end_s?: number | null }[]) =>
@@ -105,7 +125,7 @@ export async function createManualEpisodeAction(topic: string, style: string, di
   try {
     const o = await account();
     const sql = db();
-    const dir = direction.slice(0, 4000).trim();
+    const dir = direction.slice(0, 12000).trim();
     const [d] = await sql<{ id: string }[]>`
       INSERT INTO content_directions (user_id, title, prompt, platforms, formats)
       VALUES (${o.id}, ${t.slice(0, 80)}, ${t}, ${ALL_PLATFORMS}::platform_t[], '{short_video}')
@@ -134,39 +154,57 @@ export async function replaceCustomScriptAction(projectId: string, _prev: StepRe
     const o = await account();
     await ownProject(o.id, projectId);
     const script = String(form.get("script") ?? "");
-    const direction = String(form.get("direction") ?? "").slice(0, 4000);
+    const direction = String(form.get("direction") ?? "").slice(0, 12000);
     if (script.length > 30000) return { ok: false, message: "That script is over 30,000 characters. Paste one episode at a time." };
     const sql = db();
-    const [cur] = await sql<{ title: string }[]>`SELECT title FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
-    const parsed = parseManualScript({ topic: cur?.title ?? "", script, direction });
+    const [cur] = await sql<{ id: string; title: string; lines: { speaker: string; text: string }[] }[]>`
+      SELECT id, title, lines FROM scripts WHERE project_id = ${projectId} ORDER BY version DESC LIMIT 1`;
+    // the episode's saved cue block applies again, unless the pasted script brings its own (then the new cues win)
+    const own = parseManualScript({ script }).cueText;
+    const parsed = parseManualScript({ topic: cur?.title ?? "", script, direction: own ? stripCueBlock(direction) : direction });
     if (!parsed.lines.length) return { ok: false, message: parsed.warnings[0] ?? "No lines found." };
-    const dir = [parsed.directionText].filter(Boolean).join("\n");
+    const dir = storedDirection(parsed);
     const [{ v }] = await sql<{ v: number }[]>`SELECT COALESCE(max(version), 0) + 1 AS v FROM scripts WHERE project_id = ${projectId}`;
-    await sql`
+    const [made] = await sql<{ id: string }[]>`
       INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
       VALUES (${projectId}, ${v}, ${parsed.title}, ${lengthOf(parsed.lines)}, ${sql.json(parsed.lines as never)}, '[]',
-              ${"Pasted again (Manual / Exact Import, no AI)."}, ${dir || null}, true, now())`;
+              ${"Pasted again (Manual / Exact Import, no AI)."}, ${dir || null}, true, now())
+      RETURNING id`;
+    // unchanged dialogue keeps its recorded / AI take: no re-recording, no new ElevenLabs request
+    const kept = cur ? await reuseTakes(projectId, cur.id, cur.lines ?? [], made.id, parsed.lines) : 0;
     // captions the user already has (edited or AI-written) stay; an episode without any gets editable defaults
     const [{ has }] = await sql<{ has: boolean }[]>`SELECT platform_captions IS NOT NULL AS has FROM content_projects WHERE id = ${projectId}`;
     if (!has) await saveCaptions(projectId, manualCaptions({ title: parsed.title, hook: hookLine(parsed.lines) }));
-    await sql`UPDATE content_projects SET status = 'awaiting_recording', updated_at = now() WHERE id = ${projectId}`;
+    const allKept = kept === parsed.lines.length;
+    await sql`UPDATE content_projects SET status = ${allKept ? "recorded" : "awaiting_recording"}::project_status_t, updated_at = now() WHERE id = ${projectId}`;
     revalidatePath(`/create/${projectId}`);
+    revalidatePath(`/create/${projectId}/record`);
     const warn = parsed.warnings.length ? ` ${parsed.warnings.length} note${parsed.warnings.length > 1 ? "s" : ""}: ${parsed.warnings[0]}` : "";
-    return { ok: true, message: `Saved as version ${v}: ${parsed.lines.length} lines.${warn}` };
+    const voices = kept ? ` ${allKept ? "All" : kept} recorded voice${kept > 1 ? "s" : ""} kept (unchanged lines).` : "";
+    return { ok: true, message: `Saved as version ${v}: ${parsed.lines.length} lines.${voices}${warn}` };
   } catch (err) {
     return { ok: false, message: message(err) };
   }
 }
 
-/** Direction / pacing notes for the current script version (parsed at render time). */
+/**
+ * Direction & visual cues for the current script version: the pacing notes (read at render time) and the line-by-line
+ * cue block, which is applied to the saved lines right away (prop, layout, stat, SFX, on-screen text, pose…), in place,
+ * so recorded takes stay.
+ */
 export async function saveDirectionAction(projectId: string, scriptId: string, _prev: StepResult, form: FormData): Promise<StepResult> {
   try {
     const o = await account();
     await ownProject(o.id, projectId);
-    const direction = String(form.get("direction") ?? "").slice(0, 4000).trim();
-    await db()`UPDATE scripts SET direction = ${direction || null} WHERE id = ${scriptId} AND project_id = ${projectId}`;
+    const direction = String(form.get("direction") ?? "").slice(0, 12000).trim();
+    const sql = db();
+    const [row] = await sql<{ lines: ({ speaker: "uco" | "ocu"; text: string } & Record<string, unknown>)[] }[]>`
+      SELECT lines FROM scripts WHERE id = ${scriptId} AND project_id = ${projectId}`;
+    if (!row) return { ok: false, message: "That script version is gone. Reload the page." };
+    const { lines, changed } = applyCuesToLines(row.lines, direction);
+    await sql`UPDATE scripts SET direction = ${direction || null}, lines = ${sql.json(lines as never)} WHERE id = ${scriptId} AND project_id = ${projectId}`;
     revalidatePath(`/create/${projectId}`);
-    return { ok: true, message: "Direction saved." };
+    return { ok: true, message: changed.length ? `Direction saved. Cues applied to line${changed.length > 1 ? "s" : ""} ${changed.map((i) => i + 1).join(", ")}.` : "Direction saved." };
   } catch (err) {
     return { ok: false, message: message(err) };
   }

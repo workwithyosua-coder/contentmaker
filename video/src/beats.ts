@@ -3,7 +3,7 @@ import { KINETIC_SLAM, scriptSfxFrame, sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
 import { PROP_LEAD, propEntryFrame, speechBounds } from "./shared/motion";
 import type { RenderDirection } from "./direction";
-import { CTA_HOLD, END_FRAMES, ctaMergesIntoLastLine, timeline, type EpisodeLine, type ManifestLine } from "./types";
+import { CTA_HOLD, END_FRAMES, END_HOLD, outroMode, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
 // The shared beat timeline. Every style can read an episode as a list of beats; the cue-based styles (Koran Kinetik,
 // Diagram Taktis) render only from it. One beat per spoken line (same start frames as the audio, from timeline()),
@@ -512,10 +512,15 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     b.impactFrame = stamp >= 0 ? scriptSfxFrame(speech.start, stamp) : b.angry ? speech.start : null;
     b.urgent = b.impactFrame !== null;
   });
-  if (direction?.cta === false) return beats;
-  if (ctaMergesIntoLastLine(lines, direction)) {
+  const outro = outroMode(lines, direction);
+  const last = beats[beats.length - 1];
+  if (outro === "none") {
+    // a serious closing: the last beat stays as it is (its pose, prop, callout) and holds 0.5 s to the final frame
+    if (last) last.durationInFrames += END_HOLD;
+    return beats;
+  }
+  if (outro === "merge") {
     // the last line is the call to action: the outro two-shot plays while it's spoken, then holds 0.5 s
-    const last = beats[beats.length - 1];
     Object.assign(last, { cameraShot: "cta-stinger", durationInFrames: last.durationInFrames + CTA_HOLD, propImage: null, propTag: "none", callouts: [], overlay: null, kinetic: null, thought: false, layout: "standard", stat: null });
     return beats;
   }
