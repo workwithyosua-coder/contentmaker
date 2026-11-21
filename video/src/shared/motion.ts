@@ -4,6 +4,7 @@
 
 import type { Beat, SubtitleChunk } from "../beats";
 import { FPS } from "../types";
+import { textWidth, wrapHeadline } from "./textMetrics";
 
 /** Voice loudness at `frame`, smoothed over 3 frames so the mouth and body don't flicker on single-frame spikes. */
 export function levelAt(envelope: number[], frame: number): number {
@@ -88,8 +89,8 @@ export const SHOCK_PUNCH = 1.12;
  * 1.12× punch with a 2° tilt on shocked beats, and a 1.07× micro punch-in halfway through any beat over 5 s so a
  * long hold never looks frozen. The outro stays still so both characters stay whole.
  */
-export function cameraAt(b: Beat, frame: number, basePush: [number, number] = [1, 1.04]): { scale: number; rotate: number } {
-  if (b.cameraShot === "cta-stinger") return { scale: 1, rotate: 0 };
+export function cameraAt(b: Beat, frame: number, basePush: [number, number] = [1, 1.04]): Camera {
+  if (b.cameraShot === "cta-stinger") return { scale: 1, rotate: 0, x: 0, y: 0 };
   const t = frame / Math.max(1, b.durationInFrames);
   const push = isExplanation(b) ? [1, 1.06] : basePush;
   let scale = push[0] + (push[1] - push[0]) * Math.min(1, Math.max(0, t));
@@ -105,7 +106,23 @@ export function cameraAt(b: Beat, frame: number, basePush: [number, number] = [1
     const mid = Math.round(b.durationInFrames / 2);
     scale *= 1 + (MICRO_PUNCH - 1) * ease((frame - mid) / 6);
   }
-  return { scale, rotate };
+  return { scale, rotate, ...impactShake(frame, b.impactFrame) };
+}
+
+export type Camera = { scale: number; rotate: number; x: number; y: number };
+
+export const SHAKE_FRAMES = 6;
+export const SHAKE_PX = 6;
+/**
+ * Urgent beats (angry delivery, a stamp SFX): a damped ±6 px shake for 6 frames from the impact frame, alternating
+ * direction each frame and settling to 0.
+ */
+export function impactShake(frame: number, impact: number | null | undefined): { x: number; y: number } {
+  if (impact == null) return { x: 0, y: 0 };
+  const k = frame - impact;
+  if (k < 0 || k >= SHAKE_FRAMES) return { x: 0, y: 0 };
+  const a = SHAKE_PX * (1 - k / SHAKE_FRAMES);
+  return { x: (k % 2 ? -1 : 1) * a, y: (k % 3 === 1 ? 1 : -1) * a * 0.5 };
 }
 
 export const CUT_FRAMES = 4;
@@ -130,22 +147,140 @@ export function whipOffset(dir: -1 | 0 | 1, frame: number): number {
   return dir * 420 * (1 - ease((frame + 1) / CUT_FRAMES));
 }
 
-/** Default prop entrance: ~0.35 s into the beat. */
-export const PROP_ENTRY = Math.round(0.35 * FPS);
+/**
+ * Frames the outgoing beat stays mounted past its end: the length of the whip into the next beat, so the next beat
+ * slides in over it (an overlapping push) instead of over an empty background.
+ */
+export function holdFrames(beats: Beat[], i: number): number {
+  return i + 1 < beats.length && cutDirection(beats, i + 1) !== 0 ? CUT_FRAMES : 0;
+}
+
+export type Layer = { index: number; frame: number; x: number; held: boolean };
 
 /**
- * Frame (inside the beat) where the prop pops in: just before the word that calls it up is spoken, read from the
- * line's text and spread over the voiced frames (as the subtitles are), else ~0.35 s in.
+ * The beat layers on screen at episode frame `g`, bottom to top: the beat that is playing, and during a whip the
+ * outgoing beat held on its last frame underneath the incoming one. Each layer is a full-canvas opaque picture
+ * (its own background, wash, cast and stage) offset by `x`.
  */
-export function propEntryFrame(text: string | null | undefined, rx: RegExp | null, envelope: number[], durationInFrames: number): number {
-  const latest = Math.max(PROP_ENTRY, Math.min(durationInFrames - 20, Math.round(durationInFrames * 0.6)));
+export function layersAt(beats: Beat[], g: number, reduced = false): Layer[] {
+  const out: Layer[] = [];
+  beats.forEach((b, i) => {
+    const local = g - b.startFrame;
+    if (local < 0 || local >= b.durationInFrames + holdFrames(beats, i)) return;
+    const held = local >= b.durationInFrames;
+    out.push({ index: i, frame: held ? b.durationInFrames - 1 : local, x: held || reduced ? 0 : whipOffset(cutDirection(beats, i), local), held });
+  });
+  return out;
+}
+
+/** Whether opaque full-width layers at offsets `xs` cover every column of a `width`-px canvas. */
+export function coversCanvas(xs: number[], width = 1080): boolean {
+  const spans = xs.map((x) => [Math.max(0, x), Math.min(width, x + width)] as const).filter(([a, b]) => b > a).sort((p, q) => p[0] - q[0]);
+  let reach = 0;
+  for (const [a, b] of spans) {
+    if (a > reach + 0.5) return false;
+    reach = Math.max(reach, b);
+  }
+  return reach >= width - 0.5;
+}
+
+// ------------------------------------------------------------------ speech onset
+/** A frame counts as speech when the voice loudness is over this (the envelope is 0..1, noise floor removed). */
+export const SPEECH_THRESHOLD = 0.12;
+
+/**
+ * First and last spoken frames of a beat from its loudness envelope: the first frame where two frames in a row are
+ * over the threshold, and the frame after the last such frame. No envelope (or silence): the whole beat.
+ */
+export function speechBounds(envelope: number[] | null | undefined, durationInFrames: number): { start: number; end: number } {
+  const env = envelope ?? [];
+  const n = Math.min(env.length, durationInFrames);
+  const loud = (i: number) => (env[i] ?? 0) > SPEECH_THRESHOLD;
+  let start = -1;
+  for (let i = 0; i < n; i++) {
+    if (loud(i) && (i + 1 >= n || loud(i + 1))) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return { start: 0, end: durationInFrames };
+  let end = start + 1;
+  for (let i = n - 1; i > start; i--) {
+    if (loud(i) && loud(i - 1)) {
+      end = i + 1;
+      break;
+    }
+  }
+  return { start, end: Math.max(start + 1, Math.min(durationInFrames, end)) };
+}
+
+/**
+ * Whether the beat's subtitle shows at `frame`: never before the voice starts, and never while the beat is still
+ * whipping in over the previous one (so no subtitle floats over the overlap).
+ */
+export function subtitleVisible(b: Pick<Beat, "speechStart">, frame: number, cutDir: -1 | 0 | 1): boolean {
+  return frame >= b.speechStart && !(cutDir !== 0 && frame < CUT_FRAMES);
+}
+
+// ------------------------------------------------------------------ lower-zone subtitles
+/** The subtitle band on the 1080×1920 canvas: under the characters' hands, above the platforms' bottom UI. */
+export const SUBTITLE_BAND = { left: 60, width: 880, top: 1540, bottom: 1630 } as const;
+const PILL_PAD = { x: 22, y: 9 };
+const LINE = 1.12;
+
+/** Font size, lines and the dark pill's box for one subtitle chunk, always inside the band. */
+export function subtitleLayout(text: string): { size: number; lines: string[]; pill: { x: number; y: number; w: number; h: number } } {
+  const inner = SUBTITLE_BAND.width - 2 * PILL_PAD.x;
+  const maxH = SUBTITLE_BAND.bottom - SUBTITLE_BAND.top;
+  let size = 46;
+  let lines = [text];
+  // one line, as large as fits (46 → 32 px); else two lines at the size whose two lines fit the band's height
+  for (; size >= 32 && textWidth(text, size) > inner; size -= 2);
+  if (size < 32) {
+    size = Math.floor((maxH - 2 * PILL_PAD.y) / (2 * LINE));
+    lines = wrapHeadline(text, size, inner).slice(0, 2);
+  }
+  const w = Math.min(SUBTITLE_BAND.width, Math.max(...lines.map((l) => textWidth(l, size))) + 2 * PILL_PAD.x);
+  const h = Math.ceil(lines.length * size * LINE + 2 * PILL_PAD.y);
+  const y = SUBTITLE_BAND.top + (maxH - h) / 2;
+  return { size, lines, pill: { x: SUBTITLE_BAND.left + (SUBTITLE_BAND.width - w) / 2, y, w, h } };
+}
+
+// ------------------------------------------------------------------ evidence takeover layout
+/** Evidence Takeover: the hero stage (70 % of the canvas width, y 340..1160) and the speaker's corner cameo. */
+export const TAKEOVER_HERO = { x: 162, y: 340, w: 756, h: 820 } as const;
+export const CAMEO = { w: 324, h: 320, bottom: 1500 } as const;
+/** The speaker's cameo box: lower-left for Uco, lower-right for Ocu, inside the safe columns, ending at y 1500. */
+export function cameoBox(who: "uco" | "ocu"): { x: number; y: number; w: number; h: number } {
+  return { x: who === "uco" ? 60 : 940 - CAMEO.w, y: CAMEO.bottom - CAMEO.h, w: CAMEO.w, h: CAMEO.h };
+}
+
+/** A prop without a keyword pops in this long after the voice starts (0.25 s). */
+export const PROP_LEAD = Math.round(0.25 * FPS);
+
+/**
+ * Frame (inside the beat) where the prop pops in, never before the voice starts: on the hook beat right as the voice
+ * starts (frame one hooks the viewer), else just before the word that calls it up is spoken (read from the line's
+ * text and spread over the spoken frames, as the subtitles are), else 0.25 s after the voice starts.
+ */
+export function propEntryFrame(
+  text: string | null | undefined,
+  rx: RegExp | null,
+  envelope: number[],
+  durationInFrames: number,
+  opts: { speechStart?: number; speechEnd?: number; hook?: boolean } = {},
+): number {
+  const start = Math.max(0, opts.speechStart ?? 0);
+  const end = Math.max(start + 1, Math.min(durationInFrames, opts.speechEnd ?? durationInFrames));
+  if (opts.hook) return start;
+  const latest = Math.max(start + PROP_LEAD, Math.min(durationInFrames - 20, Math.round(durationInFrames * 0.6)));
   const t = text ?? "";
   const m = rx ? new RegExp(rx.source, rx.flags.replace("g", "")).exec(t) : null;
-  if (!m || !t.length) return Math.min(PROP_ENTRY, latest);
-  const voiced = envelope.map((v, i) => (v > 0.08 ? i : -1)).filter((i) => i >= 0 && i < durationInFrames);
-  const frames = voiced.length >= 6 ? voiced : Array.from({ length: durationInFrames }, (_, i) => i);
+  if (!m || !t.length) return Math.min(start + PROP_LEAD, Math.max(start, durationInFrames - 1));
+  const voiced = envelope.map((v, i) => (v > 0.08 ? i : -1)).filter((i) => i >= start && i < end);
+  const frames = voiced.length >= 6 ? voiced : Array.from({ length: end - start }, (_, i) => start + i);
   const at = frames[Math.min(frames.length - 1, Math.floor((m.index / t.length) * frames.length))] - 3;
-  return Math.max(6, Math.min(latest, at));
+  return Math.max(start, Math.min(latest, at));
 }
 
 /** Frame (inside the outro) where Ocu's arrow taps FOLLOW +: after the arrow has drawn on, with time left to read

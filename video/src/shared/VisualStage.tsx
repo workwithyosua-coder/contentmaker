@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Img, interpolate, spring, useVideoConfig } from "remotion";
 import { propFile } from "../assets";
 import { assetSrc } from "../assets/src";
-import type { Overlay } from "../beats";
+import type { BeatStat, Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
@@ -40,7 +40,9 @@ export const kineticHeight = (text: string, w: number) => {
  * 2–4 punchy words floating on the stage. Paper: a red stamp that slams in (frame 10). HUD: an amber bracketed
  * readout that types on.
  */
-export function KineticText({ text, box, skin, frame, reduced, align = "center" }: { text: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; align?: "left" | "center" | "right" }) {
+export function KineticText({ text, box, skin, frame: rawFrame, reduced, align = "center", at = 10 }: { text: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; align?: "left" | "center" | "right"; /** frame the callout lands on (the voice onset) */ at?: number }) {
+  // every animation below was drawn for a landing at frame 10; shift the clock so it lands at `at`
+  const frame = rawFrame - at + 10;
   const { size, lines } = kineticFit(text, box.w);
   const bob = reduced ? 0 : Math.sin(frame / 16) * 4;
   const justify = align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center";
@@ -421,4 +423,103 @@ export function ThoughtBubble({ box, toward, skin, frame, reduced, children }: {
       </div>
     </div>
   );
+}
+
+// ------------------------------------------------------------------ evidence takeover
+/**
+ * Evidence Takeover hero: a framed stage centre screen (70 % of the canvas width) that springs in as the voice starts
+ * and pushes in slowly (1.00 → 1.05) for the whole beat. `children` draws the prop in canvas coordinates inside
+ * `propBox`; the stat card (a bold headline over a subline) sits at the bottom of the frame, or fills it alone.
+ */
+export function EvidenceStage({
+  hero,
+  skin,
+  frame,
+  duration,
+  at,
+  stat,
+  reduced,
+  children,
+}: {
+  hero: Box;
+  skin: PropSkin;
+  frame: number;
+  duration: number;
+  at: number;
+  stat: BeatStat | null;
+  reduced: boolean;
+  children?: (propBox: Box) => React.ReactNode;
+}) {
+  const { fps } = useVideoConfig();
+  const pop = reduced ? 1 : spring({ frame: frame - at, fps, config: { mass: 0.55, damping: 11, stiffness: 210 } });
+  const zoom = reduced ? 1 : interpolate(frame, [at, Math.max(at + 1, duration)], [1, 1.05], clamp);
+  const k = STAGE_INK[skin];
+  const paper = skin === "paper";
+  const pad = 26;
+  const statH = stat ? (children ? 200 : hero.h - 2 * pad) : 0;
+  const propBox: Box = { x: hero.x + pad, y: hero.y + pad, w: hero.w - 2 * pad, h: hero.h - 2 * pad - (stat ? statH + 18 : 0) };
+  const statBox: Box = { x: hero.x + pad, y: hero.y + hero.h - pad - statH, w: hero.w - 2 * pad, h: statH };
+  const headSize = stat ? statFit(stat.headline, statBox.w - 40, children ? 84 : 150) : 0;
+  const subSize = stat?.subline ? statFit(stat.subline, statBox.w - 40, children ? 40 : 54) : 0;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        transform: `scale(${(0.6 + 0.4 * pop) * zoom})`,
+        transformOrigin: `${hero.x + hero.w / 2}px ${hero.y + hero.h / 2}px`,
+        opacity: Math.min(1, pop * 1.6),
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: hero.x,
+          top: hero.y,
+          width: hero.w,
+          height: hero.h,
+          boxSizing: "border-box",
+          background: paper ? "#FFFDF6" : "rgba(15,23,42,0.92)",
+          border: paper ? `8px solid ${INK}` : `4px solid ${k.line}`,
+          boxShadow: paper ? `14px 14px 0 ${INK}` : `${k.glow}, inset 0 0 0 2px rgba(56,189,248,0.25)`,
+          borderRadius: paper ? 6 : 4,
+        }}
+      />
+      {children && propBox.h > 120 && children(propBox)}
+      {stat && (
+        <div
+          style={{
+            position: "absolute",
+            left: statBox.x,
+            top: statBox.y,
+            width: statBox.w,
+            height: statBox.h,
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            background: paper ? "#D9381E" : "#0B1222",
+            border: paper ? `6px solid ${INK}` : `3px solid ${k.accent}`,
+            color: paper ? "#FFFFFF" : k.accent,
+            textAlign: "center",
+            padding: "10px 20px",
+          }}
+        >
+          <div style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: headSize, lineHeight: 1, letterSpacing: 1, whiteSpace: "nowrap" }}>{stat.headline}</div>
+          {stat.subline && (
+            <div style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: subSize, lineHeight: 1.1, letterSpacing: 0.5, whiteSpace: "nowrap", color: paper ? "#FFE600" : k.text }}>{stat.subline}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Largest size (≤ max) at which one line of `text` fits `w` px. */
+function statFit(text: string, w: number, max: number) {
+  let size = max;
+  while (size > 24 && textWidth(text.toUpperCase(), size) > w) size -= 2;
+  return size;
 }

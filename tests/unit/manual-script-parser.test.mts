@@ -148,3 +148,36 @@ test("separate direction box; a backwards timestamp is flagged", () => {
   assert.equal(r.direction.cta, false);
   assert.ok(r.warnings.some((w) => /Line 2 starts at 0:05/.test(w)));
 });
+
+test("Evidence Takeover cues: layout: takeover / takeover: true and a quoted stat with its own '|'", () => {
+  const r = parseManualScript({
+    script: `1. UCO (0:00-0:04): "Banjirnya sampai 20 kilometer."
+[EN] "The flood reached 20 kilometres."
+2. OCU (0:04-0:08 | angry): "Dan ikannya mati dalam dua hari."
+[EN] "And the fish died within two days."
+3. UCO: "Terus?"
+[EN] "And then?"
+LINE-BY-LINE VISUAL, ON-SCREEN TEXT & SFX CUES
+- Line 1 (Uco): layout: takeover · prop: bubur-mixed · stat: "20 KM | MATI DALAM 2 HARI" · SFX: stamp
+- Line 2 (Ocu): takeover: true | stat: "<50 EKOR | HAMIL 15-16 BULAN"`,
+  });
+  const [a, b, c] = r.lines;
+  assert.equal(a.layout, "takeover");
+  assert.equal(a.stat, "20 KM | MATI DALAM 2 HARI");
+  assert.equal(a.prop_tag, "bubur-mixed");
+  assert.deepEqual(a.sfx, ["stamp"]);
+  assert.equal(b.layout, "takeover");
+  assert.equal(b.stat, "<50 EKOR | HAMIL 15-16 BULAN");
+  assert.equal(b.expression, "angry", "an angry note marks the delivery");
+  assert.equal(b.emotion, null, "no angry sprite: the pose stays automatic");
+  assert.equal(c.layout, "standard", "omitted means standard");
+  assert.equal(c.stat, null);
+  assert.ok(!r.warnings.some((w) => /angry/.test(w)), r.warnings.join(" | "));
+});
+
+test("a takeover with nothing to show warns and falls back; takeover: false is standard", () => {
+  const r = parseManualScript({ script: `UCO: "Halo."\n[EN] "Hi."\nlayout: takeover\nOCU: "Hai."\n[EN] "Hey."\ntakeover: false` });
+  assert.equal(r.lines[0].layout, "takeover");
+  assert.ok(r.warnings.some((w) => /Evidence Takeover needs/.test(w)));
+  assert.equal(r.lines[1].layout, "standard");
+});

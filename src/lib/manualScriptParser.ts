@@ -16,6 +16,9 @@
 //   - Pause 0.3s between lines
 //   LINE-BY-LINE VISUAL, ON-SCREEN TEXT & SFX CUES
 //   - Line 1 (Uco): Dutch tilt, phone feed of packed cafes. SFX: record scratch · on screen: "KRIMINAL!"
+//   - Line 6 (Ocu): layout: takeover · prop: peta-banjir · stat: "20 KM | MATI DALAM 2 HARI"
+//     (Evidence Takeover: the prop / stat card centre stage, the speaker in a corner cameo; "takeover: true" works too.
+//      Quote the stat so its "|" isn't read as a cue separator.)
 // Simple format: "UCO: …" / "OCU: …" rows, with cue rows under a line (SFX:, PROP:, POSE:, SHOT:, TEXT:, …).
 
 import { CAMERA_SHOTS, EMOTIONS, OVERLAYS } from "../../video/src/beats";
@@ -47,6 +50,10 @@ export type ManualLine = {
   sfx: string[];
   overlay: string | null;
   callouts: string[] | null;
+  /** "takeover" (Evidence Takeover) or "standard" */
+  layout: "standard" | "takeover";
+  /** Evidence Takeover data callout "HEADLINE | SUBLINE", or null */
+  stat: string | null;
 };
 
 export type ManualScript = {
@@ -162,9 +169,14 @@ type Cues = {
   visual: string[];
   start: number | null;
   end: number | null;
+  layout: "standard" | "takeover" | null;
+  stat: string | null;
+  angry: boolean;
 };
-const emptyCues = (): Cues => ({ sfx: [], prop: null, shot: null, pose: null, text: null, stamp: null, callouts: null, overlay: null, beat: null, visual: [], start: null, end: null });
-const CUE = /^(sfx|sound|bunyi|prop|shot|camera|kamera|pose|emotion|emosi|ekspresi|on[- ]?screen(?: text)?|text|teks|stamp|callouts?|labels?|overlay|card|visual|beat)\s*[:=]\s*(.+)$/i;
+const emptyCues = (): Cues => ({ sfx: [], prop: null, shot: null, pose: null, text: null, stamp: null, callouts: null, overlay: null, beat: null, visual: [], start: null, end: null, layout: null, stat: null, angry: false });
+const CUE = /^(sfx|sound|bunyi|prop|shot|camera|kamera|pose|emotion|emosi|ekspresi|on[- ]?screen(?: text)?|text|teks|stamp|callouts?|labels?|overlay|card|visual|beat|layout|takeover|stat)\s*[:=]\s*(.+)$/i;
+/** pose words that mean an angry, urgent delivery (no sprite of their own: the pose stays automatic) */
+const ANGRY = /^(angry|marah|furious|murka|urgent)$/;
 
 /** Reads one cue segment into `c`; returns false when it isn't a recognised cue (then it's a visual note). */
 function readCue(seg: string, c: Cues): boolean {
@@ -200,14 +212,22 @@ function readCue(seg: string, c: Cues): boolean {
   else if (/^(callouts?|labels?)$/.test(key)) c.callouts = val.split(/\s*[,+&/]\s*/).map(slug).filter(Boolean);
   else if (/^(overlay|card)$/.test(key)) c.overlay = val.toLowerCase();
   else if (key === "visual") c.visual.push(val);
+  else if (key === "layout") c.layout = /^takeover|evidence/i.test(val) ? "takeover" : "standard";
+  else if (key === "takeover") c.layout = /^(true|yes|ya|on|1)$/i.test(val.trim()) ? "takeover" : "standard";
+  else if (key === "stat") c.stat = unwrapQuoted(val).text.trim() || null;
   else if (key === "beat") c.beat = val;
   return true;
 }
 
 /** Splits a cue string on "|", "·", "•" and on " SFX:" / " on screen:" mid-sentence, then reads each segment. */
 function readCues(s: string, c: Cues) {
-  const segments = s
-    .replace(/\s+(?=(?:sfx|sound|prop|pose|shot|on[- ]?screen(?: text)?|stamp|callouts?|overlay|card)\s*[:=])/gi, " · ")
+  // a quoted stat keeps its own "|" ("stat: \"20 KM | MATI DALAM 2 HARI\""): read it before splitting the rest
+  const rest = s.replace(/\bstat\s*[:=]\s*(["“])([^"”]*)["”]/i, (_, _q: string, v: string) => {
+    c.stat = v.trim() || null;
+    return "";
+  });
+  const segments = rest
+    .replace(/\s+(?=(?:sfx|sound|prop|pose|shot|on[- ]?screen(?: text)?|stamp|callouts?|overlay|card|layout|takeover|stat)\s*[:=])/gi, " · ")
     .split(/\s*[|·•]\s*/);
   for (const seg of segments) if (!readCue(seg, c)) c.visual.push(seg.trim().replace(/[.;]$/, ""));
 }
@@ -387,6 +407,8 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       sfx: [...new Set(c.sfx)].slice(0, 4),
       overlay: null,
       callouts: c.callouts,
+      layout: c.layout ?? "standard",
+      stat: c.stat,
     };
     // beat: explicit marker, else position and wording
     line.beat = beatAlias(c.beat) ?? beatAlias(r.beat) ?? positionalBeat(i, n, `${r.text} ${r.en ?? ""}`, r.thought);
@@ -406,7 +428,12 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       );
       if (hit) line.emotion = hit;
     }
-    if (c.pose) {
+    // an angry / urgent delivery ("pose: angry", "(Uco, angry)", "marah" in the notes): shake + red edge at render
+    const notesLow = [...r.poseHints, ...r.delivery].map((x) => x.toLowerCase());
+    if ((c.pose && ANGRY.test(c.pose)) || notesLow.some((n) => /\b(angry|marah|furious|murka)\b/.test(n))) line.expression = "angry";
+    if (c.pose && ANGRY.test(c.pose)) {
+      // no angry sprite: the pose itself stays automatic
+    } else if (c.pose) {
       if (POSES[r.speaker].includes(c.pose)) line.emotion = c.pose;
       else if ((EMOTIONS as readonly string[]).includes(c.pose)) warnings.push(`Line ${i + 1}: ${r.speaker === "uco" ? "Uco" : "Ocu"} has no "${c.pose}" pose (${POSES[r.speaker].join(", ")}).`);
       else warnings.push(`Line ${i + 1}: unknown pose "${c.pose}".`);
@@ -421,6 +448,7 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       line.important_message = { kicker: words(line.beat, 2), headline: words(c.text ?? c.stamp ?? "", 5), stamp: c.stamp ? words(c.stamp, 3) : null };
       if (c.text && c.text.split(/\s+/).length > 4) warnings.push(`Line ${i + 1}: on-screen text "${c.text}" is over 4 words; only the first 4 show.`);
     }
+    if (line.layout === "takeover" && !line.prop_tag && !line.stat && !line.kinetic_text) warnings.push(`Line ${i + 1}: an Evidence Takeover needs a prop, a stat or on-screen text; it shows as a normal shot.`);
     if (!line.subtitle) warnings.push(`Line ${i + 1} has no [EN] subtitle; it will show none.`);
     return line;
   });

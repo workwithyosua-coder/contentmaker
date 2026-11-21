@@ -59,6 +59,9 @@ const BeatLine = z
     callouts: z.array(slug).max(3).nullable(),
     sfx: z.array(slug).max(4),
     kinetic_text: z.string().trim().max(48).nullable(),
+    // Evidence Takeover (optional: older lines and the AI path have neither)
+    layout: z.enum(["standard", "takeover"]).nullable().optional(),
+    stat: z.string().trim().max(90).nullable().optional(),
     // carried over from the parser as they are
     beat: z.enum(BEATS),
     expression: z.enum(EXPRESSIONS),

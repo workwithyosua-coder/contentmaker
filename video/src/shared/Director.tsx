@@ -9,8 +9,10 @@ import { CastFigure, HEAVY } from "../cast/CueShared";
 import type { EpisodeLine } from "../types";
 import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
-import { CUT_FRAMES, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, whipOffset } from "./motion";
-import { ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
+import type { MouthStage } from "./motion";
+import { CUT_FRAMES, blinkAt, cameoBox, ctaTapFrame, chatterStage, levelAt, mouthStage, TAKEOVER_HERO } from "./motion";
+import { kineticAt } from "./sfxCues";
+import { EvidenceStage, ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
 
 // The Director lays out each beat as a camera shot over the style's background. There is no headline card: the
 // characters own the middle and lower frame, and an open "visual stage" beside (solo) or above (two-shot) them
@@ -87,7 +89,6 @@ export function DirectorStage({
   frame,
   skin,
   reduced,
-  cutDir = 0,
 }: {
   beat: Beat;
   line: EpisodeLine | null;
@@ -95,8 +96,6 @@ export function DirectorStage({
   frame: number;
   skin: DirectorSkin;
   reduced: boolean;
-  /** the cut into this beat: +1 whips in from the right, −1 from the left, 0 a plain cut */
-  cutDir?: -1 | 0 | 1;
 }) {
   const shot = beat.cameraShot;
   const cta = shot === "cta-stinger";
@@ -112,6 +111,9 @@ export function DirectorStage({
   const label = propLabel(beat.importantMessage.stamp, line?.on_screen_text, beat.importantMessage.headline);
   const hasProp = Boolean(beat.propImage || beat.sceneImageUrl || beat.propTag !== "none" || label);
   const kinetic = beat.kinetic;
+  if (beat.layout === "takeover" && !cta && !beat.thought && (hasProp || beat.stat || kinetic)) {
+    return <TakeoverStage beat={beat} frame={frame} g={g} skin={skin} reduced={reduced} label={label} hasProp={hasProp} mouth={mouth} level={level} />;
+  }
 
   // Figure frame height for a wanted size, kept between "hair under the stage top" and "mouth above the subtitles",
   // with the frame's bottom on the bottom of the video (no stretching: the sprite keeps its own proportions).
@@ -244,15 +246,11 @@ export function DirectorStage({
       <PropStage box={box} skin={skin.prop} tag={beat.propTag} label={label} sceneImageUrl={beat.sceneImageUrl} frame={frame} reduced={reduced} tilt={skin.prop === "paper" && !inBubble ? 3 : 0} delay={inBubble ? 10 : beat.propEntry} />
     );
   const thinker = beat.thought ? speaker : null;
-  const whip = reduced ? 0 : whipOffset(cutDir, frame);
   const ctaMark = cta ? Math.min(820, 150 * WORDMARK_ASPECT) : 0;
 
   return (
     <AbsoluteFill>
       {washFor && <Wash color={skin.wash[washFor]} kind={skin.wash.kind} cx={placed[0].head.cx} cy={placed[0].head.top + placed[0].head.height / 2} />}
-      {/* everything but the backdrop wash whips in on a cut (the wash and the style's background stay put, so the
-          frame is always fully covered) */}
-      <AbsoluteFill style={{ transform: whip ? `translateX(${whip}px)` : undefined }}>
       {/* speed lines: background layer, behind the cast and every prop, card and label */}
       {energetic && <SpeedLines cx={speaker.head.cx} cy={speaker.head.top + speaker.head.height * 0.45} r={speaker.head.height * 0.62} color={skin.fxColor} frame={g} reduced={reduced} />}
       {/* thought-bubble mode: everything behind the thinker dims */}
@@ -280,14 +278,14 @@ export function DirectorStage({
         </React.Fragment>
       ))}
       {/* the visual stage, in front of the cast */}
-      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} box={cardBox} skin={skin.prop} frame={frame} reduced={reduced} duration={beat.durationInFrames} />}
+      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} box={cardBox} skin={skin.prop} frame={frame - beat.speechStart} reduced={reduced} duration={beat.durationInFrames - beat.speechStart} />}
       {propBox && propNode(propBox)}
       {bubbleBox && thinker && (
         <ThoughtBubble box={bubbleBox} toward={{ x: thinker.head.cx + (bubbleBox.x > thinker.head.cx ? 1 : -1) * thinker.head.height * 0.3, y: thinker.head.top + thinker.head.height * 0.1 }} skin={skin.prop} frame={frame} reduced={reduced}>
           {hasProp ? <div style={{ position: "relative", width: "100%", height: "100%" }}>{propNode({ x: 0, y: 0, w: (bubbleBox as Box).w * 0.62, h: (bubbleBox as Box).h * 0.6 }, true)}</div> : undefined}
         </ThoughtBubble>
       )}
-      {kineticBox && kinetic && !cta && <KineticText text={kinetic} box={kineticBox} skin={skin.prop} frame={frame} reduced={reduced} align={kineticAlign} />}
+      {kineticBox && kinetic && !cta && <KineticText text={kinetic} box={kineticBox} skin={skin.prop} frame={frame} reduced={reduced} align={kineticAlign} at={kineticAt(beat)} />}
       {cta && (
         <>
           <div style={{ position: "absolute", left: 540 - ctaMark / 2, top: STAGE_TOP, width: ctaMark, height: ctaMark / WORDMARK_ASPECT }}>
@@ -309,8 +307,7 @@ export function DirectorStage({
           <FollowHandle skin={skin.prop} frame={frame} reduced={reduced} tap={tap} />
         </>
       )}
-      </AbsoluteFill>
-      {whip !== 0 && <WhipStreaks dir={cutDir} frame={frame} color={skin.fxColor} />}
+      {beat.angry && <AngryVignette />}
     </AbsoluteFill>
   );
 }
@@ -461,7 +458,7 @@ function FollowHandle({ skin, frame, reduced, tap }: { skin: PropSkin; frame: nu
 }
 
 /** Horizontal speed streaks across the frame during the 4-frame whip cut, trailing the move. */
-function WhipStreaks({ dir, frame, color }: { dir: -1 | 0 | 1; frame: number; color: string }) {
+export function WhipStreaks({ dir, frame, color }: { dir: -1 | 0 | 1; frame: number; color: string }) {
   if (!dir || frame >= CUT_FRAMES) return null;
   const o = 0.55 * (1 - frame / CUT_FRAMES);
   return (
@@ -529,4 +526,80 @@ function Wash({ color, kind, cx, cy }: { color: string; kind: "flat" | "glow"; c
     );
   }
   return <AbsoluteFill style={{ background: `radial-gradient(circle 760px at ${cx}px ${cy}px, ${color} 0%, transparent 70%)` }} />;
+}
+
+/** Angry delivery: a dark-red edge vignette (the centre, faces and text stay clear). */
+function AngryVignette() {
+  return <AbsoluteFill style={{ pointerEvents: "none", background: "radial-gradient(ellipse 78% 62% at 50% 46%, transparent 56%, rgba(120,10,10,0.52) 100%)" }} />;
+}
+
+/**
+ * Evidence Takeover: the prop and / or stat card centre stage (70 % of the canvas width, y 340..1160) and the speaker
+ * in a framed corner cameo (Uco lower-left, Ocu lower-right, ending at y 1500, clear of the subtitles at 1540+),
+ * still lip-syncing, blinking and bouncing with the voice.
+ */
+function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, level }: { beat: Beat; frame: number; g: number; skin: DirectorSkin; reduced: boolean; label: string | null; hasProp: boolean; mouth: MouthStage; level: number }) {
+  const who = beat.speaker === "ocu" ? "ocu" : "uco";
+  const at = beat.speechStart;
+  const stat = beat.stat ?? (!hasProp && beat.kinetic ? { headline: beat.kinetic, subline: null } : null);
+  const box = cameoBox(who);
+  const f = headFracFor(who, beat.emotion).frac;
+  // head fills ~62 % of the cameo's height, hair 26 px under its top edge, face centred
+  const H = (box.h * 0.62) / (f.chin - f.hair);
+  const s = H / 340;
+  const w = 180 * s;
+  const left = box.w / 2 - f.faceX * w;
+  const top = 26 - f.hair * H;
+  const cameoPop = reduced ? 1 : interpolate(frame, [0, 6], [0.85, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.back(2)) });
+  const paper = skin.prop === "paper";
+  return (
+    <AbsoluteFill>
+      <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} reduced={reduced}>
+        {hasProp
+          ? (pb) =>
+              beat.propImage && !beat.sceneImageUrl ? (
+                <PngPropStage name={beat.propImage} box={pb} skin={skin.prop} callouts={beat.callouts} labels="sides" frame={frame} reduced={reduced} delay={beat.propEntry} />
+              ) : (
+                <PropStage box={pb} skin={skin.prop} tag={beat.propTag} label={label} sceneImageUrl={beat.sceneImageUrl} frame={frame} reduced={reduced} tilt={0} delay={beat.propEntry} />
+              )
+          : undefined}
+      </EvidenceStage>
+      <div
+        style={{
+          position: "absolute",
+          left: box.x,
+          top: box.y,
+          width: box.w,
+          height: box.h,
+          boxSizing: "border-box",
+          overflow: "hidden",
+          background: skin.wash[who],
+          border: paper ? "6px solid #141619" : `3px solid ${who === "uco" ? "#F59E0B" : "#38BDF8"}`,
+          boxShadow: paper ? "8px 8px 0 #141619" : skin.rim[who] ? `0 0 16px ${skin.rim[who]}` : undefined,
+          borderRadius: paper ? 4 : 6,
+          transform: `scale(${cameoPop})`,
+          transformOrigin: who === "uco" ? "0% 100%" : "100% 100%",
+        }}
+      >
+        <CastFigure cx={left + w / 2} top={top} s={s}>
+          <CastPuppet
+            who={who}
+            variant={skin.variant}
+            emotion={beat.emotion}
+            mouth={mouth}
+            blink={reduced ? 0 : blinkAt(`${beat.id}-${who}`, frame, beat.durationInFrames)}
+            thought={false}
+            level={level}
+            frame={frame}
+            globalFrame={g}
+            look={0}
+            reduced={reduced}
+            rim={null}
+            fx="none"
+          />
+        </CastFigure>
+      </div>
+      {beat.angry && <AngryVignette />}
+    </AbsoluteFill>
+  );
 }

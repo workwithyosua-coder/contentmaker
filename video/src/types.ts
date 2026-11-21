@@ -43,6 +43,10 @@ export type ManifestLine = {
   kinetic_text?: string | null;
   /** callout labels on the line's prop (part ids from video/src/props/library.ts) */
   callouts?: string[] | null;
+  /** "takeover": Evidence Takeover (prop / stat centre stage, speaker in a corner cameo); omitted = standard */
+  layout?: string | null;
+  /** Evidence Takeover data callout, "HEADLINE | SUBLINE" (e.g. "20 KM | MATI DALAM 2 HARI") */
+  stat?: string | null;
   hasAudio: boolean;
 };
 

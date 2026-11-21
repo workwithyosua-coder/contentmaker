@@ -1,7 +1,7 @@
 import { propFile, sfxFile } from "./assets";
-import { KINETIC_SLAM, sfxCuesFor } from "./shared/sfxCues";
+import { KINETIC_SLAM, scriptSfxFrame, sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
-import { PROP_ENTRY, propEntryFrame } from "./shared/motion";
+import { PROP_LEAD, propEntryFrame, speechBounds } from "./shared/motion";
 import type { RenderDirection } from "./direction";
 import { CTA_HOLD, END_FRAMES, ctaMergesIntoLastLine, timeline, type EpisodeLine, type ManifestLine } from "./types";
 
@@ -51,9 +51,41 @@ export type Beat = {
   /** sound effects the script asks for at the start of this beat (public/sfx names) */
   sfx: string[];
   sceneImageUrl: string | null;
-  /** frame inside the beat where the prop pops in (just before its keyword is spoken, else ~0.35 s) */
+  /** frame inside the beat where the prop pops in (on the voice for the hook, its keyword, else 0.25 s after) */
   propEntry: number;
+  /** first and last spoken frames inside the beat (from the voice loudness; the whole beat without a recording) */
+  speechStart: number;
+  speechEnd: number;
+  /** "standard", or "takeover": the prop / stat card centre stage with the speaker in a corner cameo */
+  layout: BeatLayout;
+  /** bold data callout on the Evidence Takeover card ("20 KM" over "MATI DALAM 2 HARI") */
+  stat: BeatStat | null;
+  /** angry delivery or a stamp SFX: a short camera shake on the impact frame */
+  urgent: boolean;
+  /** frame (inside the beat) of the shake, or null */
+  impactFrame: number | null;
+  /** angry delivery: a dark-red edge vignette */
+  angry: boolean;
 };
+
+export const BEAT_LAYOUTS = ["standard", "takeover"] as const;
+export type BeatLayout = (typeof BEAT_LAYOUTS)[number];
+export type BeatStat = { headline: string; subline: string | null };
+
+/** "20 KM | MATI DALAM 2 HARI" → headline and subline (quotes stripped, ≤ 32 / 48 characters); empty → null. */
+export function parseStat(raw: string | null | undefined): BeatStat | null {
+  const clean = (x: string | undefined, max: number) => (x ?? "").replace(/["“”„«»]/g, "").replace(/\s+/g, " ").trim().slice(0, max).trim();
+  const [h, ...rest] = (raw ?? "").split("|");
+  const headline = clean(h, 32);
+  const subline = clean(rest.join(" "), 48);
+  if (!headline && !subline) return null;
+  return headline ? { headline, subline: subline || null } : { headline: subline, subline: null };
+}
+
+/** A line's layout: "takeover" when the script asks for it ("layout: takeover" / "takeover: true"), else standard. */
+export function layoutOf(l: { layout?: string | null }): BeatLayout {
+  return String(l.layout ?? "").trim().toLowerCase() === "takeover" ? "takeover" : "standard";
+}
 
 export const OVERLAYS = ["wave-graph", "brain-badge"] as const;
 export type Overlay = (typeof OVERLAYS)[number];
@@ -308,11 +340,12 @@ function timeWords(text: string, from: number, to: number, voiced: number[] | nu
  * so pauses fall between chunks. Without a recording, chunks share the beat evenly. Each chunk shows until the
  * next one starts (no flicker in short pauses); the last one holds to the end of the beat.
  */
-export function timeSubtitle(text: string | null, envelope: number[], durationInFrames: number): SubtitleChunk[] {
+export function timeSubtitle(text: string | null, envelope: number[], durationInFrames: number, speech = speechBounds(envelope, durationInFrames)): SubtitleChunk[] {
   if (!text) return [];
   const chunks = chunkSubtitle(text);
-  const voiced = envelope.map((v, i) => (v > 0.08 ? i : -1)).filter((i) => i >= 0 && i < durationInFrames);
-  const frames = voiced.length >= chunks.length * 6 ? voiced : Array.from({ length: durationInFrames }, (_, i) => i);
+  // the first chunk appears as the voice starts; words are spread over the spoken frames [speech start, speech end)
+  const voiced = envelope.map((v, i) => (v > 0.08 ? i : -1)).filter((i) => i >= speech.start && i < speech.end);
+  const frames = voiced.length >= chunks.length * 6 ? voiced : Array.from({ length: Math.max(1, speech.end - speech.start) }, (_, i) => speech.start + i);
   const weights = chunks.map((c) => c.length + 8);
   const total = weights.reduce((a, b) => a + b, 0);
   const out: SubtitleChunk[] = [];
@@ -320,7 +353,7 @@ export function timeSubtitle(text: string | null, envelope: number[], durationIn
   chunks.forEach((c, i) => {
     const startIdx = Math.min(frames.length - 1, Math.round((acc / total) * frames.length));
     acc += weights[i];
-    out.push({ text: c, startFrame: i === 0 ? 0 : frames[startIdx], endFrame: durationInFrames, words: [] });
+    out.push({ text: c, startFrame: i === 0 ? speech.start : frames[startIdx], endFrame: durationInFrames, words: [] });
   });
   // snap each chunk start to where the voice resumes after a pause (≥ 6 quiet frames), when one is within 24 frames
   const resumes = frames === voiced ? voiced.filter((f, i) => i > 0 && f - voiced[i - 1] >= 6) : [];
@@ -446,7 +479,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     durationInFrames: Math.max(1, (starts[i + 1] ?? end) - starts[i]),
     importantMessage: clampCue(l.important_message, fallbackCue(l)),
     subtitleEn: englishOf(l),
-    subtitleChunks: timeSubtitle(englishOf(l), l.envelope ?? [], Math.max(1, (starts[i + 1] ?? end) - starts[i])),
+    subtitleChunks: [],
     cameraShot: directed[i].cameraShot,
     emotion: directed[i].emotion,
     // exact (manual) scripts: a coded prop only when the line names one; no keyword-guessed props
@@ -454,16 +487,33 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     ...stageFor(l, directed[i], exact),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
     propEntry: 0,
+    speechStart: 0,
+    speechEnd: 0,
+    layout: l.thought_bubble ? "standard" : layoutOf(l),
+    stat: parseStat(l.stat),
+    urgent: false,
+    impactFrame: null,
+    angry: false,
   }));
   beats.forEach((b, i) => {
     const l = lines[i];
-    b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, l.envelope ?? [], b.durationInFrames);
+    const env = l.envelope ?? [];
+    const speech = speechBounds(env, b.durationInFrames);
+    b.speechStart = speech.start;
+    b.speechEnd = speech.end;
+    b.subtitleChunks = timeSubtitle(englishOf(l), env, b.durationInFrames, speech);
+    b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, env, b.durationInFrames, { ...speech, hook: i === 0 });
+    // urgent: an angry / furious delivery shakes as the voice starts; a stamp SFX shakes when it lands
+    b.angry = /^(angry|furious)$/.test(String(l.expression ?? "")) && !b.thought;
+    const stamp = b.sfx.indexOf("stamp");
+    b.impactFrame = stamp >= 0 ? scriptSfxFrame(speech.start, stamp) : b.angry ? speech.start : null;
+    b.urgent = b.impactFrame !== null;
   });
   if (direction?.cta === false) return beats;
   if (ctaMergesIntoLastLine(lines, direction)) {
     // the last line is the call to action: the outro two-shot plays while it's spoken, then holds 0.5 s
     const last = beats[beats.length - 1];
-    Object.assign(last, { cameraShot: "cta-stinger", durationInFrames: last.durationInFrames + CTA_HOLD, propImage: null, propTag: "none", callouts: [], overlay: null, kinetic: null, thought: false });
+    Object.assign(last, { cameraShot: "cta-stinger", durationInFrames: last.durationInFrames + CTA_HOLD, propImage: null, propTag: "none", callouts: [], overlay: null, kinetic: null, thought: false, layout: "standard", stat: null });
     return beats;
   }
   beats.push({
@@ -486,7 +536,14 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     kinetic: direction?.ctaText || CTA_CUE.stamp || null,
     sfx: [],
     sceneImageUrl: null,
-    propEntry: PROP_ENTRY,
+    propEntry: PROP_LEAD,
+    speechStart: 0,
+    speechEnd: END_FRAMES,
+    layout: "standard",
+    stat: null,
+    urgent: false,
+    impactFrame: null,
+    angry: false,
   });
   return beats;
 }

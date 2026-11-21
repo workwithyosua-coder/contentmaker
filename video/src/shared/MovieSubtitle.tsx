@@ -1,71 +1,92 @@
 import "@fontsource/montserrat/800.css";
 import React from "react";
-import { interpolate } from "remotion";
-import type { SubtitleChunk } from "../beats";
-import { activeWord } from "./motion";
+import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
+import type { Beat, SubtitleChunk } from "../beats";
+import { SUBTITLE_BAND, activeWord, subtitleLayout, subtitleVisible } from "./motion";
 
-// Kinetic English subtitles: white text with a thick ink outline, no box, one 3–5 word chunk at a time, in the lower
-// safe zone (x 60..940, y 1420..1520, centred on 1470): below every face, mouth, hand-held prop and the visual stage,
-// and above the platforms' bottom controls and caption text. The word being spoken turns warm yellow (with a small
-// lift) as the voice reaches it. Chunks are short (beats.ts): one line at 50 px, or two at 44 px, never clipped.
+// Kinetic English subtitles in the true lower safe zone (x 60..940, y 1540..1630): under both characters' hands and
+// folded arms, above the platforms' bottom controls and caption text. One 3–5 word chunk at a time on a compact dark
+// pill, over a soft dark scrim along the bottom of the frame, so white text and the warm-yellow spoken word stay
+// readable on the paper and HUD styles alike. A chunk never shows before the voice starts, nor while its beat is
+// still whipping in over the previous one.
 
+export { SUBTITLE_BAND };
 export const SUBTITLE_HIGHLIGHT = "#FFD43B";
+const PILL = "rgba(11, 17, 32, 0.86)";
 
-export const SUBTITLE_BAND = { left: 60, width: 880, top: 1420, bottom: 1520 } as const;
-const BAND = SUBTITLE_BAND;
+/** A soft dark gradient along the bottom of the frame, behind the subtitle pill. */
+export function SubtitleScrim() {
+  return (
+    <AbsoluteFill
+      style={{
+        pointerEvents: "none",
+        top: SUBTITLE_BAND.top - 260,
+        background: "linear-gradient(to bottom, rgba(10, 15, 28, 0) 0%, rgba(10, 15, 28, 0.8) 100%)",
+      }}
+    />
+  );
+}
+
+/** The beat's subtitle at the current frame (inside the beat's Sequence). */
+export function BeatSubtitle({ beat, reduced, cutDir }: { beat: Beat; reduced: boolean; cutDir: -1 | 0 | 1 }) {
+  const frame = useCurrentFrame();
+  if (!subtitleVisible(beat, frame, cutDir)) return null;
+  return <MovieSubtitle chunks={beat.subtitleChunks} frame={frame} reduced={reduced} italic={beat.thought} />;
+}
 
 export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chunks: SubtitleChunk[]; frame: number; reduced: boolean; italic?: boolean }) {
   const c = chunks.find((x) => frame >= x.startFrame && frame < x.endFrame);
   if (!c) return null;
   const local = frame - c.startFrame;
-  const opacity = reduced ? 1 : interpolate(local, [0, 4], [0, 1], { extrapolateRight: "clamp" });
-  const size = c.text.length > 40 ? 44 : 50;
+  const opacity = reduced ? 1 : interpolate(local, [0, 3], [0, 1], { extrapolateRight: "clamp" });
+  const { size, lines, pill } = subtitleLayout(c.text);
   const active = activeWord(c, frame);
+  // words of each wrapped line, in order, so the highlight follows across a line break
+  let w = 0;
+  const rows = lines.map((l) => l.split(" ").map(() => c.words[w++] ?? null));
   return (
     <div
       style={{
         position: "absolute",
-        left: BAND.left,
-        width: BAND.width,
-        top: BAND.top,
-        height: BAND.bottom - BAND.top,
+        left: pill.x,
+        top: pill.y,
+        width: pill.w,
+        height: pill.h,
+        boxSizing: "border-box",
+        borderRadius: 14,
+        background: PILL,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         pointerEvents: "none",
+        opacity,
+        fontFamily: "Montserrat, 'Arial Black', sans-serif",
+        fontWeight: 800,
+        fontStyle: italic ? "italic" : "normal",
+        fontSize: size,
+        lineHeight: 1.12,
+        color: "#FFFFFF",
+        letterSpacing: 0.3,
+        whiteSpace: "nowrap",
       }}
     >
-      <div
-        style={{
-          fontFamily: "Montserrat, 'Arial Black', sans-serif",
-          fontWeight: 800,
-          fontStyle: italic ? "italic" : "normal",
-          fontSize: size,
-          lineHeight: 1.12,
-          textAlign: "center",
-          color: "#FFFFFF",
-          WebkitTextStroke: `9px #141619`,
-          letterSpacing: 0.5,
-          paintOrder: "stroke fill",
-          textShadow: "0 4px 0 #141619",
-          overflowWrap: "anywhere",
-          opacity,
-        }}
-      >
-        {c.words.length
-          ? c.words.map((w, i) => {
-              // the highlight fades in over 2 frames and the word lifts 4 % as it's spoken
-              const on = i === active;
-              const k = on && !reduced ? interpolate(frame - w.startFrame, [0, 2], [0.4, 1], { extrapolateRight: "clamp" }) : on ? 1 : 0;
-              return (
-                <React.Fragment key={i}>
-                  {i > 0 && " "}
-                  <span style={{ display: "inline-block", color: on ? mix(k) : "#FFFFFF", transform: on && !reduced ? `translateY(${-3 * k}px) scale(${1 + 0.04 * k})` : undefined }}>{w.text}</span>
-                </React.Fragment>
-              );
-            })
-          : c.text}
-      </div>
+      {rows.map((row, r) => (
+        <div key={r}>
+          {row.map((word, i) => {
+            const idx = word ? c.words.indexOf(word) : -1;
+            const on = idx === active && idx >= 0;
+            // the highlight fades in over 2 frames as the word is spoken
+            const k = on && !reduced && word ? interpolate(frame - word.startFrame, [0, 2], [0.4, 1], { extrapolateRight: "clamp" }) : on ? 1 : 0;
+            return (
+              <React.Fragment key={i}>
+                {i > 0 && " "}
+                <span style={{ color: on ? mix(k) : "#FFFFFF" }}>{word?.text ?? lines[r].split(" ")[i]}</span>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
