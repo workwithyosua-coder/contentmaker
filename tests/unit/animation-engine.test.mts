@@ -270,3 +270,140 @@ test("layout: takeover and stat reach the beat; omitted means standard", () => {
   assert.equal(beats[1].stat, null);
   assert.equal(beats[2].layout, "standard", "thought lines keep their bubble");
 });
+
+// ------------------------------------------------------------------ visual bugfix pass (cameo, face height, cuts, badges)
+import { castSprites as castSpritesFor, registerRemoteAssets as registerAssets, resetRemoteAssets as resetAssets } from "../../video/src/assets/index.ts";
+import { FACE_MAX_Y, MOUTH_MAX_Y, PAIR_H, SOLO_H, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, headOnCanvas } from "../../video/src/shared/castLayout.ts";
+import { BADGE_SAFE, badgeBounds, badgeRect } from "../../video/src/shared/motion.ts";
+import { boxFromAlpha, framedRect } from "../../video/src/cast/spriteFrame.ts";
+import { headBoxFor } from "../../video/src/cast/spriteCalibration.ts";
+
+const POSES_OF = { uco: ["triumphant", "defensive", "shocked", "phone", "angry"], ocu: ["deadpan", "explaining", "inspecting", "cta", "angry"] } as const;
+
+/** A transparent `size`² image with a solid figure drawn at (x0..x1, y0..y1): what a padded phone upload looks like. */
+function padded(size: number, x0: number, y0: number, x1: number, y1: number) {
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) data[(y * size + x) * 4 + 3] = 255;
+  return data;
+}
+
+test("uploaded sprites are framed by their drawn content: a padded square upload lands on the calibrated hair and face lines", () => {
+  // a 1024² upload with the figure in the middle (x 300..724, y 150..1000): drawn as is it would sink and shrink
+  const box = boxFromAlpha(padded(1024, 300, 150, 724, 1000), 1024, 1024)!;
+  assert.deepEqual([box.top, box.bottom, box.left, box.right], [150, 1000, 300, 724]);
+  assert.ok(Math.abs(box.headCx - 512) < 1);
+  const h = headBoxFor("ocu", "angry");
+  const r = framedRect(box, h.hairTop, h.faceX);
+  // content top → the hair line (150 / 1700 of the frame), content bottom → the frame's bottom, head → the face line
+  const toFrameY = (py: number) => ((r.top + (py / 1024) * r.height) / 100) * 1700;
+  const toFrameX = (px: number) => ((r.left + (px / 1024) * r.width) / 100) * 900;
+  assert.ok(Math.abs(toFrameY(150) - h.hairTop) < 0.5, `hair at ${toFrameY(150)}`);
+  assert.ok(Math.abs(toFrameY(1000) - 1700) < 0.5);
+  assert.ok(Math.abs(toFrameX(512) - h.faceX) < 0.5);
+  assert.equal(boxFromAlpha(new Uint8ClampedArray(16), 2, 2), null, "an empty image isn't framed");
+});
+
+test("the takeover cameo is filled the same way for both characters in every pose (no sunk heads)", () => {
+  resetAssets();
+  for (const pass of ["repo", "uploaded"] as const) {
+    if (pass === "uploaded") registerAssets({ cast: { "uco/angry-closed.png": "https://x/u.png", "ocu/angry-closed.png": "https://x/o.png" } });
+    for (const who of ["uco", "ocu"] as const) {
+      for (const pose of POSES_OF[who]) {
+        const c = cameoFigure(who, pose);
+        const headTop = c.top + c.frac.hair * c.H;
+        const chin = c.top + c.frac.chin * c.H;
+        const mouth = c.top + c.frac.mouth * c.H;
+        const faceX = c.left + c.frac.faceX * c.w;
+        const tag = `${pass} ${who}/${pose}`;
+        assert.ok(Math.abs(headTop - 22) < 0.5, `${tag}: hair ${headTop}`);
+        assert.ok(chin / c.box.h > 0.55 && chin / c.box.h < 0.7, `${tag}: chin at ${Math.round((chin / c.box.h) * 100)} % of the box`);
+        assert.ok(mouth < c.box.h, `${tag}: mouth inside the box`);
+        assert.ok(Math.abs(faceX - c.box.w / 2) < 1, `${tag}: face centred`);
+        assert.ok(c.top + c.H >= c.box.h, `${tag}: the figure fills the box to its bottom (no empty band)`);
+        assert.ok(c.box.y + c.box.h <= 1500, `${tag}: above the subtitles`);
+      }
+    }
+  }
+  resetAssets();
+});
+
+test("faces and mouths stay above y 1480 (and so clear of the 1540..1630 subtitles) in every shot, pose and camera move", () => {
+  const maxZoom = 1.12 * 1.07 * 1.06; // shocked punch × micro punch-in × Ken Burns, around y 768 (40 %)
+  const zoomed = (y: number) => 768 + (y - 768) * maxZoom + 6; // + the urgent shake
+  for (const who of ["uco", "ocu"] as const) {
+    for (const pose of POSES_OF[who]) {
+      const f = headFracFor(who, pose).frac;
+      const shots = {
+        solo: headOnCanvas(f, fitFrameH(f, SOLO_H)),
+        pair: headOnCanvas(f, fitFrameH(f, PAIR_H)),
+        closeup: (() => {
+          const H = closeupFrameH(f, STAGE_TOP + 140);
+          return headOnCanvas(f, H, STAGE_TOP + 140 - f.hair * H + H);
+        })(),
+      };
+      for (const [shot, h] of Object.entries(shots)) {
+        assert.ok(h.mouth <= MOUTH_MAX_Y + 0.5, `${who}/${pose} ${shot}: mouth at ${Math.round(h.mouth)}`);
+        assert.ok(zoomed(h.mouth) < FACE_MAX_Y, `${who}/${pose} ${shot}: zoomed mouth at ${Math.round(zoomed(h.mouth))}`);
+        if (shot !== "closeup") assert.ok(zoomed(h.chin) < FACE_MAX_Y, `${who}/${pose} ${shot}: zoomed chin at ${Math.round(zoomed(h.chin))}`);
+      }
+    }
+  }
+  // the serious closing beat (Line 19, "Closing - angry") is a normal shot: same limits, no outro
+  const closing = buildBeats([line({ speaker: "ocu", text: "Jangan sampai punah.", frames: 120, emotion: "angry", expression: "angry", beat: "button" }, 0)], exact);
+  assert.notEqual(closing.at(-1)!.cameraShot, "cta-stinger");
+});
+
+test("takeover ↔ standard cuts: the incoming beat's character is on screen from its first frame, and every frame is covered", () => {
+  const T = (o: Partial<EpisodeLine>, i: number) => line({ frames: 60, envelope: Array(60).fill(0.5), ...o } as never, i);
+  for (const [a, b] of [
+    [{ speaker: "ocu", text: "a", layout: "takeover", stat: "80 EKOR" }, { speaker: "ocu", text: "b" }],
+    [{ speaker: "ocu", text: "a" }, { speaker: "ocu", text: "b", layout: "takeover", stat: "1 TSUNAMI" }],
+    [{ speaker: "uco", text: "a", layout: "takeover", stat: "X" }, { speaker: "ocu", text: "b" }],
+    [{ speaker: "ocu", text: "a" }, { speaker: "uco", text: "b", layout: "takeover", stat: "Y" }],
+  ] as const) {
+    const beats = buildBeats([T(a as never, 0), T(b as never, 1)], exact);
+    const cut = beats[1].startFrame;
+    for (let g = cut - 2; g < cut + CUT_FRAMES + 2; g++) {
+      const layers = layersAt(beats, g);
+      assert.ok(coversCanvas(layers.map((l) => l.x)), `frame ${g} covered`);
+      const top = beats[layers.at(-1)!.index];
+      const who = top.speaker === "ocu" ? "ocu" : "uco";
+      // the top layer's speaker has a sprite and sits inside the canvas (cameo or full figure)
+      assert.ok(castSpritesFor(who, top.emotion), `frame ${g}: ${who} has a sprite`);
+      const visible = top.layout === "takeover" ? cameoFigure(who, top.emotion).box : (() => {
+        const f = headFracFor(who, top.emotion).frac;
+        const h = headOnCanvas(f, fitFrameH(f, SOLO_H));
+        return { x: 0, y: h.hair, w: 1080, h: h.chin - h.hair };
+      })();
+      assert.ok(visible.y >= 0 && visible.y + visible.h <= 1920, `frame ${g}: ${who} on screen`);
+    }
+    assert.equal(layersAt(beats, cut)[layersAt(beats, cut).length - 1].index, 1, "the incoming beat is mounted on its first frame");
+  }
+});
+
+test("callout badges stay inside x 48..1032 and y ≥ 96 on every frame of their entrance", () => {
+  const texts = ["SIKAT PEMBURU LIAR!", "PINDAH KE ALAS PURWO?!", "CUMA 80 EKOR", "SATU TSUNAMI = PUNAH", "WWWWWWWW WWWWWW", "OK"];
+  const boxes = [
+    { box: { x: 600, y: STAGE_TOP, w: 340 }, align: "right" as const }, // solo Uco
+    { box: { x: 60, y: STAGE_TOP, w: 340 }, align: "left" as const }, // solo Ocu
+    { box: { x: 130, y: STAGE_TOP, w: 820 }, align: "center" as const }, // close-up
+    { box: { x: 142, y: 274, w: 796 }, align: "center" as const }, // takeover stamp
+    { box: { x: 0, y: 0, w: 1080 }, align: "left" as const }, // a box against the very edge
+  ];
+  for (const t of texts) {
+    for (const { box, align } of boxes) {
+      for (const tilted of [true, false]) {
+        const r = badgeRect(t, box, align, tilted);
+        for (let f = 0; f <= 40; f++) {
+          const b = badgeBounds(r, f, 3, tilted);
+          if (!b) continue;
+          const tag = `"${t}" in ${JSON.stringify(box)} frame ${f}`;
+          assert.ok(b.left >= BADGE_SAFE.left - 0.01, `${tag}: left ${b.left}`);
+          assert.ok(b.right <= BADGE_SAFE.right + 0.01, `${tag}: right ${b.right}`);
+          assert.ok(b.top >= BADGE_SAFE.top - 0.01, `${tag}: top ${b.top}`);
+        }
+      }
+    }
+  }
+  assert.equal(badgeBounds(badgeRect("X", boxes[0].box, "right"), 2, 3), null, "hidden before it lands");
+});

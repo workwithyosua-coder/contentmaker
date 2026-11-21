@@ -1,16 +1,15 @@
 import React from "react";
 import { AbsoluteFill, Easing, interpolate } from "remotion";
-import { castSprites } from "../assets";
-import { SAFE_ZONE, type Beat } from "../beats";
+import type { Beat } from "../beats";
 import { CastPuppet, SpeedLines } from "../cast/CastPuppet";
 import { OCU_FINGERTIP, type CastVariant } from "../cast/CastSvg";
-import { headBoxFor } from "../cast/spriteCalibration";
 import { CastFigure, HEAVY } from "../cast/CueShared";
 import type { EpisodeLine } from "../types";
 import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
 import type { MouthStage } from "./motion";
-import { CUT_FRAMES, blinkAt, cameoBox, ctaTapFrame, chatterStage, levelAt, mouthStage, TAKEOVER_HERO } from "./motion";
+import { CTA_FACE, CTA_H, FRAME_BOTTOM, PAIR_H, SOLO_H, STAGE_BOTTOM, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, type HeadFrac } from "./castLayout";
+import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, TAKEOVER_HERO } from "./motion";
 import { kineticAt } from "./sfxCues";
 import { EvidenceStage, ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
 
@@ -46,41 +45,9 @@ export type DirectorSkin = {
 /** Where a figure's head ended up on the canvas (px). */
 export type HeadOnScreen = { cx: number; top: number; chin: number; height: number };
 
-// Where the head sits inside a figure's frame, as fractions of the frame (sprite: measured; coded SVG: its drawing).
-type HeadFrac = { hair: number; chin: number; mouth: number; faceX: number };
-const SVG_HEAD: HeadFrac = { hair: 8 / 340, chin: 104 / 340, mouth: 86 / 340, faceX: 0.5 };
-function headFracFor(who: "uco" | "ocu", emotion: string): { frac: HeadFrac; sprite: boolean; tip: { x: number; y: number } | null } {
-  const sp = castSprites(who, emotion);
-  if (!sp) return { frac: SVG_HEAD, sprite: false, tip: null };
-  const h = headBoxFor(who, sp.emotion);
-  return {
-    frac: { hair: h.hairTop / 1700, chin: h.chin / 1700, mouth: (h.hairTop + 0.8 * (h.chin - h.hairTop)) / 1700, faceX: h.faceX / 900 },
-    sprite: true,
-    // fingertip as fractions of the figure frame
-    tip: h.fingertip && sp.emotion === emotion ? { x: h.fingertip.x / 900, y: h.fingertip.y / 1700 } : null,
-  };
-}
-
-const FRAME_BOTTOM = 1920;
-/** highest point for hair and stage items: just inside the TikTok top bar */
-const STAGE_TOP = SAFE_ZONE.top + 24;
-const STAGE_BOTTOM = 1080;
-/** solo medium shot: figure frame height (≈1.2× the old card-limited framing), never stretched */
-const SOLO_H = 1760;
-/** two-shot / CTA figure frame height */
-const PAIR_H = 1440;
-/** pointing CTA: figure frame height and face positions (heads clear of each other, see the layout below) */
-// Uco's sprite reaches 374 px left of his face (his arm) and Ocu's 357 px right of his: at 1100 px tall (scale 0.647)
-// Uco's face at x 250 keeps his arm and hair inside the frame (left edge ≈ 8), and Ocu's at 671 keeps the heads apart
-// (≥ 401 px + margin) with his fingertip at x ≈ 880, clear of the right-hand icon rail.
-const CTA_H = 1100;
-const CTA_FACE = { uco: 250, ocu: 671 } as const;
 /** in-video FOLLOW + button: upper-right safe zone, left of the TikTok / Reels icon rail (x ≥ 950) and under the
  *  top search bar, above Ocu's head and on his pointing side */
 const FOLLOW_PILL = { x: 590, y: 600, w: 340, h: 96 } as const;
-/** mouths stay above TikTok's caption area (y 1260+), and so far above the subtitles (y 1480..1620) */
-const MOUTH_MAX_Y = 1100;
-
 type Placed = { who: "uco" | "ocu"; cx: number; top: number; s: number; on: boolean; head: HeadOnScreen; transform?: string };
 
 export function DirectorStage({
@@ -89,6 +56,7 @@ export function DirectorStage({
   frame,
   skin,
   reduced,
+  camera = NO_CAMERA,
 }: {
   beat: Beat;
   line: EpisodeLine | null;
@@ -96,6 +64,8 @@ export function DirectorStage({
   frame: number;
   skin: DirectorSkin;
   reduced: boolean;
+  /** the beat's camera move and cut slide, undone for the callout badges so they never zoom or slide off-screen */
+  camera?: StageCamera;
 }) {
   const shot = beat.cameraShot;
   const cta = shot === "cta-stinger";
@@ -112,16 +82,12 @@ export function DirectorStage({
   const hasProp = Boolean(beat.propImage || beat.sceneImageUrl || beat.propTag !== "none" || label);
   const kinetic = beat.kinetic;
   if (beat.layout === "takeover" && !cta && !beat.thought && (hasProp || beat.stat || kinetic)) {
-    return <TakeoverStage beat={beat} frame={frame} g={g} skin={skin} reduced={reduced} label={label} hasProp={hasProp} mouth={mouth} level={level} />;
+    return <TakeoverStage beat={beat} frame={frame} g={g} skin={skin} reduced={reduced} label={label} hasProp={hasProp} mouth={mouth} level={level} camera={camera} />;
   }
 
   // Figure frame height for a wanted size, kept between "hair under the stage top" and "mouth above the subtitles",
   // with the frame's bottom on the bottom of the video (no stretching: the sprite keeps its own proportions).
-  const fit = (f: HeadFrac, want: number, hairMin = STAGE_TOP) => {
-    const hMax = (FRAME_BOTTOM - hairMin) / (1 - f.hair);
-    const hMin = (FRAME_BOTTOM - MOUTH_MAX_Y) / (1 - f.mouth);
-    return Math.max(hMin, Math.min(want, hMax));
-  };
+  const fit = fitFrameH;
   /** a figure whose frame is `H` tall, bottom at `bottom`, face centred on `faceX` */
   const place = (who: "uco" | "ocu", f: HeadFrac, H: number, faceX: number, on: boolean, bottom = FRAME_BOTTOM, transform?: string): Placed => {
     const s = H / 340;
@@ -188,9 +154,7 @@ export function DirectorStage({
     const hairMin = STAGE_TOP + (kh ? kh + 10 : 0);
     if (kinetic) kineticBox = { x: 130, y: STAGE_TOP, w: 820, h: kh };
     // the head fills the space between the stage top and the subtitles (the chin may dip behind them; the mouth may not)
-    const mouthInHead = (f.mouth - f.hair) / (f.chin - f.hair);
-    const headPx = (MOUTH_MAX_Y - hairMin) / mouthInHead;
-    const H = headPx / (f.chin - f.hair);
+    const H = closeupFrameH(f, hairMin);
     const shake = reduced ? { x: 0, y: 0 } : { x: Math.sin(frame * 1.7) * 5 + Math.sin(frame * 4.1) * 2, y: Math.cos(frame * 2.3) * 4 };
     placed = [place(who, f, H, 540 + shake.x, true, hairMin - f.hair * H + H + shake.y)];
     if (beat.thought) bubbleBox = { x: who === "uco" ? 640 : 60, y: hairMin, w: 300, h: 260 };
@@ -285,7 +249,11 @@ export function DirectorStage({
           {hasProp ? <div style={{ position: "relative", width: "100%", height: "100%" }}>{propNode({ x: 0, y: 0, w: (bubbleBox as Box).w * 0.62, h: (bubbleBox as Box).h * 0.6 }, true)}</div> : undefined}
         </ThoughtBubble>
       )}
-      {kineticBox && kinetic && !cta && <KineticText text={kinetic} box={kineticBox} skin={skin.prop} frame={frame} reduced={reduced} align={kineticAlign} at={kineticAt(beat)} />}
+      {kineticBox && kinetic && !cta && (
+        <Uncamera camera={camera}>
+          <KineticText text={kinetic} box={kineticBox} skin={skin.prop} frame={frame} reduced={reduced} align={kineticAlign} at={kineticAt(beat)} />
+        </Uncamera>
+      )}
       {cta && (
         <>
           <div style={{ position: "absolute", left: 540 - ctaMark / 2, top: STAGE_TOP, width: ctaMark, height: ctaMark / WORDMARK_ASPECT }}>
@@ -310,6 +278,16 @@ export function DirectorStage({
       {beat.angry && <AngryVignette />}
     </AbsoluteFill>
   );
+}
+
+/** The beat's camera (zoom, tilt, shake) and the cut's slide, as applied around the 50 % / 40 % origin. */
+export type StageCamera = { scale: number; rotate: number; x: number; y: number; slideX: number };
+const NO_CAMERA: StageCamera = { scale: 1, rotate: 0, x: 0, y: 0, slideX: 0 };
+
+/** Cancels the camera move and the cut slide for what's inside, so callout badges stay where they were placed. */
+function Uncamera({ camera, children }: { camera: StageCamera; children: React.ReactNode }) {
+  const off = camera.scale === 1 && !camera.rotate && !camera.x && !camera.y && !camera.slideX;
+  return <AbsoluteFill style={off ? undefined : { transform: `${inverseCamera(camera)} translate(${-camera.slideX}px, 0px)`, transformOrigin: "50% 40%" }}>{children}</AbsoluteFill>;
 }
 
 /** Ocu leans into the tap: a quick 10 px push toward the button and back. */
@@ -538,23 +516,17 @@ function AngryVignette() {
  * in a framed corner cameo (Uco lower-left, Ocu lower-right, ending at y 1500, clear of the subtitles at 1540+),
  * still lip-syncing, blinking and bouncing with the voice.
  */
-function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, level }: { beat: Beat; frame: number; g: number; skin: DirectorSkin; reduced: boolean; label: string | null; hasProp: boolean; mouth: MouthStage; level: number }) {
+function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, level, camera }: { beat: Beat; frame: number; g: number; skin: DirectorSkin; reduced: boolean; label: string | null; hasProp: boolean; mouth: MouthStage; level: number; camera: StageCamera }) {
   const who = beat.speaker === "ocu" ? "ocu" : "uco";
   const at = beat.speechStart;
   const stat = beat.stat ?? (!hasProp && beat.kinetic ? { headline: beat.kinetic, subline: null } : null);
-  const box = cameoBox(who);
-  const f = headFracFor(who, beat.emotion).frac;
-  // head fills ~62 % of the cameo's height, hair 26 px under its top edge, face centred
-  const H = (box.h * 0.62) / (f.chin - f.hair);
-  const s = H / 340;
-  const w = 180 * s;
-  const left = box.w / 2 - f.faceX * w;
-  const top = 26 - f.hair * H;
+  // head-and-shoulders framing from the pose's calibration (uploads are framed to it too): never sunk or tiny
+  const { box, s, w, left, top } = cameoFigure(who, beat.emotion);
   const cameoPop = reduced ? 1 : interpolate(frame, [0, 6], [0.85, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.back(2)) });
   const paper = skin.prop === "paper";
   return (
     <AbsoluteFill>
-      <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} callout={stat === beat.stat ? beat.kinetic : null} reduced={reduced}>
+      <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} reduced={reduced}>
         {hasProp
           ? (pb) =>
               beat.propImage && !beat.sceneImageUrl ? (
@@ -599,6 +571,20 @@ function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, l
           />
         </CastFigure>
       </div>
+      {/* the line's on-screen callout, stamped across the top of the evidence frame */}
+      {stat === beat.stat && beat.kinetic && (
+        <Uncamera camera={camera}>
+          <KineticText
+            text={beat.kinetic}
+            box={{ x: TAKEOVER_HERO.x - 20, y: TAKEOVER_HERO.y - 66, w: TAKEOVER_HERO.w + 40, h: 120 }}
+            skin={skin.prop}
+            frame={frame}
+            reduced={reduced}
+            align="center"
+            at={at}
+          />
+        </Uncamera>
+      )}
       {beat.angry && <AngryVignette />}
     </AbsoluteFill>
   );
