@@ -10,6 +10,8 @@ import { metaConfigured } from "@/lib/platforms/meta";
 import { tiktokConfigured } from "@/lib/platforms/tiktok";
 import { youtubeConfigured } from "@/lib/platforms/youtube";
 import { getOwner } from "@/lib/queries";
+import { StudioAssetsPanel } from "@/components/studio-assets";
+import { listStudioAssets } from "@/lib/studio-assets";
 
 export const metadata: Metadata = { title: "Accounts" };
 
@@ -190,6 +192,10 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
             <span className="text-xs text-muted">Waiting for setup</span>
           )}
         </div>
+      </Card>
+
+      <Card title="Studio Assets">
+        <StudioAssetsPanel initial={await listStudioAssets().catch(() => [])} />
       </Card>
 
       <Card title="Creative tools">

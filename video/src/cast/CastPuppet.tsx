@@ -68,7 +68,7 @@ export function CastPuppet(p: PuppetProps) {
         }}
       >
         {sprites ? (
-          <SpriteMouth closed={staticFile(sprites.closed)} open={staticFile(sprites.open)} stage={p.mouth} mouth={box?.mouth ?? null} />
+          <SpriteMouth closed={spriteSrc(sprites.closed)} open={spriteSrc(sprites.open)} stage={p.mouth} mouth={box?.mouth ?? null} />
         ) : p.who === "uco" ? (
           <UcoBust
             variant={p.variant}
@@ -96,10 +96,13 @@ export function CastPuppet(p: PuppetProps) {
 
 /** The 900×1700 sprite fills its figure frame exactly (same aspect, uniform scale, never stretched). */
 function SpriteImg({ src, hidden = false }: { src: string; hidden?: boolean }) {
-  return <Img src={src} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", visibility: hidden ? "hidden" : "visible" }} />;
+  // contain, feet on the frame's bottom: an uploaded sprite with another aspect is never stretched
+  return <Img src={src} maxRetries={2} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "50% 100%", visibility: hidden ? "hidden" : "visible" }} />;
 }
 
 const SPRITE = { w: 900, h: 1700 };
+/** Uploaded sprites (Studio Assets) load from their URL; repo sprites through staticFile(). */
+const spriteSrc = (p: string) => (/^(https?:|blob:|\/)/.test(p) ? p : staticFile(p));
 const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(3)}%`;
 
 /**
@@ -123,7 +126,7 @@ function SpriteMouth({ closed, open, stage, mouth }: { closed: string; open: str
       <SpriteImg src={open} hidden={stage !== 2} />
       {stage > 0 && (
         <div style={{ position: "absolute", inset: 0, transform: `scaleY(${k})`, transformOrigin: `50% ${pct(mouth.y0, SPRITE.h)}` }}>
-          <Img src={open} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", WebkitMaskImage: mask, maskImage: mask, WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat", WebkitMaskSize: "100% 100%", maskSize: "100% 100%" }} />
+          <Img src={open} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", objectPosition: "50% 100%", WebkitMaskImage: mask, maskImage: mask, WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat", WebkitMaskSize: "100% 100%", maskSize: "100% 100%" }} />
         </div>
       )}
     </>

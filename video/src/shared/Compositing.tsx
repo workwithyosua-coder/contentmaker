@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Audio, Sequence, useCurrentFrame } from "remotion";
-import { sfxFile } from "../assets";
+import { bgmFile, sfxFile } from "../assets";
 import { assetSrc } from "../assets/src";
 import type { Beat } from "../beats";
 import type { EpisodeLine } from "../types";
@@ -56,7 +56,8 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
  * with ≈ 150 ms fades. Silent without the file.
  */
 export function BackgroundMusic({ volume, thoughtDuck, beats, lines }: { volume: number; thoughtDuck: number; beats: Beat[]; lines: EpisodeLine[] }) {
-  const file = assetSrc(sfxFile("bgm"));
+  // urgent episodes (an angry line) use the urgent track when there is one: uploaded, then repo, then the regular bed
+  const file = assetSrc(bgmFile(beats.some((b) => b.angry)));
   if (!file) return null;
   const target = (f: number) => {
     const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);

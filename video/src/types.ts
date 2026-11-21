@@ -60,8 +60,8 @@ export type EpisodeLine = ManifestLine & {
   trimFrom?: number;
 };
 
-/** Uploaded custom props / SFX by name → HTTPS URL (Supabase Storage), passed in by the renderer and the preview. */
-export type AssetUrls = { props?: Record<string, string>; sfx?: Record<string, string> };
+/** Uploaded custom props / SFX by name → HTTPS URL, and Studio Assets sprites by cast path ("uco/angry-closed.png"), from Supabase Storage. */
+export type AssetUrls = { props?: Record<string, string>; sfx?: Record<string, string>; cast?: Record<string, string> };
 
 export type EpisodeProps = { title: string; lines: EpisodeLine[]; direction?: RenderDirection | null; assetUrls?: AssetUrls | null };
 

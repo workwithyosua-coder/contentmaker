@@ -69,8 +69,9 @@ export type ManualScript = {
 
 /** Poses each character has sprites for (the Pose dropdown offers only these). */
 export const POSES: Record<"uco" | "ocu", readonly string[]> = {
-  uco: ["triumphant", "defensive", "shocked", "phone"],
-  ocu: ["deadpan", "explaining", "inspecting", "cta"],
+  // angry: drawn once and uploaded in Accounts → Studio Assets; until then it renders as shocked / defensive
+  uco: ["triumphant", "defensive", "shocked", "phone", "angry"],
+  ocu: ["deadpan", "explaining", "inspecting", "cta", "angry"],
 };
 
 // ------------------------------------------------------------------ small helpers
@@ -175,7 +176,7 @@ type Cues = {
 };
 const emptyCues = (): Cues => ({ sfx: [], prop: null, shot: null, pose: null, text: null, stamp: null, callouts: null, overlay: null, beat: null, visual: [], start: null, end: null, layout: null, stat: null, angry: false });
 const CUE = /^(sfx|sound|bunyi|prop|shot|camera|kamera|pose|emotion|emosi|ekspresi|on[- ]?screen(?: text)?|text|teks|stamp|callouts?|labels?|overlay|card|visual|beat|layout|takeover|stat)\s*[:=]\s*(.+)$/i;
-/** pose words that mean an angry, urgent delivery (no sprite of their own: the pose stays automatic) */
+/** pose words that mean an angry, urgent delivery: the angry pose (Studio Assets) and an angry expression */
 const ANGRY = /^(angry|marah|furious|murka|urgent)$/;
 
 /** Reads one cue segment into `c`; returns false when it isn't a recognised cue (then it's a visual note). */
@@ -428,12 +429,14 @@ export function parseManualScript(input: { topic?: string; script: string; direc
       );
       if (hit) line.emotion = hit;
     }
-    // an angry / urgent delivery ("pose: angry", "(Uco, angry)", "marah" in the notes): shake + red edge at render
+    // an angry / urgent delivery ("pose: angry", "(Uco, angry)", "marah" in the notes): the angry pose, plus the
+    // shake and red edge at render
     const notesLow = [...r.poseHints, ...r.delivery].map((x) => x.toLowerCase());
-    if ((c.pose && ANGRY.test(c.pose)) || notesLow.some((n) => /\b(angry|marah|furious|murka)\b/.test(n))) line.expression = "angry";
-    if (c.pose && ANGRY.test(c.pose)) {
-      // no angry sprite: the pose itself stays automatic
-    } else if (c.pose) {
+    const angryNote = notesLow.some((n) => /\b(angry|marah|furious|murka)\b/.test(n));
+    if ((c.pose && ANGRY.test(c.pose)) || angryNote) line.expression = "angry";
+    if (c.pose && ANGRY.test(c.pose)) line.emotion = "angry";
+    else if (!c.pose && angryNote && !line.emotion) line.emotion = "angry";
+    else if (c.pose) {
       if (POSES[r.speaker].includes(c.pose)) line.emotion = c.pose;
       else if ((EMOTIONS as readonly string[]).includes(c.pose)) warnings.push(`Line ${i + 1}: ${r.speaker === "uco" ? "Uco" : "Ocu"} has no "${c.pose}" pose (${POSES[r.speaker].join(", ")}).`);
       else warnings.push(`Line ${i + 1}: unknown pose "${c.pose}".`);

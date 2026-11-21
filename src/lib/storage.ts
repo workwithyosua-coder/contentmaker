@@ -126,6 +126,34 @@ export async function listObjects(prefix: string, bucket = BUCKET): Promise<stri
   return rows.filter((r) => r.id && !r.name.startsWith(".")).map((r) => r.name);
 }
 
+/** Like listObjects, with each file's last-modified time (ms), for cache-busting public URLs. */
+export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{ name: string; updatedAt: number | null }[]> {
+  const clean = prefix.replace(/^\/+|\/+$/g, "");
+  if (local()) {
+    const { readdir, stat } = await import("node:fs/promises");
+    const dir = localPath(clean, bucket);
+    if (!dir.startsWith(LOCAL_DIR + path.sep)) return [];
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    const files = entries.filter((e) => e.isFile()).map((e) => e.name).sort();
+    return Promise.all(files.map(async (name) => ({ name, updatedAt: await stat(path.join(dir, name)).then((st) => Math.round(st.mtimeMs), () => null) })));
+  }
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ prefix: clean, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } }),
+  });
+  if (res.status === 404 || res.status === 400) return [];
+  if (!res.ok) throw new Error(`Couldn't list ${clean} (${res.status})`);
+  const rows = (await res.json()) as { name: string; id: string | null; updated_at?: string | null; created_at?: string | null }[];
+  return rows
+    .filter((r) => r.id && !r.name.startsWith("."))
+    .map((r) => {
+      const t = Date.parse(r.updated_at ?? r.created_at ?? "");
+      return { name: r.name, updatedAt: Number.isFinite(t) ? t : null };
+    });
+}
+
 export async function deleteObjects(paths: string[], bucket = BUCKET) {
   if (!paths.length) return;
   if (local()) {

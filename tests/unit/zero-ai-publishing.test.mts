@@ -119,6 +119,9 @@ test("approve without AI, caption editing, post now and schedule never import th
     "src/app/api/render/[id]/video/complete/route.ts", // auto-post on render complete
     "src/app/api/cron/process-scheduled-posts/route.ts", // scheduled posts going out
     "src/app/api/episodes/[id]/publish/route.ts",
+    "src/app/studio-asset-actions.ts", // Studio Assets upload / replace / remove
+    "src/components/studio-assets.tsx",
+    "src/app/api/studio-assets/route.ts",
   ]) {
     assert.equal(aiPath(entry), null, `${entry} reaches AI via ${aiPath(entry)?.join(" → ")}`);
   }

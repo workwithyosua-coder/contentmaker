@@ -10,7 +10,8 @@ import { listEpisodes } from "@/lib/episodes";
 import { getOwner } from "@/lib/queries";
 import { createEpisodeAction } from "./actions";
 import { NewEpisodeCard } from "@/components/manual-import";
-import { attachedAssetUrls, listAttachedAssets } from "@/lib/attached-assets";
+import { listAttachedAssets } from "@/lib/attached-assets";
+import { listStudioAssets, videoAssetUrls } from "@/lib/studio-assets";
 
 export const maxDuration = 300;
 
@@ -57,11 +58,12 @@ export default function CreatePage() {
 /** Idea pitch (writers' room, AI) or "Use my own script (No AI)"; the composer needs the uploaded props / SFX. */
 async function NewEpisodeModes() {
   await connection();
-  const [attached, assetUrls] = await Promise.all([
+  const [attached, assetUrls, studio] = await Promise.all([
     listAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] })),
-    attachedAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string> })),
+    videoAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string>, cast: {} as Record<string, string> })),
+    listStudioAssets().catch(() => []),
   ]);
-  return <NewEpisodeCard pitchAction={createEpisodeAction} attached={attached} assetUrls={assetUrls} />;
+  return <NewEpisodeCard pitchAction={createEpisodeAction} attached={attached} assetUrls={assetUrls} studio={studio} />;
 }
 
 async function Episodes() {

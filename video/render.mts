@@ -86,10 +86,11 @@ const direction = { ...parseDirection(manifest.direction), exact: Boolean(manife
 if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: undefined })}`);
 // Props and SFX uploaded in the app (public Supabase bucket): Remotion loads them from their HTTPS URLs, saved on the
 // beats and listed by the app (nothing is written to public/).
-const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {} };
+// Studio Assets (Accounts → Studio Assets) arrive as `cast` sprite URLs and SFX (bgm-urgent); they win over repo files.
+const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {}, cast: manifest.assetUrls?.cast ?? {} };
 registerRemoteAssets(assetUrls);
 registerLineAssets(manifest.lines);
-const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {})];
+const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {}), ...Object.keys(assetUrls.cast ?? {}).map((c) => `cast/${c}`)];
 if (uploaded.length) log(`uploaded assets (loaded by URL): ${uploaded.join(", ")}`);
 
 rmSync(path.join(pub, episodeId), { recursive: true, force: true });

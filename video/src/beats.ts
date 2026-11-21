@@ -96,7 +96,7 @@ export type SubtitleChunk = { text: string; startFrame: number; endFrame: number
 
 export const CAMERA_SHOTS = ["solo-uco", "solo-ocu", "closeup-punch", "two-shot", "cta-stinger"] as const;
 export type CameraShot = (typeof CAMERA_SHOTS)[number];
-export const EMOTIONS = ["triumphant", "defensive", "shocked", "phone", "deadpan", "explaining", "inspecting", "cta"] as const;
+export const EMOTIONS = ["triumphant", "defensive", "shocked", "phone", "deadpan", "explaining", "inspecting", "cta", "angry"] as const;
 export type Emotion = (typeof EMOTIONS)[number];
 export const PROP_TAGS = ["iced-coffee", "checkout-phone", "payday-slips", "receipt-magnifier", "cash-vs-paylater", "none"] as const;
 export type PropTag = (typeof PROP_TAGS)[number];
@@ -139,10 +139,13 @@ function defaultEmotion(l: EpisodeLine, prev: Emotion | null): Emotion {
     if (RX.phone.test(v)) return "phone";
     if (loud || e === "shocked" || e === "worried" || RX.shockWord.test(said)) return "shocked";
     if (question || e === "thinking" || RX.defendWord.test(said)) return "defensive";
-    if (["angry", "furious", "excited", "smug"].includes(e) || RX.bragWord.test(said)) return "triumphant";
+    // an angry delivery gets the angry pose (it stands in as shocked / defensive until its sprites are uploaded)
+    if (e === "angry" || e === "furious") return "angry";
+    if (["excited", "smug"].includes(e) || RX.bragWord.test(said)) return "triumphant";
     if (exclaim) return "shocked";
     return prev === "triumphant" ? "defensive" : "triumphant";
   }
+  if (e === "angry" || e === "furious") return "angry";
   if (/magnif|struk|receipt|fine print|zoom/i.test(l.visual ?? "")) return "inspecting";
   if (RX.inspect.test(v)) return "inspecting";
   if (RX.math.test(said) || l.beat === "insight") return "explaining";
@@ -504,7 +507,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     b.subtitleChunks = timeSubtitle(englishOf(l), env, b.durationInFrames, speech);
     b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, env, b.durationInFrames, { ...speech, hook: i === 0 });
     // urgent: an angry / furious delivery shakes as the voice starts; a stamp SFX shakes when it lands
-    b.angry = /^(angry|furious)$/.test(String(l.expression ?? "")) && !b.thought;
+    b.angry = (/^(angry|furious)$/.test(String(l.expression ?? "")) || b.emotion === "angry") && !b.thought;
     const stamp = b.sfx.indexOf("stamp");
     b.impactFrame = stamp >= 0 ? scriptSfxFrame(speech.start, stamp) : b.angry ? speech.start : null;
     b.urgent = b.impactFrame !== null;

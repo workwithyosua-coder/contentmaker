@@ -130,9 +130,9 @@ test("cue rows under a line and inline bracket cues (simple format)", () => {
   assert.ok(r.warnings.some((w) => /Line 3: Ocu has no "phone" pose/.test(w)));
 });
 
-test("poses offered per character match their sprites", () => {
-  assert.deepEqual([...POSES.uco], ["triumphant", "defensive", "shocked", "phone"]);
-  assert.deepEqual([...POSES.ocu], ["deadpan", "explaining", "inspecting", "cta"]);
+test("poses offered per character match their sprites (angry: uploaded in Studio Assets)", () => {
+  assert.deepEqual([...POSES.uco], ["triumphant", "defensive", "shocked", "phone", "angry"]);
+  assert.deepEqual([...POSES.ocu], ["deadpan", "explaining", "inspecting", "cta", "angry"]);
 });
 
 test("same input, same output (deterministic)", () => {
@@ -169,7 +169,7 @@ LINE-BY-LINE VISUAL, ON-SCREEN TEXT & SFX CUES
   assert.equal(b.layout, "takeover");
   assert.equal(b.stat, "<50 EKOR | HAMIL 15-16 BULAN");
   assert.equal(b.expression, "angry", "an angry note marks the delivery");
-  assert.equal(b.emotion, null, "no angry sprite: the pose stays automatic");
+  assert.equal(b.emotion, "angry", "the angry pose (Studio Assets sprites, shocked / defensive until uploaded)");
   assert.equal(c.layout, "standard", "omitted means standard");
   assert.equal(c.stat, null);
   assert.ok(!r.warnings.some((w) => /angry/.test(w)), r.warnings.join(" | "));

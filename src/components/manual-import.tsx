@@ -8,6 +8,7 @@ import { addAvailableAssets, registerRemoteAssets } from "../../video/src/assets
 import { requiredAssets, wantedPropImage } from "../../video/src/beats";
 import { parseDirection } from "../../video/src/direction";
 import { AssetChecklist } from "./asset-checklist";
+import { needsAngry, type StudioAssetStatus } from "@/lib/studioAssets";
 import { BeatTable, type TableLine } from "./beat-inspector";
 import { NewEpisodeForm, Status } from "./episode-ui";
 
@@ -16,7 +17,7 @@ import { NewEpisodeForm, Status } from "./episode-ui";
 // beat list + asset readiness (uploads go to Supabase Storage) → Save episode (No AI). Nothing in the composer or its
 // save path calls an LLM, and the dialogue is saved exactly as written.
 
-type Urls = { props: Record<string, string>; sfx: Record<string, string> };
+type Urls = { props: Record<string, string>; sfx: Record<string, string>; cast?: Record<string, string> };
 
 const SCRIPT_EXAMPLE = `1. UCO (0:00-0:05 | loud): "Dengerin! Bubur nggak diaduk itu kriminal!"
 [EN] "Listen up! Not stirring your porridge is a crime!"
@@ -41,10 +42,13 @@ export function NewEpisodeCard({
   pitchAction,
   attached,
   assetUrls,
+  studio = [],
 }: {
   pitchAction: (prev: StepResult, form: FormData) => Promise<StepResult>;
   attached: { props: string[]; sfx: string[] };
   assetUrls: Urls;
+  /** global Studio Assets status (angry sprites, urgent BGM) */
+  studio?: StudioAssetStatus[];
 }) {
   const [mode, setMode] = useState<"pitch" | "manual">("pitch");
   const manualTop = useRef<HTMLButtonElement>(null);
@@ -79,6 +83,7 @@ export function NewEpisodeCard({
           }}
           attached={attached}
           assetUrls={assetUrls}
+          studio={studio}
         />
       </div>
     </div>
@@ -90,11 +95,14 @@ function ManualComposer({
   backRef,
   attached,
   assetUrls,
+  studio = [],
 }: {
   onBack: () => void;
   backRef: React.RefObject<HTMLButtonElement | null>;
   attached: { props: string[]; sfx: string[] };
   assetUrls: Urls;
+  /** global Studio Assets status (angry sprites, urgent BGM) */
+  studio?: StudioAssetStatus[];
 }) {
   const [title, setTitle] = useState("");
   const [style, setStyle] = useState("editorial-paper-cutout");
@@ -289,6 +297,7 @@ function ManualComposer({
           <AssetChecklist
             {...readiness}
             urls={uploads}
+            studio={needsAngry(lines) ? studio : undefined}
             disabled={saving}
             onSkip={skip}
             onUploaded={(kind, name, url) => setUploads((u) => ({ ...u, [kind]: { ...u[kind], [name]: url } }))}
