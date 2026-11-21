@@ -12,18 +12,37 @@ const DEFAULT_EMOTION: Record<"uco" | "ocu", string[]> = {
   ocu: ["deadpan", "explaining", "defensive", "triumphant"],
 };
 
-const pair = (who: string, emotion: string) =>
-  cast.has(`${who}/${emotion}-closed.png`) && cast.has(`${who}/${emotion}-open.png`)
-    ? { emotion, closed: `cast/${who}/${emotion}-closed.png`, open: `cast/${who}/${emotion}-open.png` }
-    : null;
+/** Poses drawn later than the starter set, and what stands in for them until their sprites exist. */
+const FALLBACK_EMOTION: Record<string, string[]> = { angry: ["shocked", "defensive"] };
 
 /**
- * Sprite pair for a character and emotion: that emotion's two mouth frames if both exist, else the character's
- * default uploaded emotion (so one person never switches between illustrated and coded looks), else null
- * (no sprites for this character yet: the coded CastSvg figure stands in).
+ * One emotion's two mouth frames, in priority order: 1. uploaded in the app (Studio Assets, a public Supabase URL;
+ * one uploaded frame serves as both when its pair isn't uploaded yet), 2. the repo's public/cast, else null.
  */
-export function castSprites(who: "uco" | "ocu", emotion: string): { emotion: string; closed: string; open: string } | null {
-  return pair(who, emotion) ?? DEFAULT_EMOTION[who].map((e) => pair(who, e)).find(Boolean) ?? null;
+const pair = (who: string, emotion: string) => {
+  const rc = remoteCast.get(`${who}/${emotion}-closed.png`);
+  const ro = remoteCast.get(`${who}/${emotion}-open.png`);
+  if (rc || ro) return { emotion, closed: (rc ?? ro)!, open: (ro ?? rc)!, remote: true };
+  return cast.has(`${who}/${emotion}-closed.png`) && cast.has(`${who}/${emotion}-open.png`)
+    ? { emotion, closed: `cast/${who}/${emotion}-closed.png`, open: `cast/${who}/${emotion}-open.png`, remote: false }
+    : null;
+};
+
+/**
+ * Sprite pair for a character and emotion: that emotion's two mouth frames if they exist (uploaded first, then the
+ * repo), else its stand-in poses (angry → shocked → defensive), else the character's default emotion (so one person
+ * never switches between illustrated and coded looks), else null (the coded CastSvg figure stands in).
+ */
+export function castSprites(who: "uco" | "ocu", emotion: string): { emotion: string; closed: string; open: string; remote: boolean } | null {
+  return pair(who, emotion) ?? [...(FALLBACK_EMOTION[emotion] ?? []), ...DEFAULT_EMOTION[who]].map((e) => pair(who, e)).find(Boolean) ?? null;
+}
+
+/**
+ * The background music file: for urgent episodes the urgent track (uploaded `bgm-urgent`, else the repo's
+ * sfx/bgm-urgent.mp3), else, and whenever that's missing, the regular `bgm`. Null when neither exists.
+ */
+export function bgmFile(urgent: boolean): string | null {
+  return (urgent ? sfxFile("bgm-urgent") : null) ?? sfxFile("bgm");
 }
 
 /** Uploaded SFX URL, else `sfx/whoosh.mp3` (or .wav) when that effect is in the repo, else null. */
@@ -39,15 +58,26 @@ export function sfxFile(name: string): string | null {
 // The render handoff (and the in-app preview) passes their HTTPS URLs; the video loads those directly.
 const remoteProps = new Map<string, string>();
 const remoteSfx = new Map<string, string>();
+/** uploaded character sprites ("uco/angry-closed.png" → URL), from Studio Assets */
+const remoteCast = new Map<string, string>();
+
+/** Forgets every registered upload (tests). */
+export function resetRemoteAssets() {
+  remoteProps.clear();
+  remoteSfx.clear();
+  remoteCast.clear();
+}
 
 /**
  * Registers uploaded assets by name → HTTPS URL ({ props: { "sate-padang": "https://…" }, sfx: { slurp: "https://…" } }).
  * A remote file wins over a repo file of the same name. Re-registering replaces the URL (signed URLs expire).
  */
-export function registerRemoteAssets(urls: { props?: Record<string, string>; sfx?: Record<string, string> } | null | undefined) {
+export function registerRemoteAssets(urls: { props?: Record<string, string>; sfx?: Record<string, string>; cast?: Record<string, string> } | null | undefined) {
   const ok = (u: string) => /^https?:\/\//.test(u) || /^\/[^/]/.test(u); // HTTPS, or root-relative in the in-app preview
   for (const [name, url] of Object.entries(urls?.props ?? {})) if (ok(url)) remoteProps.set(name, url);
   for (const [name, url] of Object.entries(urls?.sfx ?? {})) if (ok(url)) remoteSfx.set(name, url);
+  // sprites only at the cast keys the video asks for ("uco/angry-closed.png")
+  for (const [name, url] of Object.entries(urls?.cast ?? {})) if (ok(url) && /^(uco|ocu)\/[a-z]+-(closed|open)\.png$/.test(name)) remoteCast.set(name, url);
 }
 
 /** Registers the asset URLs saved on the lines themselves (manual mode stores each upload's public URL on its beats). */

@@ -51,6 +51,10 @@ const MEASURED: Record<string, HeadBox> = {
   "ocu/cta": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 371, y0: 608, x1: 532, y1: 698 }, fingertip: { x: 816, y: 721 } },
   "uco/phone": { hairTop: 150, chin: 720, faceX: 410, ...UCO, mouth: { x0: 324, y0: 555, x1: 502, y1: 695 } },
   "ocu/explaining": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 376, y0: 618, x1: 530, y1: 698 } },
+  // angry (Studio Assets uploads): assumed exported in the same 900×1700 framing as the set above; no eye or mouth
+  // boxes are measured for an upload, so it blinks not and swaps its two mouth frames
+  "uco/angry": { hairTop: 150, chin: 720, faceX: 410, sweat: UCO_SWEAT },
+  "ocu/angry": { hairTop: 150, chin: 720, faceX: 493, sweat: OCU_SWEAT },
   "ocu/inspecting": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 372, y0: 608, x1: 535, y1: 696 } },
 };
 

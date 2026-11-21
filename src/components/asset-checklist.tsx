@@ -6,6 +6,8 @@ import { finishAssetUploadAction, skipAssetAction, startAssetUploadAction } from
 import { SLOT_ACCEPT, audioUploadType, maxPickBytes, slotFileName, type AssetKind } from "@/lib/assetSlots";
 import { processPropFile } from "@/lib/clientPropProcessor";
 import type { AssetCheck } from "../../video/src/beats";
+import type { StudioAssetStatus } from "@/lib/studioAssets";
+import { GlobalStudioRows } from "./studio-assets";
 
 // Asset readiness: every prop and sound effect the beats ask for, checked against the repo's assetManifest.json
 // (public/props, public/sfx) and the custom uploads (public Supabase bucket custom-assets). Each missing slot takes any
@@ -24,7 +26,10 @@ export function AssetChecklist({
   onUploaded,
   onSkip,
   disabled = false,
+  studio,
 }: {
+  /** global Studio Assets this episode needs (angry sprites, urgent BGM), with their upload status */
+  studio?: StudioAssetStatus[];
   props: AssetCheck[];
   sfx: AssetCheck[];
   /** episode page: Skip is saved on the episode */
@@ -41,6 +46,7 @@ export function AssetChecklist({
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const all = [...props.map((a) => ({ ...a, kind: "props" as const })), ...sfx.map((a) => ({ ...a, kind: "sfx" as const }))];
   const missing = all.filter((a) => !a.ready);
+  const studioMissing = (studio ?? []).filter((s) => !s.url).length;
   const ready = all.filter((a) => a.ready);
   const slots = all.filter((a) => !a.ready || touched.has(slotKey(a.kind, a.name)));
   const others = ready.filter((a) => !touched.has(slotKey(a.kind, a.name)));
@@ -55,12 +61,13 @@ export function AssetChecklist({
           <span aria-hidden>✓ </span>
           {ready.length} ready
         </span>
-        <span style={{ color: missing.length ? "var(--bad)" : "var(--muted)" }}>
+        <span style={{ color: missing.length + studioMissing ? "var(--bad)" : "var(--muted)" }}>
           <span aria-hidden>✗ </span>
-          {missing.length} missing
+          {missing.length + studioMissing} missing
         </span>
-        {!all.length && <span className="text-muted">No props or sound effects needed.</span>}
+        {!all.length && !studioMissing && <span className="text-muted">No props or sound effects needed.</span>}
       </div>
+      {studio && <GlobalStudioRows status={studio} />}
       {slots.length > 0 && (
         <ul className="mt-3 space-y-3">
           {slots.map((a) => (

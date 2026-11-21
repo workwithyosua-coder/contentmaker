@@ -10,7 +10,9 @@ import { ShotPrompts } from "@/components/shot-prompts";
 import { AssetChecklist } from "@/components/asset-checklist";
 import { BeatTable, type TableLine } from "@/components/beat-inspector";
 import { DirectionForm, ReplaceScriptForm } from "@/components/manual-import";
-import { attachedAssetUrls, loadAttachedAssets } from "@/lib/attached-assets";
+import { loadAttachedAssets } from "@/lib/attached-assets";
+import { listStudioAssets, videoAssetUrls } from "@/lib/studio-assets";
+import { needsAngry } from "@/lib/studioAssets";
 import { parseDirection } from "../../../../video/src/direction";
 import { replaceCustomScriptAction, saveBeatsAction, saveDirectionAction } from "../studio-actions";
 import { requiredAssets } from "../../../../video/src/beats";
@@ -112,7 +114,11 @@ async function Episode({
   // props / SFX attached in the app count as available for the beats, the inspector and the checklist
   const attached = await loadAttachedAssets().catch(() => ({ props: [] as string[], sfx: [] as string[] }));
   // uploaded props / SFX (public URLs) so the beat list and the in-app preview show them like the render does
-  const assetUrls = await attachedAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string> }));
+  // (with the global Studio Assets: angry sprites and the urgent BGM)
+  const [assetUrls, studio] = await Promise.all([
+    videoAssetUrls().catch(() => ({ props: {} as Record<string, string>, sfx: {} as Record<string, string>, cast: {} as Record<string, string> })),
+    listStudioAssets().catch(() => []),
+  ]);
   const custom = Boolean(latestScript?.custom);
   const direction = latestScript?.direction ?? "";
   const rendering = job?.status === "queued" || job?.status === "running";
@@ -348,6 +354,7 @@ async function Episode({
                 <AssetChecklist
                   projectId={project.id}
                   urls={assetUrls}
+                  studio={needsAngry(booth.lines) ? studio : undefined}
                   {...requiredAssets(
                     booth.lines.map((l) => ({
                       ...l,
