@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { SlotProgress, showsProgress } from "./slot-progress";
+import { useNow } from "./use-now";
+import { POLL_MS, isActiveStage, shouldPoll } from "@/lib/slotProgress";
 import { useRouter } from "next/navigation";
 import {
   useActionState,
@@ -355,6 +358,10 @@ export type SlotView = {
     notConnected: string[];
   } | null;
   videoUrl: string | null;
+  progressPercent: number | null;
+  progressStage: string | null;
+  progressDetail: string | null;
+  progressUpdatedAt: string | null;
 };
 
 const STAMP_COLOR: Record<QueueStatus, string> = {
@@ -391,34 +398,62 @@ export function SeedsForm() {
   );
 }
 
-export function QueueList({
-  slots,
-  canRun,
-}: {
-  slots: SlotView[];
-  canRun: boolean;
-}) {
+type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeTitle" | "progressPercent" | "progressStage" | "progressDetail" | "progressUpdatedAt">;
+
+/**
+ * The queue, with live pipeline progress: while a slot is running and the tab is visible, the progress fields come
+ * from /api/schedule/queue every 4 s; polling stops when every slot is idle, done or failed, and pauses while the tab
+ * is hidden. A slot whose status changed brings in the full card (hand-off, buttons) with one page refresh.
+ */
+export function QueueList({ slots, canRun }: { slots: SlotView[]; canRun: boolean }) {
   const router = useRouter();
-  const active = slots.some((s) => isWorking(s.status));
-  // refresh while a slot is being made, so the status badges move on their own
+  const [live, setLive] = useState<SlotView[]>(slots);
+  // a server refresh brings new slots: they replace the live copy (React's "adjust state on a prop change" pattern)
+  const [given, setGiven] = useState(slots);
+  if (slots !== given) {
+    setGiven(slots);
+    setLive(slots);
+  }
+  const [visible, setVisible] = useState(true);
   useEffect(() => {
-    if (!active) return;
-    const t = setInterval(() => router.refresh(), 15_000);
-    return () => clearInterval(t);
-  }, [active, router]);
-  if (!slots.length)
-    return (
-      <p className="text-sm text-muted">
-        No slots yet. Save the schedule to fill the next 3 days.
-      </p>
-    );
+    const read = () => setVisible(document.visibilityState === "visible");
+    read();
+    document.addEventListener("visibilitychange", read);
+    return () => document.removeEventListener("visibilitychange", read);
+  }, []);
+  const polling = shouldPoll(live, visible ? "visible" : "hidden");
+  useEffect(() => {
+    if (!polling) return;
+    let stopped = false;
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch("/api/schedule/queue", { cache: "no-store" });
+        if (!res.ok || stopped) return;
+        const { slots: fresh } = (await res.json()) as { slots: Live[] };
+        let statusChanged = false;
+        setLive((cur) =>
+          cur.map((s) => {
+            const f = fresh.find((x) => x.id === s.id);
+            if (!f) return s;
+            if (f.status !== s.status) statusChanged = true;
+            return { ...s, ...f, status: f.status as SlotView["status"] };
+          }),
+        );
+        if (statusChanged) router.refresh();
+      } catch {
+        // a missed poll is retried on the next tick
+      }
+    }, POLL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [polling, router]);
+  if (!live.length) return <p className="text-sm text-muted">No slots yet. Save the schedule to fill the next 3 days.</p>;
   return (
-    <ol className="space-y-3">
-      {slots.map((s) => (
-        <li
-          key={s.id}
-          className="min-w-0 rounded-control border border-border p-3"
-        >
+    <ol className="space-y-3" data-polling={polling ? "on" : "off"}>
+      {live.map((s) => (
+        <li key={s.id} className="min-w-0 rounded-control border border-border p-3" aria-busy={isActiveStage(s.progressStage) && s.status !== "failed" ? true : undefined}>
           <SlotRow slot={s} canRun={canRun} />
         </li>
       ))}
@@ -432,6 +467,8 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
   const [editing, setEditing] = useState(false);
   const [topic, setTopic] = useState(s.topic ?? "");
   const [copied, setCopied] = useState(false);
+  // a finished slot shows its 100 % bar for a short while, then settles into Ready to post / Published
+  const now = useNow(10_000);
   const run = (fn: () => Promise<Result>) =>
     start(async () => setState(await fn()));
   return (
@@ -503,24 +540,9 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
         </p>
       )}
 
-      {s.status === "failed" && s.error && (
-        <p className="break-words text-sm text-[var(--bad)]">
-          {s.error}
-          {s.runUrl && (
-            <>
-              {" "}
-              <a
-                href={s.runUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2"
-              >
-                Run log
-              </a>
-            </>
-          )}
-        </p>
-      )}
+      {showsProgress(s, now) && <SlotProgress slot={s} name={s.episodeTitle ?? s.topic ?? formatWib(new Date(s.scheduledFor))} />}
+
+      {s.status === "failed" && s.error && <p className="break-words text-sm text-[var(--bad)]">{s.error}</p>}
 
       {s.handoff &&
         (s.status === "ready_to_post" || s.status === "published") && (
@@ -592,6 +614,11 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
               </button>
             )}
           </>
+        )}
+        {s.status === "failed" && s.runUrl && (
+          <a href={s.runUrl} target="_blank" rel="noreferrer" className="btn btn-quiet underline underline-offset-2">
+            Run log
+          </a>
         )}
         {s.status === "failed" && (
           <button

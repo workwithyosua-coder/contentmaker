@@ -43,7 +43,7 @@ export function envelopeOf(wav: string): number[] {
   return rms.map((v) => Math.round(Math.min(1, Math.max(0, (v - floor * 1.5) / (loud - floor * 1.5 || 1))) * 100) / 100);
 }
 
-export async function edgeStage(p: { slotId: string; post: Post; log: (s: string) => void }): Promise<{ voiced: number }> {
+export async function edgeStage(p: { slotId: string; post: Post; log: (s: string) => void; onLine?: (done: number, total: number) => void | Promise<void> }): Promise<{ voiced: number }> {
   const plan = await p.post<{ voice: string; lines: Job[] }>(`slots/${p.slotId}/edge-plan`);
   if (!plan.lines.length) {
     p.log("edge-tts: every line already has a take (cached audio kept)");
@@ -90,6 +90,7 @@ export async function edgeStage(p: { slotId: string; post: Post; log: (s: string
     if (!put.ok) throw new Error(`Upload of line ${n} failed (${put.status}).`);
     const done = await p.post<{ stored: boolean }>(`slots/${p.slotId}/edge-finish`, { lineIndex: j.lineIndex, path: up.path, durationMs: Math.round(seconds * 1000) });
     if (done.stored) voiced++;
+    await p.onLine?.(voiced, plan.lines.length);
     p.log(`line ${n} (${j.speaker}, ${j.pose}, ${j.rate} ${j.pitch}): ${seconds.toFixed(1)} s, speech frames ${speech.start}–${speech.end}`);
   }
   return { voiced };

@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { ManualLine } from "./manualScriptParser";
+import type { ProgressUpdate } from "./slotProgress";
 import { MIN_LINES, PROP_STYLE, SHOW_DIRECTION, SHOW_SCHEMA, dropProp, betterAttempt, episodePropName, mapPropSlugs, parsePropSpecs, showBibleProblems, showBiblePrompt, withCta, type PropSpec } from "./showBible";
 import manifest from "../../video/src/assets/assetManifest.json";
 import { PNG_PROPS } from "../../video/src/props/library";
@@ -62,6 +63,10 @@ export type QueueRow = {
   attempts: number;
   updated_at: Date;
   episode_title?: string | null;
+  progress_percent: number | null;
+  progress_stage: string | null;
+  progress_detail: string | null;
+  progress_updated_at: Date | null;
 };
 export type Handoff = {
   tiktokCaption: string | null;
@@ -79,7 +84,7 @@ export class SlotStateError extends Error {
 }
 
 const SLOT_COLS =
-  "q.id, q.schedule_id, q.scheduled_for, q.slot_index, q.format, q.topic_seed, q.topic_source, q.status, q.episode_id, q.render_job_id, q.error_message, q.run_url, q.handoff, q.attempts, q.updated_at";
+  "q.id, q.schedule_id, q.scheduled_for, q.slot_index, q.format, q.topic_seed, q.topic_source, q.status, q.episode_id, q.render_job_id, q.error_message, q.run_url, q.handoff, q.attempts, q.updated_at, q.progress_percent, q.progress_stage, q.progress_detail, q.progress_updated_at";
 
 // ------------------------------------------------------------------ schedule rules
 export async function getSchedule(userId: string): Promise<ScheduleRow | null> {
@@ -268,7 +273,7 @@ export async function retrySlot(
     after(() => drain().catch(() => {}));
     return "posting";
   }
-  await db()`UPDATE episode_queue SET status = 'queued', error_message = NULL, updated_at = now() WHERE id = ${id} AND status = 'failed'`;
+  await db()`UPDATE episode_queue SET status = 'queued', error_message = NULL, progress_percent = NULL, progress_stage = NULL, progress_detail = NULL, progress_updated_at = NULL, updated_at = now() WHERE id = ${id} AND status = 'failed'`;
   return "queued";
 }
 
@@ -283,7 +288,7 @@ export async function regenerateSlot(userId: string, id: string): Promise<void> 
   if (s.status !== "queued" && s.status !== "failed") throw new Error("Only a queued or failed slot can be regenerated.");
   const sql = db();
   await sql.begin(async (tx) => {
-    await tx`UPDATE episode_queue SET status = 'queued', episode_id = NULL, render_job_id = NULL, handoff = NULL, error_message = NULL, run_url = NULL, updated_at = now()
+    await tx`UPDATE episode_queue SET status = 'queued', episode_id = NULL, render_job_id = NULL, handoff = NULL, error_message = NULL, run_url = NULL, progress_percent = NULL, progress_stage = NULL, progress_detail = NULL, progress_updated_at = NULL, updated_at = now()
              WHERE id = ${id} AND status IN ('queued', 'failed')`;
     if (s.episode_id) await tx`DELETE FROM content_projects WHERE id = ${s.episode_id} AND user_id = ${userId}`;
   });
@@ -366,7 +371,7 @@ export async function tick(
   }
   if (p.slotId) {
     const [c] = await sql<{ id: string }[]>`
-      UPDATE episode_queue SET status = 'scripting', attempts = attempts + 1, started_at = now(), error_message = NULL,
+      UPDATE episode_queue SET status = 'scripting', attempts = attempts + 1, started_at = now(), error_message = NULL, progress_percent = NULL, progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now(),
         run_url = ${p.runUrl ?? null}, updated_at = now()
       WHERE id = ${p.slotId} AND status = 'queued' RETURNING id`;
     if (!c)
@@ -386,7 +391,7 @@ export async function tick(
                 WHERE id = ${q.id} AND status = 'queued'`;
     } else if (due === "produce" && q.auto && claimed.length < 4) {
       const [c] = await sql<{ id: string }[]>`
-        UPDATE episode_queue SET status = 'scripting', attempts = attempts + 1, started_at = now(), run_url = ${p.runUrl ?? null}, updated_at = now()
+        UPDATE episode_queue SET status = 'scripting', attempts = attempts + 1, started_at = now(), run_url = ${p.runUrl ?? null}, progress_percent = NULL, progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now(), updated_at = now()
         WHERE id = ${q.id} AND status = 'queued' RETURNING id`;
       if (c) claimed.push(c.id);
     }
@@ -399,7 +404,7 @@ export async function tick(
 export async function scriptSlot(
   id: string,
   runUrl?: string | null,
-): Promise<{ episodeId: string; title: string; reused: boolean }> {
+): Promise<{ episodeId: string; title: string; reused: boolean; lines: number }> {
   const s = await slot(id);
   if (s.status !== "scripting")
     throw new SlotStateError(`The slot is ${s.status}, not scripting.`);
@@ -408,12 +413,11 @@ export async function scriptSlot(
     await sql`UPDATE episode_queue SET run_url = ${runUrl}, updated_at = now() WHERE id = ${id}`;
   // a retried slot whose episode already has a script: keep it (and its takes)
   if (s.episode_id) {
-    const [has] = await sql<
-      { title: string }[]
-    >`SELECT title FROM scripts WHERE project_id = ${s.episode_id} ORDER BY version DESC LIMIT 1`;
+    const [has] = await sql<{ title: string; n: number }[]>`
+      SELECT title, jsonb_array_length(lines) AS n FROM scripts WHERE project_id = ${s.episode_id} ORDER BY version DESC LIMIT 1`;
     if (has) {
       await move(id, "scripting", "voicing");
-      return { episodeId: s.episode_id, title: has.title, reused: true };
+      return { episodeId: s.episode_id, title: has.title, reused: true, lines: has.n };
     }
   }
   const [rule] = await sql<
@@ -500,7 +504,7 @@ export async function scriptSlot(
   const freshProps = best.props.map((x) => ({ slug: x.slug, name: best!.names[x.slug], prompt: x.prompt, status: "pending" }));
   await sql`UPDATE episode_queue SET episode_id = ${p.id}, handoff = ${sql.json({ props: freshProps } as never)}, updated_at = now() WHERE id = ${id}`;
   await move(id, "scripting", "voicing");
-  return { episodeId: p.id, title, reused: false };
+  return { episodeId: p.id, title, reused: false, lines: script.lines.length };
 }
 
 // ------------------------------------------------------------------ step 2: voices (a few lines per call)
@@ -510,7 +514,7 @@ export async function scriptSlot(
  * 429 / quota error the rest goes to the worker's Edge TTS instead of failing the slot. Lines that already have a
  * take are never voiced again.
  */
-export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; remaining: number; engine: "gemini" | "edge"; note: string | null }> {
+export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null }> {
   const s = await slot(id);
   if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
   const { getBooth } = await import("./recordings");
@@ -521,13 +525,16 @@ export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; 
   if (!booth?.script) throw new Error("The slot's episode has no script.");
   const todo = linesToVoice(booth.lines, (i) => Boolean(booth.recorded[i]), "missing");
   const v = await getEpisodeVoice(s.episode_id);
+  // for the progress bar: every line of the episode, and whether RVC (Own Voice) follows
+  const total = booth.lines.length;
+  const rvc = v.provider === "gemini_tts_rvc";
   await db()`UPDATE episode_queue SET updated_at = now() WHERE id = ${id}`;
   if (!todo.length) {
     await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
-    return { voiced: 0, remaining: 0, engine: schedulerVoiceEngine(v.provider), note: null };
+    return { voiced: 0, remaining: 0, total, rvc, engine: schedulerVoiceEngine(v.provider), note: null };
   }
   if (schedulerVoiceEngine(v.provider) === "edge") {
-    return { voiced: 0, remaining: todo.length, engine: "edge", note: `Own Voice: Edge TTS makes the ${todo.length} base take(s) in the worker, then RVC converts them.` };
+    return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Own Voice: Edge TTS makes the ${todo.length} base take(s) in the worker, then RVC converts them.` };
   }
   const { voiceTake } = await import("./voice/providers");
   let voiced = 0;
@@ -545,13 +552,13 @@ export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; 
     if (bad && isQuotaError(bad.message)) {
       const note = `Gemini TTS quota hit (${bad.message.slice(0, 200)}). Edge TTS fallback used for the remaining ${todo.length - voiced} line(s).`;
       console.warn(`[scheduler] slot ${id}: ${note}`);
-      return { voiced, remaining: todo.length - voiced, engine: "edge", note };
+      return { voiced, remaining: todo.length - voiced, total, rvc, engine: "edge", note };
     }
     if (bad) throw new Error(`Voicing line failed: ${bad.message}`);
   }
   const remaining = todo.length - voiced;
   if (!remaining) await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
-  return { voiced, remaining, engine: "gemini", note: null };
+  return { voiced, remaining, total, rvc, engine: "gemini", note: null };
 }
 
 // ------------------------------------------------------------------ step 2b: Edge TTS in the worker
@@ -793,6 +800,7 @@ export async function finishSlot(
     failed: [],
   });
   await move(id, "rendering", next);
+  await db()`UPDATE episode_queue SET progress_stage = 'done', progress_percent = 100, progress_detail = ${next === "published" ? "Published" : "Ready to post"}, progress_updated_at = now() WHERE id = ${id}`;
   if (queued.length && postAt.getTime() <= Date.now() + 60_000) {
     const { after } = await import("next/server");
     after(() => drain().catch(() => {}));
@@ -845,6 +853,20 @@ export async function dispatchSlot(userId: string, id: string) {
         ? "GitHub rejected the token. Check GITHUB_DISPATCH_TOKEN (Actions: read and write)."
         : `GitHub refused to start the run (${res.status}).`,
     );
+  // the card shows an indeterminate "Starting GitHub worker..." bar until the worker reports
+  await db()`UPDATE episode_queue SET progress_percent = NULL, progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now() WHERE id = ${id} AND status = 'queued'`;
+}
+
+/**
+ * A progress report from the worker (validated by normalizeProgress). Applied only while the slot is being made (or
+ * starting): a late report never moves a finished or failed slot, so a failed card keeps the point where it stopped.
+ */
+export async function setProgress(id: string, u: ProgressUpdate): Promise<{ applied: boolean }> {
+  const r = await db()`
+    UPDATE episode_queue SET progress_stage = ${u.stage}, progress_percent = ${u.percent}, progress_detail = COALESCE(${u.detail}, progress_detail),
+      progress_updated_at = now(), updated_at = now()
+    WHERE id = ${id} AND (status IN ('scripting', 'voicing', 'rendering') OR (status = 'queued' AND progress_stage = 'starting'))`;
+  return { applied: r.count > 0 };
 }
 
 // ------------------------------------------------------------------ Reusable Prop Bank

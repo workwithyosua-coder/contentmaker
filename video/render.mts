@@ -18,6 +18,8 @@ import { FPS, cueTotalFrames, type AssetUrls, type EpisodeProps, type ManifestLi
 import { buildBeats } from "./src/beats.ts";
 import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
+import { renderProgress } from "../src/lib/slotProgress.ts";
+import { slotReporter } from "./slot-progress.mts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--base");
@@ -39,6 +41,8 @@ const log = (s: string) => console.log(`[${new Date().toISOString().slice(11, 19
 // audio 2–12 %, bundling 13 %, frames 15–92 %, upload 93–99 % (the workflow reports 100 % when it's done).
 // Sent at most every 10 s (or on a new stage); a failed report never stops the render.
 const jobId = process.env.JOB_ID?.trim();
+// a scheduled slot's progress bar on the Schedule page (SLOT_ID set by the autonomous scheduler workflow)
+const slotReport = slotReporter(base);
 let lastSent = { at: 0, pct: -1, stage: "" };
 function progress(pct: number, stage: string) {
   if (!jobId || !/^[0-9a-f-]{36}$/.test(jobId)) return;
@@ -204,6 +208,7 @@ const composition = await selectComposition({ serveUrl, id: compositionId, input
 const out = path.join(work, `episode-v${manifest.version}.mp4`);
 log(`rendering ${composition.durationInFrames} frames at ${composition.width}x${composition.height}…`);
 let last = -1;
+await slotReport("rendering", 75, "Rendering video (0%)", { force: true });
 // --reuse: upload the MP4 from a previous run instead of rendering again
 if (!(args.includes("--reuse") && existsSync(out))) await renderMedia({
   composition,
@@ -219,6 +224,9 @@ if (!(args.includes("--reuse") && existsSync(out))) await renderMedia({
     const pct = Math.floor(done * 10) * 10;
     if (pct !== last) log(`  ${pct}%`), (last = pct);
     progress(15 + done * 77, "Rendering frames");
+    // a scheduled slot's card: Remotion's real progress mapped into 75-95 % (throttled: 4 s or 5 points)
+    const r = renderProgress(done);
+    void slotReport("rendering", r.percent, r.detail);
   },
 });
 const size = statSync(out).size;
@@ -226,6 +234,7 @@ const durationMs = Math.round((composition.durationInFrames / FPS) * 1000);
 log(`done: ${out} (${(size / 1e6).toFixed(1)} MB, ${(durationMs / 1000).toFixed(1)} s)`);
 
 if (upload) {
+  await slotReport("uploading", 95, "Uploading MP4 & queueing posts...", { force: true });
   // Vercel caps request bodies at 4.5 MB: send 4 MB parts, then ask the app to join them.
   log("uploading to the app…");
   const bytes = readFileSync(out);

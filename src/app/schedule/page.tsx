@@ -59,6 +59,10 @@ async function ScheduleBody() {
       runUrl: q.run_url,
       handoff: q.handoff,
       videoUrl: q.handoff?.tiktokCaption && q.episode_id ? ((await latestVideo(q.episode_id).catch(() => null))?.url ?? null) : null,
+      progressPercent: q.progress_percent,
+      progressStage: q.progress_stage,
+      progressDetail: q.progress_detail,
+      progressUpdatedAt: q.progress_updated_at ? q.progress_updated_at.toISOString() : null,
     })),
   );
   const props: PropView[] = bank.map((p) => ({

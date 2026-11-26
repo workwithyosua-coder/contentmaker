@@ -10,6 +10,8 @@
 import { appendFileSync } from "node:fs";
 import { edgeStage } from "./edge-stage.mts";
 import { propStage } from "./prop-stage.mts";
+import { progressReporter } from "./slot-progress.mts";
+import { progressAt } from "../src/lib/slotProgress.ts";
 
 const [cmd, slotId, ...rest] = process.argv.slice(2);
 const base = (process.env.APP_URL ?? "https://contentmaker-lime.vercel.app").replace(/\/$/, "");
@@ -57,20 +59,37 @@ try {
     output("slots", JSON.stringify(r.slots));
     output("count", String(r.slots.length));
   } else if (cmd === "prepare") {
-    const s = await post<{ episodeId: string; title: string; reused: boolean }>(`slots/${slotId}/script`);
+    // the card's progress bar (real counts only; a failed report never stops the episode)
+    const report = progressReporter({ base, token, slotId, log: (m) => log(`warning: ${m}`) });
+    await report("scripting", 5, "Writing Show Bible script...", { force: true });
+    const s = await post<{ episodeId: string; title: string; reused: boolean; lines: number }>(`slots/${slotId}/script`);
     log(`${s.reused ? "kept the script of" : "wrote"} "${s.title}" (episode ${s.episodeId})`);
+    await report("scripting", 15, `Script ready (${s.lines} lines)`, { force: true });
     // the episode's fresh props (Gemini image model in the app → cut-out here → upload); a failed one drops to none
     // (a reused script only makes the props still pending)
-    const props = await propStage({ slotId: slotId!, post, log, base });
+    const props = await propStage({
+      slotId: slotId!,
+      post,
+      log,
+      base,
+      onStep: (i, n, phase) => report("props", progressAt("props", i - (phase === "generating" ? 1 : 0.5), n), `${phase === "generating" ? "Generating" : "Cutting out"} prop ${i} of ${n}`, { force: i === n && phase === "cutting" }),
+    });
     if (props.done.length || props.dropped.length) log(`props: ${props.done.length} ready${props.dropped.length ? `, ${props.dropped.length} dropped to none` : ""}`);
     // Own Voice → Edge TTS in this worker (then RVC); Gemini TTS → Gemini, with Edge TTS taking over on a 429
     for (let round = 0; round < 10; round++) {
-      const v = await post<{ voiced: number; remaining: number; engine: "gemini" | "edge"; note: string | null }>(`slots/${slotId}/voice`);
+      const v = await post<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null }>(`slots/${slotId}/voice`);
       log(`voice: ${v.voiced} new Gemini TTS take(s), ${v.remaining} line(s) without a take`);
+      const voicedSoFar = v.total - v.remaining;
+      await report("voicing", progressAt("voicing", voicedSoFar, v.total, v.rvc), `Voicing line ${Math.min(v.total, voicedSoFar + (v.remaining ? 1 : 0))} of ${v.total}`, { force: round === 0 });
       if (v.note) log(v.note);
       if (!v.remaining) break;
       if (v.engine === "edge") {
-        const e = await edgeStage({ slotId: slotId!, post, log });
+        const e = await edgeStage({
+          slotId: slotId!,
+          post,
+          log,
+          onLine: (done, n) => report("voicing", progressAt("voicing", voicedSoFar + done, v.total, v.rvc), `Voicing line ${Math.min(v.total, voicedSoFar + done)} of ${v.total}`, { force: done === n }),
+        });
         log(`edge-tts: ${e.voiced} take(s) stored`);
         if (!e.voiced) throw new Error(`Edge TTS couldn't voice the remaining ${v.remaining} line(s).`);
         continue; // the next voice call confirms nothing is left
