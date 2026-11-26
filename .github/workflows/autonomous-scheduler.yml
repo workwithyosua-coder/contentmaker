@@ -1,0 +1,143 @@
+# Autonomous scheduler: makes and posts the episodes the Schedule page queued, with no Anthropic calls.
+#   1. plan:    refills 3 days of slots, gives open slots Gemini topic seeds, claims the slots due now
+#               (only when the schedule has Auto-execute on; "Run slot now" in the app claims one slot by id)
+#   2. produce: per slot: Gemini script (props from the Prop Bank or takeover stat cards only) → Gemini TTS voices
+#               → RVC (Own Voice) → Remotion 1080×1920 render → upload → YouTube / Instagram / Facebook posts queued
+#               for the slot time, TikTok hand-off (caption + download) on the Schedule page
+#
+# Runs at 09:47 and 17:47 WIB (02:47 and 10:47 UTC), 73 minutes before the 11:00 and 19:00 WIB slots, so each
+# video is ready and posted at its slot. Uses the same ONE repository secret as the render worker: RENDER_TOKEN.
+name: Autonomous scheduler
+
+on:
+  schedule:
+    - cron: "47 2,10 * * *"
+  workflow_dispatch:
+    inputs:
+      slot_id:
+        description: Slot id to produce now (set by "Run slot now"; leave empty to run the normal schedule)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-scheduler-${{ github.event.inputs.slot_id || 'cron' }}
+  cancel-in-progress: false
+
+env:
+  APP_URL: https://contentmaker-lime.vercel.app
+  RENDER_TOKEN: ${{ secrets.RENDER_TOKEN }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      slots: ${{ steps.plan.outputs.slots }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - name: Check inputs
+        env:
+          SLOT_ID: ${{ github.event.inputs.slot_id }}
+        run: |
+          [[ -n "$RENDER_TOKEN" ]] || { echo "Add the RENDER_TOKEN repository secret"; exit 1; }
+          [[ -z "$SLOT_ID" || "$SLOT_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "slot_id must be a uuid"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: video/scheduler-step.mts
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Plan
+        id: plan
+        env:
+          SLOT_ID: ${{ github.event.inputs.slot_id }}
+        run: npx --yes tsx@4 video/scheduler-step.mts plan $SLOT_ID
+
+  produce:
+    needs: plan
+    if: needs.plan.outputs.count != '0' && needs.plan.outputs.count != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slot: ${{ fromJSON(needs.plan.outputs.slots) }}
+    env:
+      SLOT_ID: ${{ matrix.slot }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # script (Gemini), voices (Gemini TTS) and the render job; outputs episode_id, job_id and voice
+      - name: Script and voices
+        id: prep
+        working-directory: video
+        run: npx tsx scheduler-step.mts prepare "$SLOT_ID"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Cache the Remotion browser
+        uses: actions/cache@v4
+        with:
+          path: video/node_modules/.remotion
+          key: remotion-browser-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # ---- Own Voice: RVC v2 on CPU (same cached environment as the render worker) -----------------------------
+      - uses: actions/setup-python@v5
+        if: steps.prep.outputs.voice == 'rvc'
+        with:
+          python-version: "3.10"
+
+      - name: Cache the RVC environment
+        if: steps.prep.outputs.voice == 'rvc'
+        id: rvc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.venv-rvc
+          key: rvc-venv-${{ runner.os }}-py310-${{ hashFiles('worker/rvc/requirements.txt') }}
+
+      - name: Install RVC
+        if: steps.prep.outputs.voice == 'rvc' && steps.rvc-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/.venv-rvc
+          ~/.venv-rvc/bin/pip install --quiet --upgrade "pip<24.1"
+          ~/.venv-rvc/bin/pip install --quiet -r worker/rvc/requirements.txt
+          ~/.venv-rvc/bin/python -c "import os, rvc_python; from rvc_python.download_model import download_rvc_models; download_rvc_models(os.path.dirname(rvc_python.__file__))"
+
+      - name: Convert Own Voice lines (RVC)
+        if: steps.prep.outputs.voice == 'rvc'
+        working-directory: video
+        env:
+          JOB_ID: ${{ steps.prep.outputs.job_id }}
+        run: RVC_PYTHON="$HOME/.venv-rvc/bin/python" npx tsx rvc-stage.mts "${{ steps.prep.outputs.episode_id }}" --base "$APP_URL"
+
+      # ---- Render 1080×1920 and upload ------------------------------------------------------------------------
+      - name: Render and upload
+        working-directory: video
+        env:
+          JOB_ID: ${{ steps.prep.outputs.job_id }}
+        run: npx tsx render.mts "${{ steps.prep.outputs.episode_id }}" --base "$APP_URL"
+
+      # ---- Distribution: posts queued for the slot time, TikTok hand-off -------------------------------------------
+      - name: Queue the posts
+        working-directory: video
+        run: npx tsx scheduler-step.mts finish "$SLOT_ID"
+
+      - name: Report failure
+        if: failure()
+        working-directory: video
+        run: npx --yes tsx@4 scheduler-step.mts fail "$SLOT_ID" "The worker failed. Open the run on GitHub for the log." || true

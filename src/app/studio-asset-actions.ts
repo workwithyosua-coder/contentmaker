@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { audioUploadType } from "@/lib/assetSlots";
+import { overLimitMessage, raiseModelLimit } from "@/lib/bucketLimit";
 import { getOwner } from "@/lib/queries";
 import { ensureStudioBucket, listStudioAssets } from "@/lib/studio-assets";
 import { MODEL_MAX_BYTES, MODEL_TYPE, STUDIO_BUCKET, isStudioObjectPath, maxBytesFor, originalPath, parseOriginal, studioSlot, type StudioAssetStatus } from "@/lib/studioAssets";
@@ -44,7 +45,11 @@ export async function startStudioUploadAction(
     if (slot.kind === "model") {
       // private voice model: straight from the phone to the private bucket (never through a function body)
       if (part !== "file" || type !== MODEL_TYPE) return { ok: false, message: `Pick a ${slot.ext} file.` };
-      await raisePrivateBucketLimit(MODEL_MAX_BYTES, [MODEL_TYPE]);
+      // non-fatal: Supabase Free refuses a 100 MB bucket limit (400 / 413), and a < 50 MB model uploads fine anyway
+      const { limit, note } = await raiseModelLimit((bytes) => raisePrivateBucketLimit(bytes, [MODEL_TYPE]), MODEL_MAX_BYTES);
+      if (note) console.warn(`[studio-assets] ${note}`);
+      const tooBig = overLimitMessage(size, limit);
+      if (tooBig) return { ok: false, message: tooBig };
       return { ok: true, url: await signedUploadUrl(slot.path, undefined, true), path: slot.path };
     }
     let path: string | null;
