@@ -156,24 +156,27 @@ const BANK: BankProp[] = [
   { name: "es-kopi-susu", keywords: ["kopi"], category: null, vetted: true, available: false }, // no file
 ];
 
-test("prop tags resolve to vetted, existing props only, else a keyword match, else none", () => {
-  assert.equal(resolveProp("bubur-kerupuk", "apa aja", BANK), "bubur-kerupuk");
-  assert.equal(resolveProp("BUBUR-KERUPUK", "apa aja", BANK), "bubur-kerupuk");
-  assert.equal(resolveProp("sate-padang", "Rendang diblender jadi jus?!", BANK), "nasi-padang-blender", "unknown name: the keyword the line mentions");
-  assert.equal(resolveProp("bubur-mixed", "Bubur diaduk itu dosa", BANK), "bubur-kerupuk", "not vetted: never used, the bubur keyword wins");
-  assert.equal(resolveProp("es-kopi-susu", "Es kopi susu 25 ribu", BANK), "none", "no file: never asked for");
-  assert.equal(resolveProp(null, "Pajak naik lagi", BANK), "none");
-  assert.equal(resolveProp("none", "Nasi padang", BANK), "nasi-padang-blender");
-  // keywords match whole words, not inside other words
-  assert.equal(resolveProp(null, "Rendangnya mana", BANK), "none");
+test("props: the episode's own fresh props or an exact vetted name; never a keyword guess, never an unrelated leftover", () => {
+  const fresh = ["serum-mahal-1a2b3c"];
+  assert.equal(resolveProp("serum-mahal-1a2b3c", fresh, BANK), "serum-mahal-1a2b3c");
+  assert.equal(resolveProp("bubur-kerupuk", fresh, BANK), "bubur-kerupuk", "an exact vetted bank prop the script names");
+  assert.equal(resolveProp("BUBUR-KERUPUK", fresh, BANK), "bubur-kerupuk");
+  assert.equal(resolveProp("sate-padang", fresh, BANK), "none", "no keyword fallback (it used to pick nasi-padang-blender)");
+  assert.equal(resolveProp("kalkulator-9-juta", fresh, BANK), "none", "an unrelated leftover is never attached");
+  assert.equal(resolveProp("bubur-mixed", fresh, BANK), "none", "not vetted");
+  assert.equal(resolveProp("es-kopi-susu", fresh, BANK), "none", "no file");
+  assert.equal(resolveProp(null, fresh, BANK), "none");
+  assert.equal(resolveProp("none", fresh, BANK), "none", "a line about nasi padang without a tag gets nothing guessed");
+  assert.deepEqual(missingProps([{ prop_tag: "serum-mahal-1a2b3c" }, { prop_tag: "none" }], BANK, fresh), []);
+  assert.deepEqual(missingProps([{ prop_tag: "kalkulator-9-juta" }], BANK, fresh), ["kalkulator-9-juta"]);
 });
 
-test("an unattended script never references a missing prop, and its assets are all ready", () => {
+test("an unattended script never references a missing prop, and its visual fields are never blank", () => {
   const draft = {
     title: "Rendang diblender — inovasi?",
     lines: [
       { beat: "hook", speaker: "uco", text: "Rendang diblender jadi jus — gila!", subtitle: "Blended rendang", emotion: "shocked", camera_shot: "solo-uco", prop_tag: "jus-rendang", kicker: "BREAKING", headline: "JUS RENDANG VIRAL HARI INI JUGA", layout: "standard" },
-      { beat: "counter", speaker: "ocu", text: "Itu namanya bubur, Co.", subtitle: "That's porridge (the bank's bubur keyword).", emotion: "deadpan", camera_shot: "solo-ocu", prop_tag: "es-kopi-susu", kicker: "FAKTA", headline: "ITU BUBUR" },
+      { beat: "counter", speaker: "ocu", text: "Itu namanya bubur, Co.", subtitle: "That's porridge.", emotion: "deadpan", camera_shot: "solo-ocu", prop_tag: "es-kopi-susu", kicker: "FAKTA", headline: "ITU BUBUR" },
       { beat: "escalation", speaker: "uco", text: "Pakai kerupuk biar crunchy!", subtitle: "Add crackers!", emotion: "deadpan", camera_shot: "fisheye", prop_tag: "bubur-kerupuk", kicker: "IDE", headline: "PAKAI KERUPUK" },
       { beat: "insight", speaker: "ocu", text: "Satu porsi rendang itu kalorinya tinggi.", subtitle: "High calories.", emotion: "explaining", camera_shot: "closeup-punch", prop_tag: "kalori-meter", layout: "takeover", stat: "TINGGI | KALORI SEPORSI", kicker: "FAKTA", headline: "KALORI TINGGI" },
       { beat: "concession", speaker: "uco", text: "Hmm, ada benarnya juga sih.", subtitle: "He has a point.", emotion: "triumphant", camera_shot: "two-shot", prop_tag: "none", thought_bubble: true, layout: "takeover", kicker: "DALAM HATI", headline: "ADA BENARNYA" },
@@ -181,25 +184,26 @@ test("an unattended script never references a missing prop, and its assets are a
       { beat: "button", speaker: "wasit", text: "Saya juga mau ngomong" },
     ],
   };
-  const { title, lines } = sanitizeScript(draft, BANK, "fallback");
+  const { title, lines } = sanitizeScript(draft, { fresh: [], bank: BANK }, "fallback");
   assert.equal(title, "Rendang diblender, inovasi?", "no em dash");
   assert.equal(lines.length, 6, "an unknown speaker is dropped");
   assert.deepEqual(missingProps(lines, BANK), []);
-  assert.deepEqual(
-    lines.map((l) => l.prop_tag),
-    ["nasi-padang-blender", "bubur-kerupuk", "bubur-kerupuk", "nasi-padang-blender", "none", "none"],
-  );
+  assert.deepEqual(lines.map((l) => l.prop_tag), ["none", "none", "bubur-kerupuk", "none", "none", "none"]);
   assert.ok(lines.every((l) => !/—/.test(`${l.text} ${l.subtitle}`)));
   assert.equal(lines[0].important_message?.headline.split(" ").length, 5, "headline clamped to 5 words");
-  assert.equal(lines[2].emotion, null, "Uco has no deadpan pose");
-  assert.equal(lines[2].camera_shot, "solo-uco", "unknown shot → the speaker's solo");
-  assert.deepEqual([lines[3].layout, lines[3].stat], ["takeover", "TINGGI | KALORI SEPORSI"]);
+  // never blank: a pose the character lacks becomes the speaker's own, an unknown shot the speaker's solo
+  assert.equal(lines[2].emotion, "triumphant", "Uco has no deadpan pose");
+  assert.equal(lines[2].camera_shot, "solo-uco");
+  assert.ok(lines.every((l) => l.emotion && l.camera_shot));
+  assert.deepEqual(lines[0].sfx, ["whoosh"], "the hook gets an SFX");
+  assert.equal(lines[0].kinetic_text, "JUS RENDANG VIRAL HARI", "emphasis beat without a callout: its headline, 4 words");
+  assert.deepEqual([lines[3].layout, lines[3].stat, lines[3].sfx[0]], ["takeover", "TINGGI | KALORI SEPORSI", "stamp"]);
   assert.equal(lines[4].layout, "standard", "takeover without a stat is a normal line");
+  assert.equal(lines[4].kinetic_text, null, "no callout on an inner thought");
   // the render's own asset check (exact scripts: only named props) finds nothing to draw
   const props = requiredAssets(lines as never, { direction: { exact: true } as never }).props;
-  assert.ok(props.length > 0);
-  assert.ok(props.every((p) => p.ready), JSON.stringify(props));
-  assert.throws(() => sanitizeScript({ lines: draft.lines.slice(0, 2) }, BANK, "x"), /only 2 usable line/);
+  assert.deepEqual(props.map((p) => [p.name, p.ready]), [["bubur-kerupuk", true]]);
+  assert.throws(() => sanitizeScript({ lines: draft.lines.slice(0, 2) }, { fresh: [], bank: BANK }, "x"), /only 2 usable line/);
 });
 
 // ------------------------------------------------------------------ Studio Assets: the 50 MB Free plan

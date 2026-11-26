@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { notFound, renderAuthorized } from "@/lib/render";
-import { SlotStateError, edgeFinish, edgePlan, edgeUpload, failSlot, finishSlot, scriptSlot, startSlotRender, voiceSlot } from "@/lib/scheduler-server";
+import { SlotStateError, edgeFinish, propFinish, propGenerate, propPlan, propUpload, edgePlan, edgeUpload, failSlot, finishSlot, scriptSlot, startSlotRender, voiceSlot } from "@/lib/scheduler-server";
 
 export const maxDuration = 300;
 
@@ -8,6 +8,10 @@ export const maxDuration = 300;
 //   script → Gemini writes the script, the episode is created          (scripting → voicing)
 //   voice  → voices up to 6 lines; call again until remaining is 0. engine "edge": the worker's Edge TTS takes over
 //            (always for Own Voice, and for Gemini TTS slots after a 429 / quota error)
+//   prop-plan     → the episode's fresh props still to make (name, prompt)
+//   prop-generate → { name } the app generates it (Gemini image model) and returns a URL to the raw image; a failure
+//                   drops the prop to none and doesn't fail the slot
+//   prop-upload   → { name } a signed upload URL for the cut-out PNG;  prop-finish → { name, ok, error }
 //   edge-plan   → the lines without a take, with their TTS text and prosody
 //   edge-upload → { lineIndex } a signed upload URL for one Edge TTS take (WAV)
 //   edge-finish → { lineIndex, path, durationMs } registers it as the line's selected take
@@ -18,11 +22,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/scheduler/s
   if (!renderAuthorized(request)) return notFound();
   const { id, step } = await ctx.params;
   if (!/^[0-9a-f-]{36}$/.test(id)) return Response.json({ error: "Bad slot id." }, { status: 400 });
-  const b = (await request.json().catch(() => ({}))) as { error?: string; runUrl?: string; lineIndex?: number; path?: string; durationMs?: number };
+  const b = (await request.json().catch(() => ({}))) as { error?: string; runUrl?: string; lineIndex?: number; path?: string; durationMs?: number; name?: string; ok?: boolean };
   try {
     let out: unknown;
     if (step === "script") out = await scriptSlot(id, b.runUrl ?? null);
     else if (step === "voice") out = await voiceSlot(id);
+    else if (step === "prop-plan") out = await propPlan(id);
+    else if (step === "prop-generate") out = await propGenerate(id, String(b.name ?? ""), new URL(request.url).origin);
+    else if (step === "prop-upload") out = await propUpload(id, String(b.name ?? ""));
+    else if (step === "prop-finish") out = await propFinish(id, String(b.name ?? ""), b.ok === true, typeof b.error === "string" ? b.error : undefined);
     else if (step === "edge-plan") out = await edgePlan(id);
     else if (step === "edge-upload") out = await edgeUpload(id, Number(b.lineIndex));
     else if (step === "edge-finish") out = await edgeFinish(id, { lineIndex: Number(b.lineIndex), path: String(b.path ?? ""), durationMs: typeof b.durationMs === "number" ? b.durationMs : null });

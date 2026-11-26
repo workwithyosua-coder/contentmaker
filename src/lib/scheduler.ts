@@ -260,29 +260,21 @@ export function parseKeywords(text: string): string[] {
 /** Props an unattended script may use: vetted and with a file that exists (repo PNG or upload). */
 export const usableProps = (bank: BankProp[]) => bank.filter((p) => p.vetted && p.available && isPropName(p.name));
 
-const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function mentions(text: string, phrase: string) {
-  const p = phrase.trim().toLowerCase();
-  if (!p) return false;
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${esc(p)}($|[^\\p{L}\\p{N}])`, "iu").test(text);
-}
-
 /**
- * The prop a line may show: the requested tag when the bank has it (vetted and present), else the first usable prop
- * whose keyword (or name) the line mentions, else "none". Never a prop that doesn't exist, so an unattended episode
- * never asks for a new drawing.
+ * The prop a line may show: exactly the tag it asks for when that is one of the episode's own freshly generated props,
+ * or a vetted, existing Prop Bank prop named exactly; anything else is "none". There is no keyword matching: an
+ * unrelated leftover prop (a calculator on a skincare episode) is never attached.
  */
-export function resolveProp(requested: string | null | undefined, lineText: string, bank: BankProp[]): string {
-  const usable = usableProps(bank);
+export function resolveProp(requested: string | null | undefined, fresh: string[], bank: BankProp[]): string {
   const tag = String(requested ?? "").trim().toLowerCase();
-  if (tag && usable.some((p) => p.name === tag)) return tag;
-  const hit = usable.find((p) => [...p.keywords, p.name.replace(/-/g, " ")].some((k) => mentions(lineText, k)));
-  return hit ? hit.name : "none";
+  if (!tag || tag === "none") return "none";
+  if (fresh.includes(tag)) return tag;
+  return usableProps(bank).some((p) => p.name === tag) ? tag : "none";
 }
 
 /** Props a script names that the bank can't serve (should always be empty for scheduler scripts). */
-export function missingProps(lines: { prop_tag?: string | null }[], bank: BankProp[]): string[] {
-  const ok = new Set(usableProps(bank).map((p) => p.name));
+export function missingProps(lines: { prop_tag?: string | null }[], bank: BankProp[], fresh: string[] = []): string[] {
+  const ok = new Set([...usableProps(bank).map((p) => p.name), ...fresh]);
   return [...new Set(lines.map((l) => String(l.prop_tag ?? "none").trim()).filter((t) => t && t !== "none" && !ok.has(t)))];
 }
 
@@ -310,8 +302,27 @@ export type DraftLine = {
   stamp?: string | null;
   thought_bubble?: boolean;
   delivery?: string | null;
+  // Show Bible names (scheduler scripts): pose (incl. thought / cta), shot, callout, statCard, explainerCard, sfx, prop
+  pose?: string | null;
+  shot?: string | null;
+  callout?: string | null;
+  statCard?: string | null;
+  explainerCard?: string | null;
+  sfx?: string[] | null;
+  prop?: string | null;
+  thought?: boolean;
 };
-export type DraftScript = { title?: string; lines?: DraftLine[] };
+export type DraftScript = { title?: string; lines?: DraftLine[]; propSpecs?: unknown };
+
+/** Sound effects a script may ask for (files in public/sfx). */
+export const SFX_NAMES = ["whoosh", "pop", "stamp", "record-scratch", "ding"] as const;
+const EXPLAINERS = ["brain-badge", "wave-graph"] as const;
+const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
+/** A 2–4 word callout (cut to 4 words, uppercase), or null. */
+export function cleanCalloutText(s: string | null | undefined): string | null {
+  const w = words(noEmDash(String(s ?? "")).replace(/["“”]/g, ""));
+  return w.length ? w.slice(0, 4).join(" ").toUpperCase() : null;
+}
 
 /** antislop: no em dashes in anything the episode shows or says. */
 export const noEmDash = (s: string) => s.replace(/\s*[—–]\s*/g, ", ").replace(/,\s*,/g, ",").trim();
@@ -336,48 +347,61 @@ const EXPRESSION_FOR: Record<string, (typeof EXPRESSIONS)[number]> = {
 
 /**
  * Gemini's draft → the episode's lines (the Manual / Exact Import line shape, saved verbatim from here on): known
- * speakers / beats / poses / shots only, props only from the bank, takeover only with a real stat, cue word limits
- * enforced, no em dashes. Throws when fewer than 4 usable lines come back.
+ * speakers / beats / poses / shots only, props only from `props.fresh` (the episode's own generated props) or an
+ * exact vetted Prop Bank name, takeover only with a real stat, explainer cards and SFX from the known sets, cue word
+ * limits enforced, no em dashes. Visual fields are never left blank: a missing pose or shot gets the speaker's own,
+ * emphasis beats without a callout get one from their headline, and the hook / takeovers get an SFX.
+ * Throws when fewer than `min` usable lines come back.
  */
-export function sanitizeScript(draft: DraftScript, bank: BankProp[], fallbackTitle: string): { title: string; lines: ManualLine[] } {
+export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; bank: BankProp[] }, fallbackTitle: string, min = 4): { title: string; lines: ManualLine[] } {
   const lines: ManualLine[] = [];
-  for (const d of (draft.lines ?? []).slice(0, 16)) {
+  for (const d of (draft.lines ?? []).slice(0, 20)) {
     const speaker = d.speaker === "ocu" ? "ocu" : d.speaker === "uco" ? "uco" : null;
     const text = noEmDash(String(d.text ?? "")).slice(0, 400);
     if (!speaker || !text) continue;
-    const emotion = d.emotion && POSES[speaker].includes(d.emotion) ? d.emotion : null;
-    const stat = parseStat(d.stat ?? null);
+    const rawPose = String(d.pose ?? d.emotion ?? "").toLowerCase();
+    const thought = d.thought === true || d.thought_bubble === true || rawPose === "thought";
+    const emotion = POSES[speaker].includes(rawPose) ? rawPose : speaker === "uco" ? (thought ? "defensive" : "triumphant") : "deadpan";
+    const stat = parseStat(d.statCard ?? d.stat ?? null);
     const statText = stat ? `${stat.headline}${stat.subline ? ` | ${stat.subline}` : ""}` : null;
     const beat = oneOf(BEATS, d.beat) ?? (lines.length === 0 ? "hook" : "escalation");
     const onScreen = d.on_screen_text ? noEmDash(d.on_screen_text).slice(0, 80) : null;
+    const message = cue(
+      { kicker: d.kicker ? noEmDash(d.kicker).toUpperCase() : undefined, headline: d.headline ? noEmDash(d.headline).toUpperCase() : undefined, stamp: d.stamp ? noEmDash(d.stamp).toUpperCase() : null },
+      { kicker: beat.toUpperCase(), headline: (onScreen ?? text).toUpperCase() },
+    );
+    const layout = (d.layout === "takeover" || Boolean(d.statCard)) && statText ? "takeover" : "standard";
+    const emphasis = beat === "hook" || beat === "insight" || beat === "button" || layout === "takeover";
+    const callout = thought ? null : (cleanCalloutText(d.callout) ?? (emphasis ? cleanCalloutText(message.headline) : null));
+    let sfx = [...new Set((Array.isArray(d.sfx) ? d.sfx : []).map((x) => String(x).trim().toLowerCase()).filter((x) => (SFX_NAMES as readonly string[]).includes(x)))].slice(0, 3);
+    if (!sfx.length && lines.length === 0) sfx = ["whoosh"];
+    if (!sfx.length && layout === "takeover") sfx = ["stamp"];
+    const explainer = oneOf(EXPLAINERS, d.explainerCard);
     lines.push({
       beat,
       speaker,
       text,
       subtitle: noEmDash(String(d.subtitle ?? "")).slice(0, 300),
-      expression: EXPRESSION_FOR[emotion ?? ""] ?? (speaker === "uco" ? "excited" : "deadpan"),
-      thought_bubble: d.thought_bubble === true,
+      expression: EXPRESSION_FOR[emotion] ?? (speaker === "uco" ? "excited" : "deadpan"),
+      thought_bubble: thought,
       visual: "",
       on_screen_text: onScreen,
-      kinetic_text: null,
+      kinetic_text: callout,
       delivery: d.delivery ? noEmDash(d.delivery).slice(0, 160) : null,
-      important_message: cue(
-        { kicker: d.kicker ? noEmDash(d.kicker).toUpperCase() : undefined, headline: d.headline ? noEmDash(d.headline).toUpperCase() : undefined, stamp: d.stamp ? noEmDash(d.stamp).toUpperCase() : null },
-        { kicker: beat.toUpperCase(), headline: (onScreen ?? text).toUpperCase() },
-      ),
-      camera_shot: oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), d.camera_shot) ?? (speaker === "uco" ? "solo-uco" : "solo-ocu"),
+      important_message: message,
+      camera_shot: oneOf(CAMERA_SHOTS.filter((c) => c !== "cta-stinger"), d.shot ?? d.camera_shot) ?? (thought ? "two-shot" : speaker === "uco" ? "solo-uco" : "solo-ocu"),
       emotion,
-      prop_tag: resolveProp(d.prop_tag, `${text} ${d.subtitle ?? ""}`, bank),
+      prop_tag: resolveProp(d.prop ?? d.prop_tag, props.fresh, props.bank),
       start_s: null,
       end_s: null,
-      sfx: [],
-      overlay: null,
+      sfx,
+      overlay: explainer,
       callouts: null,
-      layout: d.layout === "takeover" && statText ? "takeover" : "standard",
+      layout,
       stat: statText,
     });
   }
-  if (lines.length < 4) throw new Error(`Gemini's script had only ${lines.length} usable line(s). Retry the slot.`);
+  if (lines.length < min) throw new Error(`Gemini's script had only ${lines.length} usable line(s). Retry the slot.`);
   return { title: noEmDash(String(draft.title ?? "").trim()).slice(0, 120) || fallbackTitle, lines };
 }
 

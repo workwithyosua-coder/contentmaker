@@ -3,6 +3,8 @@
 //   "Uco & Ocu"  → "U-co dan Ocu"   ("&" read as Indonesian "dan"; "Uco" split so it isn't slurred into "Ucu")
 
 const RULES: [RegExp, string][] = [
+  // the show's handle, "@uco.ocu" → "Uco Ocu" (then "Uco" → "U-co" below)
+  [/@uco\.ocu\b/gi, "Uco Ocu"],
   // "&" between words → "dan" (also "&amp;" from pasted HTML)
   [/\s*&(?:amp;)?\s*/g, " dan "],
   // the character's name, any case, as a whole word (keeps a trailing "-nya", "'s" etc.)

@@ -1,5 +1,5 @@
 import "server-only";
-import { GEMINI_KEY_MISSING, GeminiError, geminiApiKey, geminiErrorDetail, geminiTextModels, isModelError, parseGeminiJson } from "./gemini-core";
+import { GEMINI_KEY_MISSING, GeminiError, geminiApiKey, geminiErrorDetail, geminiImageModel, geminiTextModels, isModelError, parseGeminiJson } from "./gemini-core";
 
 // Gemini text generation (free tier) for the autonomous scheduler: topic seeds and unattended scripts.
 // Key: the same lookup as Gemini TTS (gemini-core.ts). Model: GEMINI_TEXT_MODEL, else gemini-3.5-flash-lite, with
@@ -66,4 +66,37 @@ export async function geminiJson<T>(prompt: string, schema: Record<string, unkno
     console.error(`[gemini] ${err.message}`);
     throw err;
   }
+}
+
+/**
+ * One image from the image model (gemini-nano-banana-2.1 by default, GEMINI_IMAGE_MODEL overrides) at 1K, square,
+ * with optional style reference images sent inline. Throws GeminiError with the status, model and Gemini's message.
+ */
+export async function geminiImage(prompt: string, refs: { mime: string; data: Buffer }[] = []): Promise<{ data: Buffer; mime: string; model: string }> {
+  const key = geminiApiKey();
+  if (!key) throw new Error(GEMINI_KEY_MISSING);
+  const model = geminiImageModel();
+  let res: Response;
+  try {
+    res = await fetch(`${API()}/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": key.key, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [...refs.map((r) => ({ inlineData: { mimeType: r.mime, data: r.data.toString("base64") } })), { text: prompt }] }],
+        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "1K" } },
+      }),
+      signal: AbortSignal.timeout(180_000),
+    });
+  } catch (e) {
+    throw new GeminiError(0, model, e instanceof Error ? e.message : String(e));
+  }
+  if (!res.ok) {
+    const err = new GeminiError(res.status, model, geminiErrorDetail(res.status, await res.text().catch(() => "")));
+    console.error(`[gemini-image] ${err.message}`);
+    throw err;
+  }
+  const j = (await res.json()) as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] }; finishReason?: string }[] };
+  const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
+  if (!part?.data) throw new GeminiError(res.status, model, `no image came back (${j.candidates?.[0]?.finishReason ?? "no candidates"})`);
+  return { data: Buffer.from(part.data, "base64"), mime: part.mimeType ?? "image/png", model };
 }

@@ -1,9 +1,12 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import type { ManualLine } from "./manualScriptParser";
+import { MIN_LINES, PROP_STYLE, SHOW_DIRECTION, SHOW_SCHEMA, dropProp, betterAttempt, episodePropName, mapPropSlugs, parsePropSpecs, showBibleProblems, showBiblePrompt, withCta, type PropSpec } from "./showBible";
 import manifest from "../../video/src/assets/assetManifest.json";
 import { PNG_PROPS } from "../../video/src/props/library";
 import { db } from "./db";
 import { parseSeeds } from "./gemini-core";
-import { geminiJson, geminiText } from "./gemini-text";
+import { geminiImage, geminiJson, geminiText } from "./gemini-text";
 import { hookLine, manualCaptions } from "./publish/manualCaptions";
 import { saveCaptions } from "./publish/approval";
 import {
@@ -20,7 +23,7 @@ import {
   missingProps,
   normalizeRule,
   plannedSlots,
-  propMenu,
+  usableProps,
   sanitizeScript,
   slotDue,
   statusAfterPublishing,
@@ -65,7 +68,10 @@ export type Handoff = {
   queued: string[];
   postAt: string;
   notConnected: string[];
+  /** the episode's freshly generated props (set when the script is written, kept through the finish) */
+  props?: FreshProp[];
 };
+export type FreshProp = { slug: string; name: string; prompt: string; status: "pending" | "done" | "failed"; error?: string };
 
 /** A step called on a slot in another state (a late or duplicate worker call): refused, the slot is left alone. */
 export class SlotStateError extends Error {
@@ -254,7 +260,7 @@ export async function retrySlot(
         { id: string }[]
       >`SELECT id FROM episode_videos WHERE project_id = ${s.episode_id} LIMIT 1`
     : [];
-  if (video && s.handoff) {
+  if (video && s.handoff?.queued) {
     const { queuePublish, drain } = await import("./publish/engine");
     await queuePublish({ userId, projectId: s.episode_id!, onlyFailed: true });
     await move(id, "failed", "ready_to_post");
@@ -264,6 +270,23 @@ export async function retrySlot(
   }
   await db()`UPDATE episode_queue SET status = 'queued', error_message = NULL, updated_at = now() WHERE id = ${id} AND status = 'failed'`;
   return "queued";
+}
+
+/**
+ * "Regenerate script & run": throws the slot's draft episode away (script, takes, render; the cascade removes them) and
+ * puts the slot back in the queue with its topic, so the next run writes a fresh Show Bible script. Only for a slot that
+ * isn't being made or posted right now.
+ */
+export async function regenerateSlot(userId: string, id: string): Promise<void> {
+  const s = await slot(id);
+  if (s.user_id !== userId) throw new Error("Unknown slot.");
+  if (s.status !== "queued" && s.status !== "failed") throw new Error("Only a queued or failed slot can be regenerated.");
+  const sql = db();
+  await sql.begin(async (tx) => {
+    await tx`UPDATE episode_queue SET status = 'queued', episode_id = NULL, render_job_id = NULL, handoff = NULL, error_message = NULL, run_url = NULL, updated_at = now()
+             WHERE id = ${id} AND status IN ('queued', 'failed')`;
+    if (s.episode_id) await tx`DELETE FROM content_projects WHERE id = ${s.episode_id} AND user_id = ${userId}`;
+  });
 }
 
 // ------------------------------------------------------------------ Gemini topic seeds
@@ -371,100 +394,7 @@ export async function tick(
   return { slots: claimed, notes };
 }
 
-// ------------------------------------------------------------------ step 1: the script (Gemini, constrained to the Prop Bank)
-const S = (description: string) => ({ type: "STRING", description });
-const SCRIPT_SCHEMA = {
-  type: "OBJECT",
-  properties: {
-    title: S("Judul episode, bahasa Indonesia, maks 8 kata"),
-    lines: {
-      type: "ARRAY",
-      items: {
-        type: "OBJECT",
-        properties: {
-          beat: {
-            type: "STRING",
-            enum: [
-              "hook",
-              "counter",
-              "escalation",
-              "insight",
-              "concession",
-              "button",
-            ],
-          },
-          speaker: { type: "STRING", enum: ["uco", "ocu"] },
-          text: S(
-            "Kalimat yang diucapkan, bahasa Indonesia santai Jakarta, 5-12 kata",
-          ),
-          subtitle: S("Natural English subtitle of the line"),
-          emotion: {
-            type: "STRING",
-            enum: [
-              "triumphant",
-              "defensive",
-              "shocked",
-              "phone",
-              "angry",
-              "deadpan",
-              "explaining",
-              "inspecting",
-            ],
-          },
-          camera_shot: {
-            type: "STRING",
-            enum: ["solo-uco", "solo-ocu", "closeup-punch", "two-shot"],
-          },
-          prop_tag: S("Nama prop PERSIS dari daftar Prop Bank, atau none"),
-          layout: { type: "STRING", enum: ["standard", "takeover"] },
-          stat: S(
-            "Untuk layout takeover: 'HEADLINE | SUBLINE' (angka/fakta kunci), selain itu kosong",
-          ),
-          kicker: S("Label di atas headline, huruf besar, maks 2 kata"),
-          headline: S("Inti kalimat, huruf besar, maks 5 kata"),
-          stamp: S("Stempel merah maks 3 kata, atau kosong"),
-          thought_bubble: { type: "BOOLEAN" },
-          delivery: S("Cara mengucapkan (emosi, tempo)"),
-        },
-        required: [
-          "beat",
-          "speaker",
-          "text",
-          "subtitle",
-          "emotion",
-          "camera_shot",
-          "prop_tag",
-          "layout",
-          "kicker",
-          "headline",
-          "thought_bubble",
-        ],
-      },
-    },
-  },
-  required: ["title", "lines"],
-};
-
-function scriptPrompt(format: EpisodeFormat, seed: string, bank: BankProp[]) {
-  return `Tulis naskah satu episode "Uco & Ocu" (video vertikal 30-60 detik) dalam format ${FORMATS[format].label}.
-${FORMATS[format].brief}
-Topik: ${seed}
-
-Karakter: Uco (heboh, optimis, gampang ngegas; emosi: triumphant, defensive, shocked, phone, angry). Ocu (kalem, datar,
-sinis, sudut pandang lain; emosi: deadpan, explaining, inspecting, angry).
-Aturan:
-- 8 sampai 14 baris, urutan beat: hook, counter, escalation (2-3 kali bolak-balik), insight, concession, button.
-- Concession: masing-masing mengakui lawannya dalam hati (thought_bubble true), tidak diucapkan.
-- Komedi dari benturan cara pandang dan fakta nyata, bukan hinaan. Tidak ada yang menang.
-- Jangan pakai em dash. Jangan mengarang angka, kutipan, studi atau testimoni. Kalau tidak yakin faktanya, jangan pakai angka.
-- Tanpa kata iklan (revolusioner, terbaik, pasti untung).
-- prop_tag HANYA boleh nama dari Prop Bank di bawah, persis, atau none. Jangan pernah menamai prop baru.
-- Untuk angka atau fakta kunci yang tidak punya prop: layout takeover dengan stat "HEADLINE | SUBLINE". Maksimal 2 baris takeover.
-- camera_shot: solo-uco / solo-ocu untuk pembicara, closeup-punch untuk punchline, two-shot kalau keduanya bereaksi.
-Prop Bank (nama: kata kunci):
-${propMenu(bank)}`;
-}
-
+// ------------------------------------------------------------------ step 1: the script (Gemini, the Uco & Ocu Show Bible)
 /** Step 1: Gemini writes the script; the episode is created with it (approved, default captions, the schedule's voice). */
 export async function scriptSlot(
   id: string,
@@ -502,17 +432,43 @@ export async function scriptSlot(
     await sql`UPDATE episode_queue SET topic_seed = ${seed}, topic_source = 'gemini', updated_at = now() WHERE id = ${id}`;
   }
   const bank = await propBank(s.user_id);
-  const draft = await geminiJson<DraftScript>(
-    scriptPrompt(format, seed, bank),
-    SCRIPT_SCHEMA,
-    { temperature: 0.8 },
-  );
-  const script = sanitizeScript(draft, bank, seed.slice(0, 80));
-  const missing = missingProps(script.lines, bank);
-  if (missing.length)
-    throw new Error(
-      `The script names props the bank doesn't have: ${missing.join(", ")}.`,
-    ); // never happens: sanitizeScript resolves every tag
+  const episodeId = randomUUID();
+  // the Show Bible script; a short or flat one is retried once with the problems spelled out, then the better kept
+  type Attempt = { title: string; lines: ManualLine[]; problems: string[]; props: PropSpec[]; names: Record<string, string> };
+  let best: Attempt | null = null;
+  let lastError = "";
+  for (const strict of [false, true]) {
+    if (strict && best && !best.problems.length) break;
+    try {
+      const draft = await geminiJson<DraftScript>(
+        showBiblePrompt({
+          format,
+          label: FORMATS[format].label,
+          brief: FORMATS[format].brief,
+          seed,
+          bankProps: usableProps(bank).map((b) => b.name).join(", "),
+          strict: strict ? (best?.problems ?? [lastError || "the script was unusable"]) : undefined,
+        }),
+        SHOW_SCHEMA,
+        { temperature: strict ? 0.6 : 0.85 },
+      );
+      const props = parsePropSpecs(draft.propSpecs);
+      const names = Object.fromEntries(props.map((p) => [p.slug, episodePropName(p.slug, episodeId)]));
+      const clean = sanitizeScript({ ...draft, lines: mapPropSlugs(draft.lines ?? [], names) }, { fresh: Object.values(names), bank }, seed.slice(0, 80), 1);
+      const lines = withCta(clean.lines);
+      const used = props.filter((p) => lines.some((l) => l.prop_tag === names[p.slug]));
+      best = betterAttempt(best, { title: clean.title, lines, problems: showBibleProblems(lines, format), props: used, names });
+      console.log(`[scheduler] slot ${id} script attempt ${strict ? 2 : 1}: ${lines.length} lines${best.problems.length ? `, problems: ${best.problems.join("; ")}` : ", accepted"}`);
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      console.error(`[scheduler] slot ${id} script attempt ${strict ? 2 : 1} failed: ${lastError}`);
+    }
+  }
+  if (!best) throw new Error(lastError || "Gemini returned no script.");
+  if (best.lines.length < MIN_LINES) throw new Error(`Gemini wrote only ${best.lines.length} lines twice (a scheduled episode needs at least ${MIN_LINES}). Retry or regenerate the slot.`);
+  const script = { title: best.title, lines: best.lines };
+  const missing = missingProps(script.lines, bank, Object.values(best.names));
+  if (missing.length) throw new Error(`The script names props that don't exist: ${missing.join(", ")}.`); // never happens: sanitizeScript resolves every tag
   const title = script.title;
   const [d] = await sql<{ id: string }[]>`
     INSERT INTO content_directions (user_id, title, prompt, platforms, formats)
@@ -527,27 +483,22 @@ export async function scriptSlot(
     facebook: { enabled: r.target_platforms.includes("facebook") },
   };
   const [p] = await sql<{ id: string }[]>`
-    INSERT INTO content_projects (user_id, direction_id, title, format, target_platforms, status, video_style, voice_provider, publish_settings)
-    VALUES (${s.user_id}, ${d.id}, ${title.slice(0, 80)}, 'short_video', '{tiktok,instagram,youtube,facebook}'::platform_t[], 'awaiting_recording',
+    INSERT INTO content_projects (id, user_id, direction_id, title, format, target_platforms, status, video_style, voice_provider, publish_settings)
+    VALUES (${episodeId}, ${s.user_id}, ${d.id}, ${title.slice(0, 80)}, 'short_video', '{tiktok,instagram,youtube,facebook}'::platform_t[], 'awaiting_recording',
             ${FORMATS[format].style}, ${r.voice_provider}, ${sql.json(settings as never)}) RETURNING id`;
-  const seconds = Math.max(
-    20,
-    Math.min(
-      60,
-      Math.round(
-        script.lines.reduce((n, l) => n + l.text.split(/\s+/).length, 0) / 2.6,
-      ),
-    ),
-  );
+  const seconds = Math.max(20, Math.min(95, Math.round(script.lines.reduce((n, l) => n + l.text.split(/\s+/).length, 0) / 2.6)));
   await sql`
     INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
     VALUES (${p.id}, 1, ${title}, ${seconds}, ${sql.json(script.lines as never)}, '[]',
-            ${`Autonomous scheduler: ${FORMATS[format].label}, written by Gemini from the topic seed "${seed}".`}, null, true, now())`;
+            ${`Autonomous scheduler: ${FORMATS[format].label}, Uco & Ocu Show Bible, written by Gemini from the topic seed "${seed}".${best.problems.length ? ` Still short of the Show Bible after one retry: ${best.problems.join("; ")}.` : ""}`},
+            ${SHOW_DIRECTION}, true, now())`;
   await saveCaptions(
     p.id,
     manualCaptions({ title, hook: hookLine(script.lines) }),
   );
-  await sql`UPDATE episode_queue SET episode_id = ${p.id}, updated_at = now() WHERE id = ${id}`;
+  // the episode's fresh props, generated by the worker next (prop-plan / prop-generate / prop-finish)
+  const freshProps = best.props.map((x) => ({ slug: x.slug, name: best!.names[x.slug], prompt: x.prompt, status: "pending" }));
+  await sql`UPDATE episode_queue SET episode_id = ${p.id}, handoff = ${sql.json({ props: freshProps } as never)}, updated_at = now() WHERE id = ${id}`;
   await move(id, "scripting", "voicing");
   return { episodeId: p.id, title, reused: false };
 }
@@ -667,6 +618,90 @@ export async function edgeFinish(id: string, b: { lineIndex: number; path: strin
   return { stored, remaining };
 }
 
+// ------------------------------------------------------------------ step 1b: the episode's fresh props
+async function propContext(id: string) {
+  const s = await slot(id);
+  if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
+  return { s, episodeId: s.episode_id, props: (s.handoff?.props ?? []) as FreshProp[] };
+}
+
+async function setProp(id: string, name: string, patch: Partial<FreshProp>) {
+  const s = await slot(id);
+  const props = ((s.handoff?.props ?? []) as FreshProp[]).map((p) => (p.name === name ? { ...p, ...patch } : p));
+  await db()`UPDATE episode_queue SET handoff = ${db().json({ ...(s.handoff ?? {}), props } as never)}, updated_at = now() WHERE id = ${id}`;
+}
+
+/** A failed prop: its lines show no prop ("none") instead, never an unrelated stand-in. The takes are untouched. */
+async function dropPropFromScript(episodeId: string, name: string) {
+  const sql = db();
+  const [sc] = await sql<{ id: string; lines: ManualLine[] }[]>`SELECT id, lines FROM scripts WHERE project_id = ${episodeId} ORDER BY version DESC LIMIT 1`;
+  if (!sc) return;
+  await sql`UPDATE scripts SET lines = ${sql.json(dropProp(sc.lines, name) as never)} WHERE id = ${sc.id}`;
+}
+
+/** The props still to make: name (the stored prop name, also on the beats) and the full image prompt. */
+export async function propPlan(id: string) {
+  const { props } = await propContext(id);
+  return { props: props.filter((p) => p.status === "pending").map((p) => ({ name: p.name, slug: p.slug, prompt: p.prompt })) };
+}
+
+/**
+ * Generates one prop with the image model (the app holds GEMINI_API_KEY; the worker never does), passing two of the
+ * repo's own props as style references, and returns a short-lived URL to the raw image for the worker's cut-out.
+ * A failure doesn't fail the slot: the prop is dropped (its beats show none) and the reason is returned.
+ */
+export async function propGenerate(id: string, name: string, origin: string): Promise<{ ok: true; url: string; mime: string; model: string } | { ok: false; error: string }> {
+  const { episodeId, props } = await propContext(id);
+  const prop = props.find((p) => p.name === name && p.status === "pending");
+  if (!prop) return { ok: false, error: "Unknown or finished prop." };
+  try {
+    const refs: { mime: string; data: Buffer }[] = [];
+    for (const file of (manifest.props as string[]).filter((f) => f.endsWith(".png")).slice(0, 2)) {
+      const r = await fetch(new URL(`/props/${file}`, origin), { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      if (r?.ok) refs.push({ mime: "image/png", data: Buffer.from(await r.arrayBuffer()) });
+    }
+    const img = await geminiImage(`${prop.prompt}. ${PROP_STYLE}`, refs);
+    const { putObject, signedUrl } = await import("./storage");
+    const raw = `${episodeId}/props-raw/${name}.${img.mime.includes("jpeg") ? "jpg" : "png"}`;
+    await putObject(raw, new Uint8Array(img.data).buffer, img.mime);
+    return { ok: true, url: await signedUrl(raw, 3600), mime: img.mime, model: img.model };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`[scheduler] slot ${id} prop ${name} failed: ${error}`);
+    await setProp(id, name, { status: "failed", error: error.slice(0, 300) });
+    await dropPropFromScript(episodeId, name);
+    return { ok: false, error };
+  }
+}
+
+/** A one-time upload URL for the cut-out PNG, in the public custom-assets bucket the renderer loads props from. */
+export async function propUpload(id: string, name: string): Promise<{ url: string; path: string }> {
+  const { props } = await propContext(id);
+  if (!props.some((p) => p.name === name)) throw new Error("Unknown prop.");
+  const { ASSET_BUCKET, ensureAssetBucket } = await import("./attached-assets");
+  const { signedUploadUrl } = await import("./storage");
+  await ensureAssetBucket();
+  const path = `props/${name}.png`;
+  return { url: await signedUploadUrl(path, ASSET_BUCKET, true), path };
+}
+
+/** The worker is done with one prop: kept when the PNG arrived, otherwise dropped to none (with the reason). */
+export async function propFinish(id: string, name: string, ok: boolean, error?: string): Promise<{ status: "done" | "failed" }> {
+  const { episodeId, props } = await propContext(id);
+  if (!props.some((p) => p.name === name)) throw new Error("Unknown prop.");
+  if (ok) {
+    const { listAttachedAssets } = await import("./attached-assets");
+    if ((await listAttachedAssets()).props.includes(`${name}.png`)) {
+      await setProp(id, name, { status: "done" });
+      return { status: "done" };
+    }
+    error = "the cut-out PNG didn't arrive";
+  }
+  await setProp(id, name, { status: "failed", error: (error ?? "failed").slice(0, 300) });
+  await dropPropFromScript(episodeId, name);
+  return { status: "failed" };
+}
+
 // ------------------------------------------------------------------ step 3: render (in the same workflow run)
 /** Opens a render job for the worker's render.mts (and rvc-stage.mts when the voice is Own Voice). */
 export async function startSlotRender(
@@ -748,6 +783,7 @@ export async function finishSlot(
     queued,
     postAt: postAt.toISOString(),
     notConnected: wanted.filter((t) => !have.has(t)),
+    ...(s.handoff?.props ? { props: s.handoff.props } : {}),
   };
   await sql`UPDATE episode_queue SET handoff = ${sql.json(handoff as never)}, updated_at = now() WHERE id = ${id}`;
   const next = statusAfterPublishing({

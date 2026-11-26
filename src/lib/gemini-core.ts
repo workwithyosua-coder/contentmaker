@@ -14,13 +14,25 @@ export function geminiApiKey(env: Record<string, string | undefined> = process.e
   return null;
 }
 
-/** Text models for topics and scripts: GEMINI_TEXT_MODEL, else the default; the fallback is tried on a model error. */
-export const GEMINI_TEXT_DEFAULT = "gemini-3.5-flash-lite";
-export const GEMINI_TEXT_FALLBACK = "gemini-3.8-flash";
-export function geminiTextModels(env: Record<string, string | undefined> = process.env): string[] {
-  const first = env.GEMINI_TEXT_MODEL?.trim() || GEMINI_TEXT_DEFAULT;
-  return first === GEMINI_TEXT_FALLBACK ? [first] : [first, GEMINI_TEXT_FALLBACK];
+/** The model to call first (the env override, else the default), then the fallback, tried on a model error. */
+function chain(override: string | undefined, def: string, fallback: string): string[] {
+  const first = override?.trim() || def;
+  return first === fallback ? [first] : [first, fallback];
 }
+
+/** Text models for topics and scripts (Paid Tier 1): GEMINI_TEXT_MODEL, else gemini-3.8-flash; then the lite model. */
+export const GEMINI_TEXT_DEFAULT = "gemini-3.8-flash";
+export const GEMINI_TEXT_FALLBACK = "gemini-3.5-flash-lite";
+export const geminiTextModels = (env: Record<string, string | undefined> = process.env) => chain(env.GEMINI_TEXT_MODEL, GEMINI_TEXT_DEFAULT, GEMINI_TEXT_FALLBACK);
+
+/** TTS models: GEMINI_TTS_MODEL, else gemini-3.8-flash-tts; then gemini-3.8-flash-lite-tts. */
+export const GEMINI_TTS_DEFAULT = "gemini-3.8-flash-tts";
+export const GEMINI_TTS_FALLBACK = "gemini-3.8-flash-lite-tts";
+export const geminiTtsModels = (env: Record<string, string | undefined> = process.env) => chain(env.GEMINI_TTS_MODEL, GEMINI_TTS_DEFAULT, GEMINI_TTS_FALLBACK);
+
+/** Image model for the episode's fresh props: GEMINI_IMAGE_MODEL, else gemini-nano-banana-2.1 (no fallback). */
+export const GEMINI_IMAGE_DEFAULT = "gemini-nano-banana-2.1";
+export const geminiImageModel = (env: Record<string, string | undefined> = process.env) => env.GEMINI_IMAGE_MODEL?.trim() || GEMINI_IMAGE_DEFAULT;
 
 /** A failed Gemini call, with the HTTP status, the model and Gemini's own (short) message. */
 export class GeminiError extends Error {

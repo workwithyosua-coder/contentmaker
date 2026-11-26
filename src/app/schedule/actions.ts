@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getOwner } from "@/lib/queries";
-import { dispatchSlot, retrySlot, savePropTags, saveSchedule, setSeed, setSeeds } from "@/lib/scheduler-server";
+import { dispatchSlot, regenerateSlot, retrySlot, savePropTags, saveSchedule, setSeed, setSeeds } from "@/lib/scheduler-server";
 import { isPropName } from "../../../video/src/props/library";
 import { parseKeywords, type ScheduleRule } from "@/lib/scheduler";
 
@@ -79,6 +79,20 @@ export async function savePropAction(name: string, keywords: string, vetted: boo
     await savePropTags(o.id, name, tags, vetted, category.trim().slice(0, 40) || null);
     revalidatePath("/schedule");
     return { ok: true, message: vetted ? `Saved ${tags.length} tag${tags.length === 1 ? "" : "s"}.` : "Saved. Unattended scripts won't use this prop." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Throws the slot's draft episode away and runs the slot again with a fresh script (or queues it without the token). */
+export async function regenerateSlotAction(id: string): Promise<Result> {
+  try {
+    const o = await owner();
+    await regenerateSlot(o.id, id);
+    revalidatePath("/schedule");
+    if (!process.env.GITHUB_DISPATCH_TOKEN?.trim()) return { ok: true, message: "Draft deleted, slot back in the queue. The next scheduled run writes a fresh script." };
+    await dispatchSlot(o.id, id);
+    return { ok: true, message: "Draft deleted. A fresh script is being written on GitHub now." };
   } catch (e) {
     return fail(e);
   }

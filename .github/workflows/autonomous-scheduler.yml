@@ -1,7 +1,8 @@
 # Autonomous scheduler: makes and posts the episodes the Schedule page queued, with no Anthropic calls.
 #   1. plan:    refills 3 days of slots, gives open slots Gemini topic seeds, claims the slots due now
 #               (only when the schedule has Auto-execute on; "Run slot now" in the app claims one slot by id)
-#   2. produce: per slot: Gemini script (props from the Prop Bank or takeover stat cards only) → voices: Own Voice
+#   2. produce: per slot: Gemini script (Uco & Ocu Show Bible) → 2-3 fresh props (Gemini image model, cut out with
+#               Pillow; a failed one shows no prop, never an unrelated one) → voices: Own Voice
 #               slots get free Edge TTS base takes (id-ID-ArdiNeural) then RVC; Gemini TTS slots use Gemini and fall
 #               back to Edge TTS on a 429 → Remotion 1080×1920 render → upload → YouTube / Instagram / Facebook posts queued
 #               for the slot time, TikTok hand-off (caption + download) on the Schedule page
@@ -90,8 +91,8 @@ jobs:
         with:
           python-version: "3.10"
 
-      # free Microsoft Edge TTS (no key): a small cached virtualenv, kept apart from the RVC one so Gemini-only slots
-      # never wait for the ~5-minute RVC install
+      # free Microsoft Edge TTS (no key) and Pillow for the prop cut-out: a small cached virtualenv, kept apart from the
+      # RVC one so slots without Own Voice never wait for the ~5-minute RVC install
       - name: Cache the Edge TTS environment
         id: edge-cache
         uses: actions/cache@v4
@@ -105,7 +106,7 @@ jobs:
           python -m venv ~/.venv-edge
           ~/.venv-edge/bin/pip install --quiet -r worker/edge/requirements.txt
 
-      # script (Gemini text), voices (Own Voice: Edge TTS base takes; Gemini TTS: Gemini, Edge TTS after a 429) and the
+      # script (Gemini, Show Bible), fresh props (Gemini image model in the app → Pillow cut-out here), voices (Own Voice: Edge TTS base takes; Gemini TTS: Gemini, Edge TTS after a 429) and the
       # render job; outputs episode_id, job_id and voice
       - name: Script and voices
         id: prep

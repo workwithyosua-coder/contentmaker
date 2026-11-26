@@ -88,7 +88,7 @@ async function ScheduleBody() {
         </Card>
         <Card title="Prop Bank" className="min-w-0">
           <p className="mb-3 text-sm text-muted">
-            Unattended scripts only use props switched on here, matched by their keywords. Anything else becomes an Evidence Takeover stat card, never a new drawing.
+            Scheduled episodes get 2 to 3 freshly drawn props of their own. A prop switched on here is reused only when a script names it exactly, never by keyword, so an unrelated leftover never shows up.
           </p>
           <PropBankList props={props} />
         </Card>

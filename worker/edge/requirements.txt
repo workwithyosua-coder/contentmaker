@@ -1,2 +1,3 @@
-# Free Microsoft Edge TTS for the autonomous scheduler worker (scripts/edge_tts_worker.py). No API key.
+# Free Microsoft Edge TTS and the prop cut-out for the autonomous scheduler worker (no API key).
 edge-tts>=7.3.1
+Pillow>=10.4
