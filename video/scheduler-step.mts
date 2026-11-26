@@ -8,6 +8,7 @@
 //   npx tsx scheduler-step.mts fail <slotId> [msg] → marks the slot failed
 // Env: RENDER_TOKEN, APP_URL (default production), RUN_URL (the Actions run, shown on the Schedule page)
 import { appendFileSync } from "node:fs";
+import { edgeStage } from "./edge-stage.mts";
 
 const [cmd, slotId, ...rest] = process.argv.slice(2);
 const base = (process.env.APP_URL ?? "https://contentmaker-lime.vercel.app").replace(/\/$/, "");
@@ -57,10 +58,18 @@ try {
   } else if (cmd === "prepare") {
     const s = await post<{ episodeId: string; title: string; reused: boolean }>(`slots/${slotId}/script`);
     log(`${s.reused ? "kept the script of" : "wrote"} "${s.title}" (episode ${s.episodeId})`);
+    // Own Voice → Edge TTS in this worker (then RVC); Gemini TTS → Gemini, with Edge TTS taking over on a 429
     for (let round = 0; round < 10; round++) {
-      const v = await post<{ voiced: number; remaining: number }>(`slots/${slotId}/voice`);
-      log(`voiced ${v.voiced} line(s), ${v.remaining} left`);
+      const v = await post<{ voiced: number; remaining: number; engine: "gemini" | "edge"; note: string | null }>(`slots/${slotId}/voice`);
+      log(`voice: ${v.voiced} new Gemini TTS take(s), ${v.remaining} line(s) without a take`);
+      if (v.note) log(v.note);
       if (!v.remaining) break;
+      if (v.engine === "edge") {
+        const e = await edgeStage({ slotId: slotId!, post, log });
+        log(`edge-tts: ${e.voiced} take(s) stored`);
+        if (!e.voiced) throw new Error(`Edge TTS couldn't voice the remaining ${v.remaining} line(s).`);
+        continue; // the next voice call confirms nothing is left
+      }
       if (round === 9) throw new Error("Voicing didn't finish after 10 rounds.");
     }
     const r = await post<{ episodeId: string; jobId: string; voice: "rvc" | "none" }>(`slots/${slotId}/render`);
@@ -77,6 +86,10 @@ try {
     log("slot marked failed");
   }
 } catch (e) {
-  console.error(e instanceof Error ? e.message : String(e));
+  const message = e instanceof Error ? e.message : String(e);
+  console.error(message);
+  // a failure in the worker itself (Edge TTS, ffmpeg, an upload) fails the slot with its real reason; a step the app
+  // already failed is left as it is (the app ignores a second report)
+  if ((cmd === "prepare" || cmd === "finish") && slotId) await post(`slots/${slotId}/fail`, { error: message.slice(0, 900) }).catch(() => {});
   process.exit(1);
 }

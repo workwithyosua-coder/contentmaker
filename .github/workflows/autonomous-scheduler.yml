@@ -1,8 +1,9 @@
 # Autonomous scheduler: makes and posts the episodes the Schedule page queued, with no Anthropic calls.
 #   1. plan:    refills 3 days of slots, gives open slots Gemini topic seeds, claims the slots due now
 #               (only when the schedule has Auto-execute on; "Run slot now" in the app claims one slot by id)
-#   2. produce: per slot: Gemini script (props from the Prop Bank or takeover stat cards only) → Gemini TTS voices
-#               → RVC (Own Voice) → Remotion 1080×1920 render → upload → YouTube / Instagram / Facebook posts queued
+#   2. produce: per slot: Gemini script (props from the Prop Bank or takeover stat cards only) → voices: Own Voice
+#               slots get free Edge TTS base takes (id-ID-ArdiNeural) then RVC; Gemini TTS slots use Gemini and fall
+#               back to Edge TTS on a 429 → Remotion 1080×1920 render → upload → YouTube / Instagram / Facebook posts queued
 #               for the slot time, TikTok hand-off (caption + download) on the Schedule page
 #
 # Runs at 09:47 and 17:47 WIB (02:47 and 10:47 UTC), 73 minutes before the 11:00 and 19:00 WIB slots, so each
@@ -81,14 +82,35 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      # script (Gemini), voices (Gemini TTS) and the render job; outputs episode_id, job_id and voice
+      # ffmpeg and Python come first: voicing (Edge TTS) runs inside "Script and voices"
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      # free Microsoft Edge TTS (no key): a small cached virtualenv, kept apart from the RVC one so Gemini-only slots
+      # never wait for the ~5-minute RVC install
+      - name: Cache the Edge TTS environment
+        id: edge-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.venv-edge
+          key: edge-venv-${{ runner.os }}-py310-${{ hashFiles('worker/edge/requirements.txt') }}
+
+      - name: Install Edge TTS
+        if: steps.edge-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/.venv-edge
+          ~/.venv-edge/bin/pip install --quiet -r worker/edge/requirements.txt
+
+      # script (Gemini text), voices (Own Voice: Edge TTS base takes; Gemini TTS: Gemini, Edge TTS after a 429) and the
+      # render job; outputs episode_id, job_id and voice
       - name: Script and voices
         id: prep
         working-directory: video
-        run: npx tsx scheduler-step.mts prepare "$SLOT_ID"
-
-      - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        run: EDGE_PYTHON="$HOME/.venv-edge/bin/python" npx tsx scheduler-step.mts prepare "$SLOT_ID"
 
       - name: Cache the Remotion browser
         uses: actions/cache@v4
@@ -97,11 +119,6 @@ jobs:
           key: remotion-browser-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       # ---- Own Voice: RVC v2 on CPU (same cached environment as the render worker) -----------------------------
-      - uses: actions/setup-python@v5
-        if: steps.prep.outputs.voice == 'rvc'
-        with:
-          python-version: "3.10"
-
       - name: Cache the RVC environment
         if: steps.prep.outputs.voice == 'rvc'
         id: rvc-cache

@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { notFound, renderAuthorized } from "@/lib/render";
 import { db } from "@/lib/db";
 import { RVC_DONE_MARK } from "@/lib/renderWorker";
+import { EDGE_TAG, isEdgeTake } from "@/lib/voice/edge";
 import { objectSize } from "@/lib/storage";
 
 // POST /api/render/:id/voices/finish { lineIndex, path, durationMs, fromRecordingId } → registers an uploaded
@@ -20,12 +21,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/render/[id]
   const size = await objectSize(b.path);
   if (!size) return Response.json({ error: "The converted take didn't arrive." }, { status: 400 });
   const durationMs = Number.isFinite(b.durationMs) ? Math.round(b.durationMs!) : null;
+  // a conversion of an Edge TTS base take stays marked as one (the renderer doesn't speed those up)
+  const [from] = b.fromRecordingId && /^[0-9a-f-]{36}$/.test(b.fromRecordingId) ? await sql<{ ai_prompt: string | null }[]>`SELECT ai_prompt FROM recordings WHERE id = ${b.fromRecordingId} AND project_id = ${id}` : [];
+  const origin = isEdgeTake(from?.ai_prompt) ? ` (${EDGE_TAG})` : "";
   await sql.begin(async (tx) => {
     const [{ take }] = await tx<{ take: number }[]>`SELECT COALESCE(max(take), 0) + 1 AS take FROM recordings WHERE script_id = ${s.id} AND line_index = ${line}`;
     await tx`UPDATE recordings SET is_selected = false WHERE script_id = ${s.id} AND line_index = ${line}`;
     await tx`
       INSERT INTO recordings (project_id, script_id, line_index, speaker, take, storage_path, mime_type, size_bytes, duration_ms, source, ai_prompt)
-      VALUES (${id}, ${s.id}, ${line}, ${s.speaker}, ${take}, ${b.path!}, 'audio/wav', ${size}, ${durationMs}, 'ai', ${`${RVC_DONE_MARK} converted from ${b.fromRecordingId ?? "?"}`})`;
+      VALUES (${id}, ${s.id}, ${line}, ${s.speaker}, ${take}, ${b.path!}, 'audio/wav', ${size}, ${durationMs}, 'ai', ${`${RVC_DONE_MARK} converted from ${b.fromRecordingId ?? "?"}${origin}`})`;
   });
   revalidatePath(`/create/${id}`);
   revalidatePath(`/create/${id}/record`);

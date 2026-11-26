@@ -67,6 +67,11 @@ export type Handoff = {
   notConnected: string[];
 };
 
+/** A step called on a slot in another state (a late or duplicate worker call): refused, the slot is left alone. */
+export class SlotStateError extends Error {
+  name = "SlotStateError";
+}
+
 const SLOT_COLS =
   "q.id, q.schedule_id, q.scheduled_for, q.slot_index, q.format, q.topic_seed, q.topic_source, q.status, q.episode_id, q.render_job_id, q.error_message, q.run_url, q.handoff, q.attempts, q.updated_at";
 
@@ -171,7 +176,7 @@ async function move(
     UPDATE episode_queue SET status = ${to}, error_message = ${to === "failed" ? (extra.error ?? "Failed.").slice(0, 1000) : null},
       run_url = COALESCE(${extra.runUrl ?? null}, run_url), finished_at = CASE WHEN ${final} THEN now() ELSE finished_at END, updated_at = now()
     WHERE id = ${id} AND status = ${from}`;
-  if (!r.count) throw new Error(`The slot is no longer ${from}.`);
+  if (!r.count) throw new SlotStateError(`The slot is no longer ${from}.`);
 }
 
 /** Stale active slots become failed; ready_to_post slots whose posts all went live become published. */
@@ -467,7 +472,7 @@ export async function scriptSlot(
 ): Promise<{ episodeId: string; title: string; reused: boolean }> {
   const s = await slot(id);
   if (s.status !== "scripting")
-    throw new Error(`The slot is ${s.status}, not scripting.`);
+    throw new SlotStateError(`The slot is ${s.status}, not scripting.`);
   const sql = db();
   if (runUrl)
     await sql`UPDATE episode_queue SET run_url = ${runUrl}, updated_at = now() WHERE id = ${id}`;
@@ -548,51 +553,118 @@ export async function scriptSlot(
 }
 
 // ------------------------------------------------------------------ step 2: voices (a few lines per call)
-/** Voices up to `max` lines without a take (cached takes are never voiced again). Returns how many are left. */
-export async function voiceSlot(
-  id: string,
-  max = 6,
-): Promise<{ voiced: number; remaining: number }> {
+/**
+ * Step 2, voices. Own Voice slots never call Gemini TTS: the answer is engine "edge" and the worker makes every
+ * missing base take with Edge TTS (then RVC converts them). Gemini TTS slots voice up to `max` lines with Gemini; on a
+ * 429 / quota error the rest goes to the worker's Edge TTS instead of failing the slot. Lines that already have a
+ * take are never voiced again.
+ */
+export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; remaining: number; engine: "gemini" | "edge"; note: string | null }> {
   const s = await slot(id);
-  if (s.status !== "voicing" || !s.episode_id)
-    throw new Error(`The slot is ${s.status}, not voicing.`);
+  if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
   const { getBooth } = await import("./recordings");
   const { linesToVoice } = await import("./voice/acting");
   const { getEpisodeVoice } = await import("./voice/settings");
-  const { voiceTake } = await import("./voice/providers");
+  const { isQuotaError, schedulerVoiceEngine } = await import("./voice/edge");
   const booth = await getBooth(s.user_id, s.episode_id);
   if (!booth?.script) throw new Error("The slot's episode has no script.");
-  const todo = linesToVoice(
-    booth.lines,
-    (i) => Boolean(booth.recorded[i]),
-    "missing",
-  );
+  const todo = linesToVoice(booth.lines, (i) => Boolean(booth.recorded[i]), "missing");
   const v = await getEpisodeVoice(s.episode_id);
+  await db()`UPDATE episode_queue SET updated_at = now() WHERE id = ${id}`;
+  if (!todo.length) {
+    await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
+    return { voiced: 0, remaining: 0, engine: schedulerVoiceEngine(v.provider), note: null };
+  }
+  if (schedulerVoiceEngine(v.provider) === "edge") {
+    return { voiced: 0, remaining: todo.length, engine: "edge", note: `Own Voice: Edge TTS makes the ${todo.length} base take(s) in the worker, then RVC converts them.` };
+  }
+  const { voiceTake } = await import("./voice/providers");
   let voiced = 0;
   for (let i = 0; i < Math.min(max, todo.length); i += 3) {
     const batch = todo.slice(i, Math.min(i + 3, max));
     const results = await Promise.all(
       batch.map((l) =>
-        voiceTake({
-          userId: s.user_id,
-          projectId: s.episode_id!,
-          scriptId: booth.script!.id,
-          lineIndex: l.index,
-          line: l,
-          provider: v.provider,
-          preset: v.preset,
-        }).catch((e: Error) => ({ ok: false as const, message: e.message })),
+        voiceTake({ userId: s.user_id, projectId: s.episode_id!, scriptId: booth.script!.id, lineIndex: l.index, line: l, provider: v.provider, preset: v.preset }).catch(
+          (e: Error) => ({ ok: false as const, message: e.message }),
+        ),
       ),
     );
-    const bad = results.find((r) => !r.ok) as { message: string } | undefined;
     voiced += results.filter((r) => r.ok).length;
+    const bad = results.find((r) => !r.ok) as { message: string } | undefined;
+    if (bad && isQuotaError(bad.message)) {
+      const note = `Gemini TTS quota hit (${bad.message.slice(0, 200)}). Edge TTS fallback used for the remaining ${todo.length - voiced} line(s).`;
+      console.warn(`[scheduler] slot ${id}: ${note}`);
+      return { voiced, remaining: todo.length - voiced, engine: "edge", note };
+    }
     if (bad) throw new Error(`Voicing line failed: ${bad.message}`);
   }
-  await db()`UPDATE episode_queue SET updated_at = now() WHERE id = ${id}`;
   const remaining = todo.length - voiced;
-  if (!remaining)
-    await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
-  return { voiced, remaining };
+  if (!remaining) await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
+  return { voiced, remaining, engine: "gemini", note: null };
+}
+
+// ------------------------------------------------------------------ step 2b: Edge TTS in the worker
+async function edgeContext(id: string) {
+  const s = await slot(id);
+  if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
+  const { getBooth } = await import("./recordings");
+  const { getEpisodeVoice } = await import("./voice/settings");
+  const booth = await getBooth(s.user_id, s.episode_id);
+  if (!booth?.script) throw new Error("The slot's episode has no script.");
+  return { s, booth, script: booth.script, voice: await getEpisodeVoice(s.episode_id) };
+}
+
+/** The Edge TTS jobs for the slot's lines that still have no take (text with the phonetic fixes, rate, pitch). */
+export async function edgePlan(id: string) {
+  const { booth } = await edgeContext(id);
+  const { EDGE_VOICE, edgeJobs } = await import("./voice/edge");
+  return { voice: EDGE_VOICE, lines: edgeJobs(booth.lines as never, (i) => Boolean(booth.recorded[i])) };
+}
+
+const linePrefix = (episodeId: string, scriptId: string, lineIndex: number, speaker: string) =>
+  `${episodeId}/${scriptId}/line-${String(lineIndex + 1).padStart(2, "0")}-${speaker}-edge-`;
+
+/** A one-time upload URL for one line's Edge TTS take (WAV), or skip when the line got a take meanwhile. */
+export async function edgeUpload(id: string, lineIndex: number): Promise<{ skip: true } | { skip: false; url: string; path: string }> {
+  const { s, booth, script } = await edgeContext(id);
+  const line = booth.lines[lineIndex];
+  if (!line || !Number.isInteger(lineIndex)) throw new Error("Unknown line.");
+  if (booth.recorded[lineIndex]) return { skip: true };
+  const { signedUploadUrl } = await import("./storage");
+  const path = `${linePrefix(s.episode_id!, script.id, lineIndex, line.speaker)}${Date.now()}.wav`;
+  return { skip: false, url: await signedUploadUrl(path), path };
+}
+
+/**
+ * Registers an uploaded Edge TTS take as the line's selected take. The mark (and the prosody in it) is worked out
+ * here from the line and the episode's provider, never taken from the worker. A line that got a take meanwhile keeps it.
+ */
+export async function edgeFinish(id: string, b: { lineIndex: number; path: string; durationMs: number | null }): Promise<{ stored: boolean; remaining: number }> {
+  const { s, booth, script, voice } = await edgeContext(id);
+  const line = booth.lines[b.lineIndex];
+  if (!line || !Number.isInteger(b.lineIndex)) throw new Error("Unknown line.");
+  const prefix = linePrefix(s.episode_id!, script.id, b.lineIndex, line.speaker);
+  if (typeof b.path !== "string" || !b.path.startsWith(prefix) || !/^\d+\.wav$/.test(b.path.slice(prefix.length))) throw new Error("Unknown upload.");
+  const { objectSize } = await import("./storage");
+  const size = await objectSize(b.path);
+  if (!size) throw new Error(`The Edge TTS take for line ${b.lineIndex + 1} didn't arrive.`);
+  const { edgeMark, edgeProsody } = await import("./voice/edge");
+  const mark = edgeMark(voice.provider, edgeProsody(line));
+  const durationMs = Number.isFinite(b.durationMs) ? Math.round(b.durationMs!) : null;
+  let stored = false;
+  await db().begin(async (tx) => {
+    const [has] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM recordings WHERE script_id = ${script.id} AND line_index = ${b.lineIndex} AND is_selected`;
+    if (has.n) return; // cached audio wins
+    const [{ take }] = await tx<{ take: number }[]>`SELECT COALESCE(max(take), 0) + 1 AS take FROM recordings WHERE script_id = ${script.id} AND line_index = ${b.lineIndex}`;
+    await tx`
+      INSERT INTO recordings (project_id, script_id, line_index, speaker, take, storage_path, mime_type, size_bytes, duration_ms, source, ai_prompt, is_selected)
+      VALUES (${s.episode_id!}, ${script.id}, ${b.lineIndex}, ${line.speaker}, ${take}, ${b.path}, 'audio/wav', ${size}, ${durationMs}, 'ai', ${mark}, true)`;
+    stored = true;
+  });
+  // lines still without a take after this one
+  const remaining = booth.lines.filter((l) => !booth.recorded[l.index] && l.index !== b.lineIndex).length;
+  await db()`UPDATE episode_queue SET updated_at = now() WHERE id = ${id}`;
+  return { stored, remaining };
 }
 
 // ------------------------------------------------------------------ step 3: render (in the same workflow run)
@@ -602,7 +674,7 @@ export async function startSlotRender(
 ): Promise<{ episodeId: string; jobId: string; voice: "rvc" | "none" }> {
   const s = await slot(id);
   if (s.status !== "voicing" || !s.episode_id)
-    throw new Error(`The slot is ${s.status}, not voicing.`);
+    throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
   const { ownVoicePlan } = await import("./render-jobs");
   const { missingModelMessage } = await import("./renderWorker");
   const plan = await ownVoicePlan(s.episode_id);
@@ -629,7 +701,7 @@ export async function finishSlot(
 ): Promise<{ status: QueueStatus; handoff: Handoff }> {
   const s = await slot(id);
   if (s.status !== "rendering" || !s.episode_id)
-    throw new Error(`The slot is ${s.status}, not rendering.`);
+    throw new SlotStateError(`The slot is ${s.status}, not rendering.`);
   const sql = db();
   const [video] = await sql<{ id: string }[]>`
     SELECT id FROM episode_videos WHERE project_id = ${s.episode_id} AND created_at >= ${s.started_at ?? new Date(0)} ORDER BY created_at DESC LIMIT 1`;

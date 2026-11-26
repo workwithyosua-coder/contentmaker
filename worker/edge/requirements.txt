@@ -1,0 +1,2 @@
+# Free Microsoft Edge TTS for the autonomous scheduler worker (scripts/edge_tts_worker.py). No API key.
+edge-tts>=7.3.1
