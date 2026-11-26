@@ -192,9 +192,10 @@ export function AiVoicePanel({
       </details>
       <Msg state={state} />
       <p className="text-xs text-muted">
-        AI takes use your cloned voices and the script&apos;s delivery notes.
-        They show up as new takes in the list below, so you can still record
-        over any line yourself.
+        AI takes use the voice provider above (Gemini TTS is free) and each
+        line&apos;s pose. They show up as new takes in the list below, so you
+        can still record over any line yourself. Lines that already have audio
+        are never voiced again unless you redo them here.
       </p>
     </div>
   );

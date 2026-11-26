@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { finishStudioUploadAction, removeStudioAssetAction, startStudioUploadAction } from "@/app/studio-asset-actions";
 import { audioUploadType } from "@/lib/assetSlots";
 import { processPropFile } from "@/lib/clientPropProcessor";
-import { ORIGINAL_TYPES, STUDIO_ACCEPT, originalType, STUDIO_MAX_BYTES, STUDIO_SLOTS, studioSlot, type StudioAssetStatus, type StudioSlot } from "@/lib/studioAssets";
+import { MODEL_TYPE, ORIGINAL_TYPES, RVC_GROUP, RVC_HELP, STUDIO_SLOTS, acceptFor, maxBytesFor, modelFileOk, originalType, studioSlot, type StudioAssetStatus, type StudioSlot } from "@/lib/studioAssets";
 
 // Studio Assets uploader (Accounts → Studio Assets, and the "Global studio asset" rows in Asset readiness). Any phone
 // image goes through the same in-browser cut-out as props (clientPropProcessor.ts: ≤ 1024 px, white background removed
@@ -25,6 +25,7 @@ export function StudioAssetsPanel({ initial }: { initial: StudioAssetStatus[] })
       {groups.map((g) => (
         <section key={g} aria-label={g} className="min-w-0 space-y-2">
           <h3 className="text-sm font-semibold">{g}</h3>
+          {g === RVC_GROUP && <p className="text-xs text-muted">{RVC_HELP}</p>}
           <ul className="space-y-3">
             {STUDIO_SLOTS.filter((s) => s.group === g).map((slot) => (
               <li key={slot.key} className="min-w-0 rounded-control border border-border p-3">
@@ -41,7 +42,7 @@ export function StudioAssetsPanel({ initial }: { initial: StudioAssetStatus[] })
 /** Missing global slots inside Asset readiness (episodes with an angry line), with the same one-tap upload. */
 export function GlobalStudioRows({ status }: { status: StudioAssetStatus[] }) {
   // a slot uploaded here stays listed (ready) until the page is left
-  const [shown] = useState(() => status.filter((s) => !s.url).map((s) => s.key));
+  const [shown] = useState(() => status.filter((s) => !s.url && studioSlot(s.key)?.kind !== "model").map((s) => s.key));
   if (!shown.length) return null;
   return (
     <ul className="mt-3 space-y-3" aria-label="Global studio assets">
@@ -92,9 +93,15 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
     setError(null);
     setNote(null);
     try {
-      if (source.size > STUDIO_MAX_BYTES) throw new Error(`That file is over ${STUDIO_MAX_BYTES / 1024 / 1024} MB. Pick a smaller one.`);
+      const max = maxBytesFor(slot);
+      if (source.size > max) throw new Error(`That file is over ${max / 1024 / 1024} MB. Pick a smaller one.`);
       let kept: string | null = null;
-      if (sprite) {
+      if (slot.kind === "model") {
+        // a trained RVC voice model: uploaded as is, straight to private Storage
+        if (!(source instanceof File) || !modelFileOk(slot, source.name)) throw new Error(`Pick a ${slot.ext} file for this slot.`);
+        setPhase("uploading");
+        await put("file", source, MODEL_TYPE, true);
+      } else if (sprite) {
         setPhase("processing");
         const r = await processPropFile(source, { removeWhite });
         setLocalPreview((old) => {
@@ -116,7 +123,7 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
       // a re-cut without a new original keeps the stored switch position in step with what's shown
       setStatus({ ...done.status, removeWhite: kept ? done.status.removeWhite : removeWhite });
       setPhase("idle");
-      setNote(sprite ? "Saved. Used by every episode from the next preview or render." : "Saved. Used as the urgent background track.");
+      setNote(sprite ? "Saved. Used by every episode from the next preview or render." : slot.kind === "model" ? "Saved. The Own-Voice render worker picks it up." : "Saved. Used as the urgent background track.");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -163,18 +170,18 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
   }
 
   const pick = () => input.current?.click();
-  const ready = Boolean(status.url);
-  const label = sprite ? "Upload image" : "Upload audio";
+  const ready = Boolean(status.present ?? status.url);
+  const label = sprite ? "Upload image" : slot.kind === "model" ? `Upload ${slot.ext}` : "Upload audio";
   const working = phase === "processing" ? "Processing image..." : phase === "uploading" ? "Uploading..." : phase === "removing" ? "Removing..." : null;
   const canRecut = Boolean(picked || status.originalUrl);
-  const name = sprite ? `${slot.group.replace(/ \(Angry\)/, "")} angry, ${slot.label.toLowerCase()}` : "Urgent background track";
+  const name = sprite ? `${slot.group.replace(/ \(Angry\)/, "")} angry, ${slot.label.toLowerCase()}` : slot.kind === "model" ? slot.label : "Urgent background track";
 
   return (
     <div className="min-w-0 space-y-2">
       <input
         ref={input}
         type="file"
-        accept={STUDIO_ACCEPT[slot.kind]}
+        accept={acceptFor(slot)}
         className="sr-only"
         tabIndex={-1}
         aria-hidden
@@ -189,7 +196,7 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
       {!compact && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-sm font-semibold">{slot.kind === "sprite" ? slot.label : "Background track"}</div>
+            <div className="text-sm font-semibold">{slot.kind === "audio" ? "Background track" : slot.label}</div>
             <code className="block break-all text-xs text-muted">{slot.path}</code>
           </div>
           <span className="stamp" style={{ color: ready ? "var(--win)" : "var(--bad)" }}>
@@ -200,7 +207,9 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
 
       {ready && !busy ? (
         <div className="flex min-w-0 flex-wrap items-center gap-3">
-          {sprite ? (
+          {slot.kind === "model" ? (
+            <span className="text-xs text-muted">Uploaded{status.sizeBytes ? ` · ${(status.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ""} · private</span>
+          ) : sprite ? (
             <Checker>
               {/* eslint-disable-next-line @next/next/no-img-element -- public Supabase URL or local blob, fixed 48 px */}
               <img src={localPreview ?? status.url!} alt={`${name} sprite preview, transparent cut-out`} width={48} height={48} style={{ width: 48, height: 48, objectFit: "contain" }} />

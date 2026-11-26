@@ -10,6 +10,8 @@ import { parseDirection } from "../../video/src/direction";
 import { AssetChecklist } from "./asset-checklist";
 import { needsAngry, type StudioAssetStatus } from "@/lib/studioAssets";
 import { storedDirection } from "@/lib/manualScriptParser";
+import type { DeliveryPreset, VoiceProvider } from "@/lib/voice/acting";
+import { VoiceProviderPicker } from "./voice-provider";
 import { BeatTable, type TableLine } from "./beat-inspector";
 import { NewEpisodeForm, Status } from "./episode-ui";
 
@@ -117,6 +119,8 @@ function ManualComposer({
   const [direction, setDirection] = useState("");
   const [uploads, setUploads] = useState<Urls>(assetUrls);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // voice provider / delivery for the new episode (Gemini TTS, free, by default)
+  const [voice, setVoice] = useState<{ provider: VoiceProvider; preset: DeliveryPreset }>({ provider: "gemini_tts", preset: "standard" });
   const [saving, startSave] = useTransition();
   const titleRef = useRef<HTMLInputElement>(null);
   const scriptRef = useRef<HTMLTextAreaElement>(null);
@@ -165,7 +169,7 @@ function ManualComposer({
     const bad = lines.findIndex((l) => !l.text.trim());
     if (bad >= 0) return setSaveError(`Line ${bad + 1} has no Indonesian text.`);
     startSave(async () => {
-      const r = await createManualEpisodeAction(title, style, direction, JSON.stringify(lines));
+      const r = await createManualEpisodeAction(title, style, direction, JSON.stringify(lines), voice);
       // on success the action redirects to the new episode; anything returned is an error
       if (r && !r.ok) setSaveError(r.message);
     });
@@ -303,6 +307,14 @@ function ManualComposer({
             disabled={saving}
             onSkip={skip}
             onUploaded={(kind, name, url) => setUploads((u) => ({ ...u, [kind]: { ...u[kind], [name]: url } }))}
+          />
+          <VoiceProviderPicker
+            provider={voice.provider}
+            preset={voice.preset}
+            onSave={async (provider, preset) => {
+              setVoice({ provider, preset });
+              return null;
+            }}
           />
           {saveError && (
             <div role="alert" className="rounded-control border p-3 text-sm" style={{ borderColor: "var(--bad)", background: "var(--bad-bg)" }}>

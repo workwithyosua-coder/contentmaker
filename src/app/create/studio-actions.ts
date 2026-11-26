@@ -8,6 +8,8 @@ import { ASSET_BUCKET, ASSET_MAX_BYTES, ASSET_TYPES, assetPath, ensureAssetBucke
 import { db } from "@/lib/db";
 import { POSES, applyCuesToLines, parseManualScript, spokenSeconds, storedDirection } from "@/lib/manualScriptParser";
 import { reusableTakes } from "@/lib/takeReuse";
+import { asPreset, asProvider } from "@/lib/voice/acting";
+import { setEpisodeVoice } from "@/lib/voice/settings";
 import { stripCueBlock } from "../../../video/src/direction";
 import { BEATS, EXPRESSIONS } from "@/lib/script-parse";
 import { saveCaptions } from "@/lib/publish/approval";
@@ -115,7 +117,7 @@ function readLines(payload: string): { ok: true; lines: BeatLineInput[] } | { ok
 }
 
 /** Manual / Exact Import: creates the episode from the parsed-and-edited beat table (no AI, text saved verbatim). */
-export async function createManualEpisodeAction(topic: string, style: string, direction: string, payload: string): Promise<StepResult> {
+export async function createManualEpisodeAction(topic: string, style: string, direction: string, payload: string, voice?: { provider: string; preset: string }): Promise<StepResult> {
   const t = topic.trim();
   if (t.length < 3) return { ok: false, message: "Give the episode a topic or title." };
   if (!CUE_STYLES.has(style)) return { ok: false, message: "Pick Koran Kinetik or Diagram Taktis." };
@@ -140,6 +142,8 @@ export async function createManualEpisodeAction(topic: string, style: string, di
       VALUES (${p.id}, 1, ${t.slice(0, 120)}, ${lengthOf(read.lines)}, ${sql.json(read.lines as never)}, '[]',
               ${"Manual / Exact Import (no AI)."}, ${dir || null}, true, now())`;
     await saveCaptions(p.id, manualCaptions({ title: t, hook: hookLine(read.lines) }));
+    // the voice provider / delivery chosen in the composer (defaults: Gemini TTS, Standard); never blocks the save
+    if (voice) await setEpisodeVoice(o.id, p.id, { provider: asProvider(voice.provider), preset: asPreset(voice.preset) }).catch(() => {});
     projectId = p.id;
   } catch (err) {
     return { ok: false, message: message(err) };

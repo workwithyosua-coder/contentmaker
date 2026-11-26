@@ -127,7 +127,7 @@ export async function listObjects(prefix: string, bucket = BUCKET): Promise<stri
 }
 
 /** Like listObjects, with each file's last-modified time (ms), for cache-busting public URLs. */
-export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{ name: string; updatedAt: number | null }[]> {
+export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{ name: string; updatedAt: number | null; size?: number | null }[]> {
   const clean = prefix.replace(/^\/+|\/+$/g, "");
   if (local()) {
     const { readdir, stat } = await import("node:fs/promises");
@@ -135,7 +135,12 @@ export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{
     if (!dir.startsWith(LOCAL_DIR + path.sep)) return [];
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
     const files = entries.filter((e) => e.isFile()).map((e) => e.name).sort();
-    return Promise.all(files.map(async (name) => ({ name, updatedAt: await stat(path.join(dir, name)).then((st) => Math.round(st.mtimeMs), () => null) })));
+    return Promise.all(
+      files.map(async (name) => {
+        const st = await stat(path.join(dir, name)).catch(() => null);
+        return { name, updatedAt: st ? Math.round(st.mtimeMs) : null, size: st?.size ?? null };
+      }),
+    );
   }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
@@ -145,12 +150,12 @@ export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{
   });
   if (res.status === 404 || res.status === 400) return [];
   if (!res.ok) throw new Error(`Couldn't list ${clean} (${res.status})`);
-  const rows = (await res.json()) as { name: string; id: string | null; updated_at?: string | null; created_at?: string | null }[];
+  const rows = (await res.json()) as { name: string; id: string | null; updated_at?: string | null; created_at?: string | null; metadata?: { size?: number } | null }[];
   return rows
     .filter((r) => r.id && !r.name.startsWith("."))
     .map((r) => {
       const t = Date.parse(r.updated_at ?? r.created_at ?? "");
-      return { name: r.name, updatedAt: Number.isFinite(t) ? t : null };
+      return { name: r.name, updatedAt: Number.isFinite(t) ? t : null, size: r.metadata?.size ?? null };
     });
 }
 
@@ -197,6 +202,28 @@ export async function ensurePublicBucket(bucket: string, opts: { maxBytes: numbe
     body: JSON.stringify({ id: bucket, name: bucket, public: true, file_size_limit: opts.maxBytes, allowed_mime_types: opts.types }),
   });
   if (!made.ok && made.status !== 409) throw new Error(`Couldn't create the ${bucket} storage bucket (${made.status}): ${(await made.text()).slice(0, 200)}`);
+}
+
+/**
+ * Makes sure the private recordings bucket accepts files up to `maxBytes` of these types (e.g. 100 MB voice models),
+ * keeping every type it already allows. It stays private. No-op for the local driver. (Supabase's own per-project
+ * upload limit still applies: 50 MB on the Free plan.)
+ */
+export async function raisePrivateBucketLimit(maxBytes: number, types: string[], bucket = BUCKET) {
+  if (local()) return;
+  const { url, headers } = supabase();
+  const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
+  if (!res.ok) throw new Error(`Couldn't read the ${bucket} storage bucket (${res.status}).`);
+  const b = (await res.json()) as { file_size_limit?: number | null; allowed_mime_types?: string[] | null };
+  const allowed = b.allowed_mime_types ?? null;
+  const missing = allowed ? types.filter((t) => !allowed.includes(t)) : [];
+  if ((b.file_size_limit ?? Infinity) >= maxBytes && !missing.length) return;
+  const put = await fetch(`${url}/storage/v1/bucket/${bucket}`, {
+    method: "PUT",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ public: false, file_size_limit: Math.max(maxBytes, b.file_size_limit ?? 0), allowed_mime_types: allowed ? [...allowed, ...missing] : null }),
+  });
+  if (!put.ok) throw new Error(`Couldn't raise the ${bucket} bucket's size limit (${put.status}): ${(await put.text()).slice(0, 200)}`);
 }
 
 /**

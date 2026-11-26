@@ -23,10 +23,14 @@ const ROOT = path.resolve(import.meta.dirname, "../..");
 const URL_UCO_C = "https://x.supabase.co/storage/v1/object/public/studio-assets/sprites/uco-angry-closed.png?v=1";
 const URL_UCO_O = "https://x.supabase.co/storage/v1/object/public/studio-assets/sprites/uco-angry-open.png?v=1";
 
-test("the five global slots map to fixed keys under studio-assets/", () => {
+test("the global slots map to fixed keys (public sprites and audio, private voice models)", () => {
   assert.deepEqual(
-    STUDIO_SLOTS.map((s) => s.path),
+    STUDIO_SLOTS.filter((s) => s.kind !== "model").map((s) => s.path),
     ["sprites/uco-angry-closed.png", "sprites/uco-angry-open.png", "sprites/ocu-angry-closed.png", "sprites/ocu-angry-open.png", "sfx/bgm-urgent.mp3"],
+  );
+  assert.deepEqual(
+    STUDIO_SLOTS.filter((s) => s.kind === "model").map((s) => s.path),
+    ["studio-assets/voices/uco-voice.pth", "studio-assets/voices/uco-voice.index", "studio-assets/voices/ocu-voice.pth", "studio-assets/voices/ocu-voice.index"],
   );
 });
 

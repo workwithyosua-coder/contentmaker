@@ -6,10 +6,12 @@
 //   sfx/bgm-urgent.mp3                                 the urgent background track (stored under this key as picked)
 //   originals/{slot}.{cut|keep}.{jpg|png|webp|…}       the picked photo, kept so "Remove white background" can be
 //                                                      switched later; cut / keep records the switch's position
+// Own-voice models (RVC) are private: they'd let anyone clone the voice, so they live in the private `recordings`
+// bucket at studio-assets/voices/{uco|ocu}-voice.{pth|index}, read only by the server and the render worker.
 
 export const STUDIO_BUCKET = "studio-assets";
 
-export type StudioSlotKind = "sprite" | "audio";
+export type StudioSlotKind = "sprite" | "audio" | "model";
 export type StudioSlot = {
   key: string;
   kind: StudioSlotKind;
@@ -21,7 +23,14 @@ export type StudioSlot = {
   frame?: "closed" | "open";
   emotion?: string;
   group: string;
+  /** model slots: the only file extension accepted (".pth" or ".index") */
+  ext?: ".pth" | ".index";
+  /** "private": the private recordings bucket (models); else the public studio-assets bucket */
+  bucket?: "private";
 };
+
+export const RVC_GROUP = "Own-Voice Models (RVC)";
+export const RVC_HELP = "Upload trained RVC voice models once. Used automatically by the Own-Voice render worker.";
 
 export const STUDIO_SLOTS: readonly StudioSlot[] = [
   { key: "uco-angry-closed", kind: "sprite", path: "sprites/uco-angry-closed.png", label: "Mouth closed", who: "uco", frame: "closed", emotion: "angry", group: "Uco (Angry)" },
@@ -29,6 +38,10 @@ export const STUDIO_SLOTS: readonly StudioSlot[] = [
   { key: "ocu-angry-closed", kind: "sprite", path: "sprites/ocu-angry-closed.png", label: "Mouth closed", who: "ocu", frame: "closed", emotion: "angry", group: "Ocu (Angry)" },
   { key: "ocu-angry-open", kind: "sprite", path: "sprites/ocu-angry-open.png", label: "Mouth open", who: "ocu", frame: "open", emotion: "angry", group: "Ocu (Angry)" },
   { key: "bgm-urgent", kind: "audio", path: "sfx/bgm-urgent.mp3", label: "bgm-urgent.mp3", group: "Urgent BGM" },
+  { key: "uco-voice-pth", kind: "model", path: "studio-assets/voices/uco-voice.pth", label: "Uco model (.pth)", who: "uco", ext: ".pth", bucket: "private", group: RVC_GROUP },
+  { key: "uco-voice-index", kind: "model", path: "studio-assets/voices/uco-voice.index", label: "Uco index (.index)", who: "uco", ext: ".index", bucket: "private", group: RVC_GROUP },
+  { key: "ocu-voice-pth", kind: "model", path: "studio-assets/voices/ocu-voice.pth", label: "Ocu model (.pth)", who: "ocu", ext: ".pth", bucket: "private", group: RVC_GROUP },
+  { key: "ocu-voice-index", kind: "model", path: "studio-assets/voices/ocu-voice.index", label: "Ocu index (.index)", who: "ocu", ext: ".index", bucket: "private", group: RVC_GROUP },
 ];
 
 /** The slot for a key, or null for anything outside the allowlist (no arbitrary paths). */
@@ -38,7 +51,15 @@ export function studioSlot(key: unknown): StudioSlot | null {
 
 /** Largest file a slot accepts from the picker (images are shrunk to ≤ 1024 px PNG in the browser before upload). */
 export const STUDIO_MAX_BYTES = 10 * 1024 * 1024;
-export const STUDIO_ACCEPT: Record<StudioSlotKind, string> = { sprite: "image/*", audio: "audio/*,.mp3,.wav,.m4a,.ogg" };
+/** Voice models are large: up to 100 MB, uploaded straight from the phone to Storage (never through a function). */
+export const MODEL_MAX_BYTES = 100 * 1024 * 1024;
+export const MODEL_TYPE = "application/octet-stream";
+export const maxBytesFor = (slot: StudioSlot) => (slot.kind === "model" ? MODEL_MAX_BYTES : STUDIO_MAX_BYTES);
+export const STUDIO_ACCEPT: Record<StudioSlotKind, string> = { sprite: "image/*", audio: "audio/*,.mp3,.wav,.m4a,.ogg", model: ".pth,.index" };
+/** The `accept` attribute for one slot (a model slot takes only its own extension). */
+export const acceptFor = (slot: StudioSlot) => (slot.kind === "model" && slot.ext ? slot.ext : STUDIO_ACCEPT[slot.kind]);
+/** Whether a picked file can go into a model slot: its extension must match the slot. */
+export const modelFileOk = (slot: StudioSlot, fileName: string) => slot.kind === "model" && !!slot.ext && fileName.toLowerCase().endsWith(slot.ext);
 /** Image types a picked original may be stored as. */
 export const ORIGINAL_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -79,7 +100,11 @@ export function isStudioObjectPath(p: unknown): boolean {
 /** What the app knows about one slot: its public URL (cache-busted with the upload time) when it's uploaded. */
 export type StudioAssetStatus = {
   key: string;
+  /** public URL (sprites, audio); always null for the private voice models */
   url: string | null;
+  /** uploaded (the only signal for private slots) */
+  present?: boolean;
+  sizeBytes?: number | null;
   updatedAt: number | null;
   /** sprites: the kept original's URL and the background switch's position */
   originalUrl: string | null;
@@ -94,7 +119,7 @@ export function studioVideoUrls(status: StudioAssetStatus[]): { cast: Record<str
     const slot = studioSlot(st.key);
     if (!slot || !st.url) continue;
     if (slot.kind === "sprite") cast[`${slot.who}/${slot.emotion}-${slot.frame}.png`] = st.url;
-    else sfx[slot.key] = st.url;
+    else if (slot.kind === "audio") sfx[slot.key] = st.url;
   }
   return { cast, sfx };
 }

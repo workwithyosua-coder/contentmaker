@@ -68,6 +68,10 @@ export async function createEpisodeAction(_prev: StepResult, form: FormData): Pr
       RETURNING id`;
     projectId = p.id;
     const userId = o.id;
+    // the voice provider / delivery picked on the Create page (defaults: Gemini TTS, Standard)
+    const { setEpisodeVoice } = await import("@/lib/voice/settings");
+    const { asPreset, asProvider } = await import("@/lib/voice/acting");
+    await setEpisodeVoice(o.id, p.id, { provider: asProvider(form.get("provider")), preset: asPreset(form.get("preset")) }).catch(() => {});
     inBackground(projectId, "draft", async () => {
       await generateIdeas({ userId, projectId, direction });
       await setStatus(projectId, "awaiting_concept");

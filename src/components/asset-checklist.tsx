@@ -46,7 +46,7 @@ export function AssetChecklist({
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const all = [...props.map((a) => ({ ...a, kind: "props" as const })), ...sfx.map((a) => ({ ...a, kind: "sfx" as const }))];
   const missing = all.filter((a) => !a.ready);
-  const studioMissing = (studio ?? []).filter((s) => !s.url).length;
+  const studioMissing = (studio ?? []).filter((s) => !s.url && !s.key.includes("-voice-")).length;
   const ready = all.filter((a) => a.ready);
   const slots = all.filter((a) => !a.ready || touched.has(slotKey(a.kind, a.name)));
   const others = ready.filter((a) => !touched.has(slotKey(a.kind, a.name)));
