@@ -25,6 +25,7 @@ import {
 import {
   CADENCES,
   FORMATS,
+  SCHEDULE_STYLES,
   FORMAT_IDS,
   QUEUE_LABEL,
   TARGETS,
@@ -229,6 +230,19 @@ export function RuleEditor({
       </fieldset>
 
       <fieldset className="min-w-0 space-y-2">
+        <legend className="text-sm font-semibold">Visual style</legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {SCHEDULE_STYLES.map((v) => (
+            <label key={v.id} className={option}>
+              <input type="radio" name="visual_style" className="h-5 w-5" checked={r.visual_style === v.id} onChange={() => set("visual_style", v.id)} />
+              {v.label}
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-muted">Every scheduled episode renders in this style: the illustrated cast, generated props, callouts and stat cards.</p>
+      </fieldset>
+
+      <fieldset className="min-w-0 space-y-2">
         <legend className="text-sm font-semibold">Voice</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           <label className={option}>
@@ -398,7 +412,7 @@ export function SeedsForm() {
   );
 }
 
-type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeTitle" | "progressPercent" | "progressStage" | "progressDetail" | "progressUpdatedAt">;
+type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeId" | "episodeTitle" | "progressPercent" | "progressStage" | "progressDetail" | "progressUpdatedAt">;
 
 /**
  * The queue, with live pipeline progress: while a slot is running and the tab is visible, the progress fields come

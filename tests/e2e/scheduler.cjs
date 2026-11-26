@@ -72,7 +72,7 @@ const mock = http
       const text = parts.map((p) => p.text ?? '').join('');
       const tts = /tts/.test(req.url);
       const image = /nano-banana/.test(req.url);
-      requests.push({ url: req.url, tts, image, text, refs: parts.filter((p) => p.inlineData).length });
+      requests.push({ url: req.url, tts, image, text, style: parts[0]?.speechMetadata?.style, refs: parts.filter((p) => p.inlineData).length });
       const ok = () => res.writeHead(200, { 'content-type': 'application/json' });
       const fail = (code, status, message) => (res.writeHead(code, { 'content-type': 'application/json' }), res.end(JSON.stringify({ error: { code, message, status } })));
       // gemini-3.8-flash-tts isn't served here: the app must fall back to gemini-3.8-flash-lite-tts
@@ -149,6 +149,7 @@ const step = async (...args) =>
   check('nav: Schedule tab in the phone bar', await page.locator('nav.fixed a[href="/schedule"][aria-current=page]').isVisible());
   check('rule: daily, 2 slots at 11:00 and 19:00', (await page.getByLabel('Daily').isChecked()) && (await page.getByLabel('Slot 1 time (WIB)').inputValue()) === '11:00' && (await page.getByLabel('Slot 2 time (WIB)').inputValue()) === '19:00');
   check('rule: slot formats Comedy Debate + Koran Kinetik', (await page.getByLabel('Slot 1 format').inputValue()) === 'comedy_debate' && (await page.getByLabel('Slot 2 format').inputValue()) === 'koran_kinetik');
+  check('rule: Visual style picker, Koran Kinetik by default (no 2D Vertical Comic option)', (await page.getByLabel('Koran Kinetik', { exact: true }).isChecked()) && (await page.getByLabel('Diagram Taktis', { exact: true }).count()) === 1 && (await page.getByLabel(/2D Vertical Comic/).count()) === 0);
   check('rule: Gemini TTS, auto-execute off by default', (await page.getByLabel('Gemini TTS (Free)').isChecked()) && !(await page.getByRole('switch').isChecked()));
   await page.getByLabel('Own Voice (Gemini + RVC)').check();
   check('rule: Own Voice without models warns with a Studio Assets link', (await page.getByRole('link', { name: 'Open Studio Assets' }).getAttribute('href')) === '/accounts#studio-assets');
@@ -197,6 +198,8 @@ const step = async (...args) =>
 
   // ---- the worker: plan (tick) claims the second topic's slot by id, then prepare → render → finish
   const target = (await sql`SELECT id FROM episode_queue WHERE user_id = ${u.id} AND topic_seed = 'Rendang diblender jadi jus'`)[0].id;
+  // a Comedy Debate slot: it must render in Koran Kinetik (the schedule's visual style), never the 2D comic
+  await sql`UPDATE episode_queue SET format = 'comedy_debate' WHERE id = ${target}`;
   const plan = await step('plan', target);
   const gemSeeds = await sql`SELECT count(*)::int AS n FROM episode_queue WHERE user_id = ${u.id} AND topic_source = 'gemini'`;
   check('tick: Gemini seeds for slots without a topic', gemSeeds[0].n > 0 && /topic seed\(s\) from Gemini/.test(plan), `${gemSeeds[0].n}`);
@@ -220,10 +223,12 @@ const step = async (...args) =>
   check('script: 15 lines, takeovers, thought, explainer, callouts, SFX, FOLLOW @UCO.OCU outro, approved', s.lines.length === 15 && takeovers.length === 2 && s.lines.some((l) => l.thought_bubble) && s.lines.some((l) => l.overlay === 'brain-badge') && s.lines.filter((l) => l.kinetic_text).length >= 5 && s.lines.at(-1).emotion === 'cta' && s.direction === 'CTA: FOLLOW @UCO.OCU' && s.custom && s.approved_at && !JSON.stringify(s.lines).includes('—'));
   const [p] = await sql`SELECT title, video_style, voice_provider, status, platform_captions IS NOT NULL AS caps FROM content_projects WHERE id = ${slot.episode_id}`;
   const [{ format }] = await sql`SELECT format FROM episode_queue WHERE id = ${target}`;
-  const style = { comedy_debate: 'uco-ocu-2d-comic', affiliate: 'uco-ocu-2d-comic', koran_kinetik: 'editorial-paper-cutout', diagram_taktis: 'tactical-vector-hud' }[format];
+  const style = 'editorial-paper-cutout'; // every format: the schedule's visual style, Koran Kinetik by default
   check(`episode: ${format} → ${style}, Gemini TTS, recorded, captions`, p.video_style === style && p.voice_provider === 'gemini_tts' && p.status === 'recorded' && p.caps && !p.title.includes('—'), JSON.stringify(p));
   const takes = await sql`SELECT count(*)::int AS n FROM recordings WHERE project_id = ${slot.episode_id} AND is_selected AND source = 'ai'`;
   const lite = requests.filter((r) => /gemini-3\.8-flash-lite-tts:/.test(r.url)).length;
+  const ttsReqs = requests.filter((r) => /tts:/.test(r.url));
+  check('voices: Gemini TTS got the line only as text, the acting cue only as speechMetadata.style', ttsReqs.length > 0 && ttsReqs.every((r) => r.text && !/Bacakan|Ucapkan persis|tanpa menambah|style:/i.test(r.text) && r.style && r.style.length > 10), JSON.stringify(ttsReqs[0] && { text: ttsReqs[0].text, style: ttsReqs[0].style }));
   check('voices: one take per line; gemini-3.8-flash-tts 404 → gemini-3.8-flash-lite-tts', takes[0].n === 15 && lite === 15 && requests.some((r) => /gemini-3\.8-flash-tts:/.test(r.url)), `${takes[0].n} takes, ${lite} lite-tts calls`);
   const outputs = fs.readFileSync(path.join(OUT, 'gh-output.txt'), 'utf8');
   check('prepare: workflow outputs episode_id, job_id, voice=none', outputs.includes(`episode_id=${slot.episode_id}`) && outputs.includes(`job_id=${slot.render_job_id}`) && outputs.includes('voice=none'));
@@ -231,6 +236,8 @@ const step = async (...args) =>
   const [pv] = await sql`SELECT progress_stage, progress_percent, progress_detail FROM episode_queue WHERE id = ${target}`;
   check('progress: the worker reported real voicing (no RVC: 30-75 %), last line at 75%', pv.progress_stage === 'voicing' && pv.progress_percent === 75 && pv.progress_detail === 'Voicing line 15 of 15', JSON.stringify(pv));
   check('progress: every report on the way was accepted (no "progress report skipped" warning)', !/progress report skipped/.test(prep), prep.split('\n').find((l) => /skipped/.test(l)));
+  const manifestStyle = (await (await fetch(`${base}/api/render/${slot.episode_id}`, { headers: { Authorization: `Bearer ${process.env.RENDER_TOKEN}` } })).json()).videoStyle;
+  check('render: the Comedy Debate slot renders as Koran Kinetik', manifestStyle === 'editorial-paper-cutout', manifestStyle);
   if (process.env.RENDER === '1') {
     const r = await run('npx', ['tsx', 'render.mts', slot.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: { ...process.env, JOB_ID: slot.render_job_id, SLOT_ID: target, APP_URL: base }, maxBuffer: 64 * 1024 * 1024 });
     console.log(r.stdout.split('\n').filter((l) => !/frame/i.test(l)).slice(-8).join('\n'));

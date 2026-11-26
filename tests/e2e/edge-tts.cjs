@@ -41,6 +41,7 @@ const PCM = (() => {
   for (let i = 0; i < 24000; i++) b.writeInt16LE(Math.round(9000 * Math.sin((2 * Math.PI * 180 * i) / 24000) * (0.5 + 0.5 * Math.sin((2 * Math.PI * 4 * i) / 24000))), i * 2);
   return b.toString('base64');
 })();
+const badTts = []; // a TTS request with instructions in its text, or without speechMetadata.style
 let ttsOk = Infinity; // Gemini TTS answers this many requests, then 429
 const tts = [];
 const mock = http
@@ -50,6 +51,8 @@ const mock = http
     req.on('end', () => {
       const text = JSON.parse(body || '{}').contents?.[0]?.parts?.[0]?.text ?? '';
       if (/tts/.test(req.url)) {
+        const part0 = JSON.parse(body || '{}').contents?.[0]?.parts?.[0] ?? {};
+        if (/Bacakan|Ucapkan persis|tanpa menambah|style:/i.test(text) || !part0.speechMetadata?.style) badTts.push(text);
         tts.push(text);
         if (tts.length > ttsOk) {
           res.writeHead(429, { 'content-type': 'application/json' });
@@ -175,6 +178,7 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   check('C: render job with voice=rvc (Stage B converts the Gemini takes)', outputs().voice === 'rvc');
   if (sc.episode_id) await sql`DELETE FROM content_projects WHERE id = ${sc.episode_id}`;
 
+  check('every Gemini TTS request: the line only as text, the cue in speechMetadata.style', badTts.length === 0 && tts.length > 0, badTts[0]);
   // cleanup
   for (const id of [fa.episode_id, sb.episode_id]) if (id) await sql`DELETE FROM content_projects WHERE id = ${id}`;
   await sql`DELETE FROM content_schedules WHERE id = ${sch.id}`;

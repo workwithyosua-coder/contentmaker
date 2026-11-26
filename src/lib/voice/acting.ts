@@ -1,6 +1,7 @@
 // Voice providers and the acting direction they get. Pure code (no network, no server-only imports): the pickers,
 // the server and the unit tests share it. The script text itself is never changed: a provider gets the line exactly
 // as written, plus a separate acting direction derived from the line's pose and the episode's delivery preset.
+import { ttsText } from "./phonetic";
 
 export const VOICE_PROVIDERS = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"] as const;
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
@@ -65,11 +66,56 @@ export function actingDirection(l: ActingLine, preset: DeliveryPreset = "standar
 }
 
 /**
- * The prompt Gemini TTS reads: an instruction line (not spoken) and the line itself, exactly as written in the script.
- * Gemini speaks only the quoted text and follows the instruction for delivery.
+ * The delivery style per pose for gemini-3.8-flash-tts's `speechMetadata.style` (never spoken). Gemini's TTS models
+ * read `parts[].text` verbatim, so the acting cue lives here and only the dialogue goes in the text.
  */
-export function geminiPrompt(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): string {
-  return `Bacakan dalam bahasa Indonesia gaul Jakarta dengan gaya ${actingDirection(l, preset, extra)}. Ucapkan persis kalimat ini saja, tanpa menambah atau mengubah kata:\n${l.text}`;
+export const POSE_STYLE: Record<string, string> = {
+  angry: "Outraged Jakartan Indonesian rant, fast, loud, sharp emphasis",
+  deadpan: "Deadpan sarcastic Jakartan Indonesian, dry flat delivery",
+  defensive: "Flustered, defensive Jakartan Indonesian, quick self-justification",
+  inspecting: "Sharp, probing Jakartan Indonesian, laying out hard facts one by one",
+  thought: "Quiet dry mutter to oneself, disbelieving, Jakartan Indonesian",
+  shocked: "Shocked, high-energy Jakartan Indonesian comedy banter",
+  explaining: "Confident, energetic Jakartan Indonesian explanation at comedy banter pace",
+  cta: "Warm, upbeat Jakartan Indonesian sign-off",
+  triumphant: "Energetic Jakartan Indonesian comedy banter, confident and challenging, fast-paced",
+  phone: "Excited Jakartan Indonesian, reacting to a phone screen, fast",
+};
+
+/** Instruction text that must never be spoken: the old prompt's phrases and any inline style label. */
+export const INSTRUCTION_IN_TEXT = /\bbacakan dalam\b|\bucapkan persis\b|\btanpa menambah atau mengubah\b|\bstyle\s*:|\bspeak (this|the following)\b/i;
+
+/** Throws when a TTS text carries acting instructions (the runtime guard before any TTS request). */
+export function assertSpokenOnly(text: string): string {
+  if (INSTRUCTION_IN_TEXT.test(text)) throw new Error(`Refusing to send acting instructions as spoken TTS text: "${text.slice(0, 80)}"`);
+  return text;
+}
+
+/**
+ * One Gemini TTS request's two halves: `text` is ONLY the line to speak, exactly as written (phonetic fixes applied:
+ * "&" → "dan", "@uco.ocu" → "Uco Ocu", "Uco" → "U-co"); `style` is the pose's delivery, more urgent under the Angry /
+ * Urgent preset (inner thoughts stay muttered), plus an optional booth note. `style` goes in speechMetadata, never in
+ * the text.
+ */
+export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): { text: string; style: string } {
+  const pose = actingPose(l);
+  const parts = [POSE_STYLE[pose] ?? POSE_STYLE.triumphant];
+  if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
+  const note = (extra ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+  if (note) parts.push(note);
+  return { text: assertSpokenOnly(ttsText(l.text)), style: parts.join("; ").slice(0, 300) };
+}
+
+/** The generateContent body for one line: the verbatim dialogue in parts[0].text, the acting cue in speechMetadata.style. */
+export function ttsRequestBody(text: string, style: string, speaker: "uco" | "ocu") {
+  if (!style.trim()) throw new Error("A Gemini TTS request needs a delivery style (speechMetadata.style).");
+  return {
+    contents: [{ role: "user", parts: [{ text: assertSpokenOnly(text), speechMetadata: { style } }] }],
+    generationConfig: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_VOICES[speaker] } } },
+    },
+  };
 }
 
 /** 16-bit little-endian PCM (Gemini's audio) → a WAV file the booth, the preview and the renderer all play. */
