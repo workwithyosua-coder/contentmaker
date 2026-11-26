@@ -1,0 +1,5 @@
+# RVC v2 inference on CPU for the render worker (Python 3.10). CPU-only PyTorch keeps the install small and cacheable.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.2
+torchaudio==2.1.2
+rvc-python==0.1.5

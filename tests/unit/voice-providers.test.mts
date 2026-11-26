@@ -63,14 +63,14 @@ test("provider routing: Gemini TTS is the free default; a missing key is a clear
   assert.equal(DEFAULT_PROVIDER, "gemini_tts");
   assert.equal(asProvider(undefined), "gemini_tts");
   assert.equal(asProvider("elevenlabs"), "elevenlabs");
-  assert.deepEqual([...SELECTABLE_PROVIDERS], ["gemini_tts", "elevenlabs"], "RVC isn't offered until its worker lands");
+  assert.deepEqual([...SELECTABLE_PROVIDERS], ["gemini_tts", "elevenlabs", "gemini_tts_rvc"]);
   const env = { geminiKey: false, elevenLabsKey: false, elevenLabsVoices: false };
   assert.deepEqual(routeVoice("gemini_tts", env), { ok: false, message: "GEMINI_API_KEY is not set in environment variables." });
   assert.deepEqual(routeVoice("gemini_tts", { ...env, geminiKey: true }), { ok: true, engine: "gemini" });
   assert.equal(routeVoice("elevenlabs", env).ok, false);
   assert.match((routeVoice("elevenlabs", { ...env, elevenLabsKey: true }) as { message: string }).message, /Clone Uco's and Ocu's voices/);
   assert.deepEqual(routeVoice("elevenlabs", { geminiKey: false, elevenLabsKey: true, elevenLabsVoices: true }), { ok: true, engine: "elevenlabs" });
-  assert.equal(routeVoice("gemini_tts_rvc", { geminiKey: true, elevenLabsKey: true, elevenLabsVoices: true }).ok, false);
+  assert.equal(routeVoice("gemini_tts_rvc", { geminiKey: true, elevenLabsKey: true, elevenLabsVoices: true }).ok, false, "no models: blocked");
 });
 
 test("Gemini's 16-bit PCM becomes a playable WAV with the right header and length", () => {

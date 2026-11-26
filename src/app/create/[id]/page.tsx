@@ -56,6 +56,9 @@ import { approveWithoutAiAction, publishAction, setAutoPublishAction } from "../
 import { setEpisodeVoiceAction } from "../voice-actions";
 import { VoiceProviderPicker } from "@/components/voice-provider";
 import { getEpisodeVoice } from "@/lib/voice/settings";
+import { isActiveJob, missingModelMessage } from "@/lib/renderWorker";
+import { rvcModelStatus } from "@/lib/studio-assets";
+import { STUDIO_ASSETS_HREF } from "@/lib/voice/acting";
 
 export const maxDuration = 300;
 
@@ -125,7 +128,17 @@ async function Episode({
   const custom = Boolean(latestScript?.custom);
   const direction = latestScript?.direction ?? "";
   const voice = await getEpisodeVoice(project.id).catch(() => ({ provider: "gemini_tts" as const, preset: "standard" as const }));
-  const rendering = job?.status === "queued" || job?.status === "running";
+  // Own Voice: say which character's .pth model is still missing (never a silent fallback to another voice)
+  const ownVoiceNote =
+    voice.provider === "gemini_tts_rvc"
+      ? await rvcModelStatus()
+          .then((m) => {
+            const missing = (["uco", "ocu"] as const).filter((w) => !m[w]);
+            return missing.length ? missingModelMessage(missing) : null;
+          })
+          .catch(() => null)
+      : null;
+  const rendering = isActiveJob(job?.status);
   const [[pubProject], pubAccounts, pubs] = await Promise.all([
     db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null; video_style: string }[]>`
       SELECT platform_captions, publish_settings, auto_publish, publish_at, video_style FROM content_projects WHERE id = ${project.id}`,
@@ -390,11 +403,11 @@ async function Episode({
               ) : (
                 <p className="text-xs text-muted">The Render button needs GITHUB_DISPATCH_TOKEN in Vercel.</p>
               )}
-              {job && (job.status === "queued" || job.status === "running") && <RenderProgress job={job} />}
+              {job && isActiveJob(job.status) && <RenderProgress job={job} />}
               {job && (
                 <p className="text-xs" style={{ color: job.status === "failed" ? "var(--bad)" : undefined }}>
                   {job.status === "queued" && "Render queued on GitHub… "}
-                  {job.status === "running" && `Started ${(job.started_at ?? job.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Usually 15–20 minutes; this page updates by itself. `}
+                  {(job.status === "running" || job.status === "rendering" || job.status === "converting_voice") && `Started ${(job.started_at ?? job.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Usually 15–20 minutes; this page updates by itself. `}
                   {job.status === "done" && "Last render finished; the video is below. "}
                   {job.status === "failed" && `Last render failed: ${job.error ?? "unknown error"} `}
                   {job.run_url && (
@@ -528,7 +541,7 @@ async function Episode({
             {progress.recorded ? "Open the recording booth" : "Start recording"}
           </Link>
           <div className="mt-4 border-t border-border pt-4">
-            <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} />
+            <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} note={ownVoiceNote} noteHref={ownVoiceNote ? STUDIO_ASSETS_HREF : null} />
           </div>
         </Card>
       )}
