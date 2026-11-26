@@ -1,18 +1,20 @@
 import "server-only";
 import { GEMINI_VOICES, pcmRate, pcmToWav } from "./acting";
+import { GEMINI_KEY_MISSING, geminiApiKey } from "../gemini-core";
 
 // Gemini native text-to-speech (free tier): built-in voices, the acting direction as a spoken-style instruction and
 // the script line verbatim (see acting.ts). Returns a WAV file. Key: GEMINI_API_KEY in the environment (never in code).
 
 const API = process.env.GEMINI_API_BASE?.trim() || "https://generativelanguage.googleapis.com/v1beta"; // override only for tests
 export const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL?.trim() || "gemini-2.5-flash-preview-tts";
-export const GEMINI_KEY_MISSING = "GEMINI_API_KEY is not set in environment variables.";
+export { GEMINI_KEY_MISSING };
 
-export const geminiConfigured = () => Boolean(process.env.GEMINI_API_KEY?.trim());
+/** The key lookup shared with the scheduler's Gemini text calls (GEMINI_API_KEY, then GOOGLE_API_KEY, GOOGLE_AI_API_KEY). */
+export const geminiConfigured = () => Boolean(geminiApiKey());
 
 /** Speaks `prompt` in the character's Gemini voice. Throws a clear error (missing key, quota, API) instead of crashing. */
 export async function speakGemini(prompt: string, speaker: "uco" | "ocu"): Promise<Uint8Array> {
-  const key = process.env.GEMINI_API_KEY?.trim();
+  const key = geminiApiKey()?.key;
   if (!key) throw new Error(GEMINI_KEY_MISSING);
   const res = await fetch(`${API}/models/${GEMINI_TTS_MODEL}:generateContent`, {
     method: "POST",

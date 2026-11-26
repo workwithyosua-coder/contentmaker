@@ -2,7 +2,8 @@ import "server-only";
 import manifest from "../../video/src/assets/assetManifest.json";
 import { PNG_PROPS } from "../../video/src/props/library";
 import { db } from "./db";
-import { geminiJson } from "./gemini-text";
+import { parseSeeds } from "./gemini-core";
+import { geminiJson, geminiText } from "./gemini-text";
 import { hookLine, manualCaptions } from "./publish/manualCaptions";
 import { saveCaptions } from "./publish/approval";
 import {
@@ -261,53 +262,54 @@ export async function retrySlot(
 }
 
 // ------------------------------------------------------------------ Gemini topic seeds
-type SeedOut = { seeds: string[] };
 const SEED_SCHEMA = {
   type: "OBJECT",
   properties: { seeds: { type: "ARRAY", items: { type: "STRING" } } },
   required: ["seeds"],
 };
 
-/** Gemini topic seeds for queued slots of the next 3 days that have none. Best effort: a failure leaves them empty. */
-export async function fillSeeds(
-  s: ScheduleRow,
-): Promise<{ filled: number; error: string | null }> {
+/**
+ * Gemini topics, one per format given (same order). Throws with the real reason (HTTP status, model, Gemini's message,
+ * or what came back when nothing usable did); the answer is parsed tolerantly (JSON, fenced JSON or plain lines).
+ */
+export async function suggestTopics(s: Pick<ScheduleRow, "user_id" | "topic_hint">, formats: EpisodeFormat[]): Promise<string[]> {
+  const recent = await db()<{ t: string }[]>`
+    SELECT topic_seed AS t FROM episode_queue WHERE user_id = ${s.user_id} AND topic_seed IS NOT NULL ORDER BY scheduled_for DESC LIMIT 30`;
+  const { text, model } = await geminiText(
+    `Kamu penulis ide untuk "Uco & Ocu", serial komedi pendek berbahasa Indonesia (Uco: heboh, optimis; Ocu: kalem, sinis).
+Tulis ${formats.length} topik episode yang segar, satu per format di bawah (urutannya sama). Tiap topik satu kalimat pendek
+(maks 20 kata), spesifik, relevan untuk anak muda Indonesia, bisa dicek faktanya. Tanpa em dash, tanpa angka karangan.
+${s.topic_hint ? `Arah dari kreator: ${s.topic_hint}\n` : ""}Format:
+${formats.map((f, i) => `${i + 1}. ${FORMATS[f].label}: ${FORMATS[f].brief}`).join("\n")}
+Jangan ulangi topik ini:
+${recent.map((r) => `- ${r.t}`).join("\n") || "- (belum ada)"}`,
+    { schema: SEED_SCHEMA },
+  );
+  const seeds = parseSeeds(text, formats.length);
+  if (!seeds.length) throw new Error(`Gemini (${model}) returned no usable topic: "${text.replace(/\s+/g, " ").slice(0, 160)}"`);
+  return seeds;
+}
+
+/** Gemini topic seeds for queued slots of the next 3 days that have none. Best effort: a failure is reported, not thrown. */
+export async function fillSeeds(s: ScheduleRow): Promise<{ filled: number; error: string | null }> {
   const sql = db();
   const open = await sql<{ id: string; format: EpisodeFormat }[]>`
     SELECT id, format FROM episode_queue WHERE schedule_id = ${s.id} AND status = 'queued' AND topic_seed IS NULL
       AND scheduled_for < now() + make_interval(days => ${QUEUE_DAYS + 1}) ORDER BY scheduled_for LIMIT 12`;
   if (!open.length) return { filled: 0, error: null };
-  const recent = await sql<{ t: string }[]>`
-    SELECT topic_seed AS t FROM episode_queue WHERE user_id = ${s.user_id} AND topic_seed IS NOT NULL ORDER BY scheduled_for DESC LIMIT 30`;
   try {
-    const out = await geminiJson<SeedOut>(
-      `Kamu penulis ide untuk "Uco & Ocu", serial komedi pendek berbahasa Indonesia (Uco: heboh, optimis; Ocu: kalem, sinis).
-Tulis ${open.length} topik episode yang segar, satu per format di bawah (urutannya sama). Tiap topik satu kalimat pendek
-(maks 20 kata), spesifik, relevan untuk anak muda Indonesia, bisa dicek faktanya. Tanpa em dash, tanpa angka karangan.
-${s.topic_hint ? `Arah dari kreator: ${s.topic_hint}\n` : ""}Format:
-${open.map((o, i) => `${i + 1}. ${FORMATS[o.format].label}: ${FORMATS[o.format].brief}`).join("\n")}
-Jangan ulangi topik ini:
-${recent.map((r) => `- ${r.t}`).join("\n") || "- (belum ada)"}`,
-      SEED_SCHEMA,
-    );
-    const seeds = (out.seeds ?? [])
-      .map((x) =>
-        String(x)
-          .replace(/\s*[—–]\s*/g, ", ")
-          .trim()
-          .slice(0, 300),
-      )
-      .filter(Boolean);
+    const seeds = await suggestTopics(s, open.map((o) => o.format));
     let filled = 0;
     for (const [i, o] of open.entries()) {
       if (!seeds[i]) break;
-      const r =
-        await sql`UPDATE episode_queue SET topic_seed = ${seeds[i]}, topic_source = 'gemini', updated_at = now() WHERE id = ${o.id} AND topic_seed IS NULL`;
+      const r = await sql`UPDATE episode_queue SET topic_seed = ${seeds[i]}, topic_source = 'gemini', updated_at = now() WHERE id = ${o.id} AND topic_seed IS NULL`;
       filled += r.count;
     }
     return { filled, error: null };
   } catch (e) {
-    return { filled: 0, error: e instanceof Error ? e.message : String(e) };
+    const error = e instanceof Error ? e.message : String(e);
+    console.error(`[scheduler] topic seeds failed: ${error}`);
+    return { filled: 0, error };
   }
 }
 
@@ -486,14 +488,13 @@ export async function scriptSlot(
   const format = asFormat(s.format);
   let seed = s.topic_seed;
   if (!seed) {
-    await fillSeeds({ ...rule, ...r });
-    [{ topic_seed: seed }] = await sql<
-      { topic_seed: string | null }[]
-    >`SELECT topic_seed FROM episode_queue WHERE id = ${id}`;
-    if (!seed)
-      throw new Error(
-        "No topic seed, and Gemini couldn't suggest one. Add a topic to the slot, then retry.",
-      );
+    // this slot is already claimed (scripting), so ask Gemini for its own topic; a failure names the real cause
+    try {
+      [seed] = await suggestTopics({ user_id: s.user_id, topic_hint: r.topic_hint }, [format]);
+    } catch (e) {
+      throw new Error(`No topic seed for this slot, and topic suggestion failed: ${(e instanceof Error ? e.message : String(e)).replace(/\.+$/, "")}. Add a topic to the slot, or fix the cause, then retry.`);
+    }
+    await sql`UPDATE episode_queue SET topic_seed = ${seed}, topic_source = 'gemini', updated_at = now() WHERE id = ${id}`;
   }
   const bank = await propBank(s.user_id);
   const draft = await geminiJson<DraftScript>(

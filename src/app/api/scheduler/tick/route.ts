@@ -13,6 +13,8 @@ export async function POST(request: Request) {
   try {
     return Response.json(await tick({ slotId, runUrl: typeof b.runUrl === "string" ? b.runUrl : null }));
   } catch (e) {
-    return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 409 });
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`[scheduler] tick failed: ${message}`);
+    return Response.json({ error: message }, { status: 409 });
   }
 }
