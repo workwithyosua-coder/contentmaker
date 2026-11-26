@@ -533,8 +533,9 @@ export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; 
     await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
     return { voiced: 0, remaining: 0, total, rvc, engine: schedulerVoiceEngine(v.provider), note: null };
   }
+  // any other provider (not offered by the scheduler) goes straight to the worker's Edge TTS
   if (schedulerVoiceEngine(v.provider) === "edge") {
-    return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Own Voice: Edge TTS makes the ${todo.length} base take(s) in the worker, then RVC converts them.` };
+    return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Edge TTS makes the ${todo.length} take(s) in the worker.` };
   }
   const { voiceTake } = await import("./voice/providers");
   let voiced = 0;
@@ -833,28 +834,24 @@ export async function dispatchSlot(userId: string, id: string) {
     );
   const token = process.env.GITHUB_DISPATCH_TOKEN?.trim();
   if (!token) throw new Error("GITHUB_DISPATCH_TOKEN isn't set in Vercel yet.");
-  const repo =
-    process.env.GITHUB_REPO?.trim() || "workwithyosua-coder/contentmaker";
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/actions/workflows/autonomous-scheduler.yml/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      body: JSON.stringify({ ref: "main", inputs: { slot_id: id } }),
-    },
-  );
-  if (!res.ok)
+  // the card shows its "Starting GitHub worker..." bar (and the page starts polling) from this click, before GitHub
+  // answers; if GitHub refuses, the bar is cleared again and the reason is shown
+  await db()`UPDATE episode_queue SET progress_percent = NULL, progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now() WHERE id = ${id} AND status = 'queued'`;
+  const repo = process.env.GITHUB_REPO?.trim() || "workwithyosua-coder/contentmaker";
+  const api = process.env.GITHUB_API_BASE?.trim() || "https://api.github.com"; // override only for tests
+  const res = await fetch(`${api}/repos/${repo}/actions/workflows/autonomous-scheduler.yml/dispatches`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+    body: JSON.stringify({ ref: "main", inputs: { slot_id: id } }),
+  }).catch((e: Error) => ({ ok: false, status: 0, statusText: e.message }) as Response);
+  if (!res.ok) {
+    await db()`UPDATE episode_queue SET progress_percent = NULL, progress_stage = NULL, progress_detail = NULL, progress_updated_at = NULL WHERE id = ${id} AND status = 'queued' AND progress_stage = 'starting'`;
     throw new Error(
       res.status === 401 || res.status === 403 || res.status === 404
         ? "GitHub rejected the token. Check GITHUB_DISPATCH_TOKEN (Actions: read and write)."
-        : `GitHub refused to start the run (${res.status}).`,
+        : `GitHub refused to start the run (${res.status || res.statusText}).`,
     );
-  // the card shows an indeterminate "Starting GitHub worker..." bar until the worker reports
-  await db()`UPDATE episode_queue SET progress_percent = NULL, progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now() WHERE id = ${id} AND status = 'queued'`;
+  }
 }
 
 /**

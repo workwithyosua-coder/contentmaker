@@ -8,10 +8,9 @@
 //   npx tsx scheduler-step.mts fail <slotId> [msg] → marks the slot failed
 // Env: RENDER_TOKEN, APP_URL (default production), RUN_URL (the Actions run, shown on the Schedule page)
 import { appendFileSync } from "node:fs";
-import { edgeStage } from "./edge-stage.mts";
-import { propStage } from "./prop-stage.mts";
-import { progressReporter } from "./slot-progress.mts";
-import { progressAt } from "../src/lib/slotProgress.ts";
+// Only node: built-ins at the top. The `plan` job checks out THIS FILE ALONE (sparse checkout), so the stage modules
+// (Edge TTS, props, progress; they pull in video/src and src/lib) load inside `prepare`, which runs in the fully
+// checked-out `produce` job. tests/unit/scheduler-plan.test.mts runs `plan` from a sparse copy to keep it that way.
 
 const [cmd, slotId, ...rest] = process.argv.slice(2);
 const base = (process.env.APP_URL ?? "https://contentmaker-lime.vercel.app").replace(/\/$/, "");
@@ -59,6 +58,12 @@ try {
     output("slots", JSON.stringify(r.slots));
     output("count", String(r.slots.length));
   } else if (cmd === "prepare") {
+    const [{ edgeStage }, { propStage }, { progressReporter }, { progressAt }] = await Promise.all([
+      import("./edge-stage.mts"),
+      import("./prop-stage.mts"),
+      import("./slot-progress.mts"),
+      import("../src/lib/slotProgress.ts"),
+    ]);
     // the card's progress bar (real counts only; a failed report never stops the episode)
     const report = progressReporter({ base, token, slotId, log: (m) => log(`warning: ${m}`) });
     await report("scripting", 5, "Writing Show Bible script...", { force: true });

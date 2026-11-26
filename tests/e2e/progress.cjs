@@ -11,6 +11,22 @@ const OUT = process.env.OUT || path.join(__dirname, 'output');
 fs.mkdirSync(OUT, { recursive: true });
 const sql = postgres(process.env.DATABASE_URL, { onnotice: () => {} });
 const TOKEN = process.env.RENDER_TOKEN;
+// a fake GitHub API (the app runs with GITHUB_API_BASE=http://localhost:4013 GITHUB_DISPATCH_TOKEN=test): workflow
+// dispatches are logged; ghStatus is what it answers (204 accepted, 403 refused)
+const http = require('http');
+const dispatches = [];
+let ghStatus = 204;
+const gh = http
+  .createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      dispatches.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body || '{}') });
+      res.writeHead(ghStatus);
+      res.end(ghStatus === 204 ? '' : JSON.stringify({ message: 'Resource not accessible by integration' }));
+    });
+  })
+  .listen(4013);
 
 const report = (id, body, token = TOKEN) =>
   fetch(`${base}/api/scheduler/slots/${id}/progress`, { method: 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -149,9 +165,32 @@ const report = (id, body, token = TOKEN) =>
 
   // ---- retry resets the progress; a finished slot shows 100 %
   await card.getByRole('button', { name: 'Retry' }).click();
-  await page.getByText(/Back in the queue/).waitFor();
+  await page.getByText(/Retrying on GitHub now/).waitFor();
   const [reset] = await sql`SELECT status, progress_percent, progress_stage, progress_detail, progress_updated_at FROM episode_queue WHERE id = ${a.id}`;
-  check('retry: progress cleared', reset.status === 'queued' && reset.progress_stage === null && reset.progress_percent === null && reset.progress_updated_at === null, JSON.stringify(reset));
+  check('retry: the run starts at once, the old progress replaced by "Starting GitHub worker..."', reset.status === 'queued' && reset.progress_stage === 'starting' && reset.progress_percent === null && reset.progress_detail === 'Starting GitHub worker...' && dispatches.at(-1)?.body?.inputs?.slot_id === a.id, JSON.stringify(reset));
+  await card.getByTestId('slot-progress').waitFor();
+  check('retry: the Waiting bar shows right after the click, polling on', (await card.getByTestId('slot-progress').getAttribute('data-state')) === 'waiting' && (await page.locator('ol[data-polling]').getAttribute('data-polling')) === 'on');
+
+  // ---- Run slot now: the Waiting bar and polling start from the click, while the status is still "queued"
+  const [r] = await sql`INSERT INTO episode_queue (schedule_id, user_id, scheduled_for, format, topic_seed, topic_source) VALUES (${sch.id}, ${u.id}, ${at(20)}, 'comedy_debate', 'Paylater buat kopi', 'manual') RETURNING id`;
+  const [r2] = await sql`INSERT INTO episode_queue (schedule_id, user_id, scheduled_for, format, topic_seed, topic_source) VALUES (${sch.id}, ${u.id}, ${at(21)}, 'comedy_debate', 'Harga beras naik', 'manual') RETURNING id`;
+  await sql`UPDATE episode_queue SET status = 'published', progress_stage = 'done' WHERE id = ${a.id}`; // only the new slots run
+  await page.reload();
+  const runCard = page.locator('li', { hasText: 'Paylater buat kopi' });
+  check('run now: no bar before the click, polling off', (await runCard.getByRole('progressbar').count()) === 0 && (await page.locator('ol[data-polling]').getAttribute('data-polling')) === 'off');
+  await runCard.getByRole('button', { name: 'Run slot now' }).click();
+  await runCard.getByRole('progressbar').waitFor({ timeout: 10000 });
+  const [started] = await sql`SELECT status, progress_stage, progress_percent, progress_detail, progress_updated_at FROM episode_queue WHERE id = ${r.id}`;
+  check('run now: Starting saved (status still queued), GitHub asked with the slot id', started.status === 'queued' && started.progress_stage === 'starting' && started.progress_percent === null && started.progress_detail === 'Starting GitHub worker...' && started.progress_updated_at && dispatches.at(-1).body.inputs.slot_id === r.id && dispatches.at(-1).auth === 'Bearer test', JSON.stringify(started));
+  check('run now: Waiting bar ("Starting GitHub worker...", no aria-valuenow), card busy, polling on', (await runCard.getByTestId('slot-progress').getAttribute('data-state')) === 'waiting' && (await runCard.getByRole('progressbar').getAttribute('aria-valuenow')) === null && (await runCard.innerText()).includes('Starting GitHub worker...') && (await runCard.getAttribute('aria-busy')) === 'true' && (await page.locator('ol[data-polling]').getAttribute('data-polling')) === 'on');
+  // GitHub refuses: the Starting bar is cleared again and the reason shown
+  ghStatus = 403;
+  const refusedCard = page.locator('li', { hasText: 'Harga beras naik' });
+  await refusedCard.getByRole('button', { name: 'Run slot now' }).click();
+  await refusedCard.getByText(/GitHub rejected the token/).waitFor();
+  const [refused] = await sql`SELECT status, progress_stage, progress_updated_at FROM episode_queue WHERE id = ${r2.id}`;
+  check('run now refused: progress cleared, the reason shown', refused.status === 'queued' && refused.progress_stage === null && refused.progress_updated_at === null && (await refusedCard.getByRole('progressbar').count()) === 0, JSON.stringify(refused));
+  ghStatus = 204;
   await sql`UPDATE episode_queue SET status = 'ready_to_post', progress_stage = 'done', progress_percent = 100, progress_detail = 'Ready to post', progress_updated_at = now(), handoff = NULL WHERE id = ${idle.id}`;
   await page.reload();
   const doneCard = page.locator('li', { hasText: 'Harga cabai' });
@@ -166,6 +205,7 @@ const report = (id, body, token = TOKEN) =>
   await sql`DELETE FROM content_projects WHERE id = ${draft.id}`;
   await sql.end();
   await b.close();
+  gh.close();
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
   process.exit(failed.length ? 1 : 0);

@@ -38,9 +38,10 @@ test("Ocu: steadier and deeper; flatter when deadpan / in thought, brighter when
   assert.notDeepEqual(P("uco", { thought_bubble: true }).slice(1), P("ocu", { thought_bubble: true }).slice(1));
 });
 
-test("routing: Own Voice always uses the worker's Edge TTS; Gemini TTS slots hand over to it on a 429", () => {
-  assert.equal(schedulerVoiceEngine("gemini_tts_rvc"), "edge");
+test("routing: Own Voice and Gemini TTS slots use gemini-3.8-flash-tts first; Edge TTS only after a 429", () => {
+  assert.equal(schedulerVoiceEngine("gemini_tts_rvc"), "gemini", "Own Voice keeps Gemini's acted delivery before RVC");
   assert.equal(schedulerVoiceEngine("gemini_tts"), "gemini");
+  assert.equal(schedulerVoiceEngine("elevenlabs"), "edge", "a provider the scheduler doesn't offer never reaches ElevenLabs unattended");
   for (const quota of [
     "Gemini TTS: the free Gemini TTS quota is used up for now (Quota exceeded for metric generate_content_free_tier_requests). Try again later.",
     "Gemini 429 (gemini-2.5-flash-preview-tts): RESOURCE_EXHAUSTED",
@@ -52,11 +53,11 @@ test("routing: Own Voice always uses the worker's Edge TTS; Gemini TTS slots han
   for (const other of ["Gemini TTS: the API key was rejected (403). Check GEMINI_API_KEY.", "GEMINI_API_KEY is not set in environment variables.", "Gemini TTS: no audio came back."]) {
     assert.equal(isQuotaError(other), false, other);
   }
-  // the server code: Own Voice returns "edge" before Gemini TTS (voice/providers) is ever loaded; a quota error
-  // returns "edge" with a logged note instead of throwing
+  // the server code: both Gemini providers reach Gemini TTS (voice/providers); a quota error returns "edge" with a
+  // logged note instead of throwing, and the worker's Edge TTS makes the rest (Own Voice: RVC base takes)
   const src = fs.readFileSync(path.join(ROOT, "src/lib/scheduler-server.ts"), "utf8");
   const fn = src.slice(src.indexOf("export async function voiceSlot"), src.indexOf("// ------------------------------------------------------------------ step 2b"));
-  assert.ok(fn.indexOf('schedulerVoiceEngine(v.provider) === "edge"') < fn.indexOf('import("./voice/providers")'), "Own Voice never reaches Gemini TTS");
+  assert.ok(fn.includes('import("./voice/providers")') && !/gemini_tts_rvc[^\n]*engine: "edge"/.test(fn), "Own Voice is voiced by Gemini TTS first");
   assert.match(fn, /if \(bad && isQuotaError\(bad\.message\)\) \{[\s\S]*?Edge TTS fallback used[\s\S]*?return \{ voiced, remaining: todo\.length - voiced, total, rvc, engine: "edge", note \}/);
   const step = fs.readFileSync(path.join(ROOT, "video/scheduler-step.mts"), "utf8");
   assert.match(step, /if \(v\.engine === "edge"\) \{\s*const e = await edgeStage\(/);
