@@ -12,7 +12,14 @@ import path from "node:path";
 type Post = <T>(path: string, body?: Record<string, unknown>) => Promise<T>;
 const here = path.dirname(new URL(import.meta.url).pathname);
 
-export async function propStage(p: { slotId: string; post: Post; log: (s: string) => void; base: string }): Promise<{ done: string[]; dropped: string[] }> {
+export async function propStage(p: {
+  slotId: string;
+  post: Post;
+  log: (s: string) => void;
+  base: string;
+  /** i is 1-based; phase "generating" | "cutting" (for the progress bar) */
+  onStep?: (i: number, n: number, phase: "generating" | "cutting") => void | Promise<void>;
+}): Promise<{ done: string[]; dropped: string[] }> {
   const done: string[] = [];
   const dropped: string[] = [];
   const plan = await p.post<{ props: { name: string; slug: string; prompt: string }[] }>(`slots/${p.slotId}/prop-plan`);
@@ -28,8 +35,9 @@ export async function propStage(p: { slotId: string; post: Post; log: (s: string
     p.log(`prop ${name}: dropped to none (${error})`);
     await p.post(`slots/${p.slotId}/prop-finish`, { name, ok: false, error: error.slice(0, 280) }).catch(() => {});
   };
-  for (const prop of plan.props) {
+  for (const [k, prop] of plan.props.entries()) {
     try {
+      await p.onStep?.(k + 1, plan.props.length, "generating");
       p.log(`prop ${prop.name}: generating "${prop.prompt.slice(0, 80)}"`);
       const g = await p.post<{ ok: true; url: string; mime: string; model: string } | { ok: false; error: string }>(`slots/${p.slotId}/prop-generate`, { name: prop.name });
       if (!g.ok) {
@@ -42,6 +50,7 @@ export async function propStage(p: { slotId: string; post: Post; log: (s: string
       const res = await fetch(new URL(g.url, p.base));
       if (!res.ok) throw new Error(`download failed (${res.status})`);
       writeFileSync(raw, Buffer.from(await res.arrayBuffer()));
+      await p.onStep?.(k + 1, plan.props.length, "cutting");
       if (process.env.PROP_FAKE_CUTOUT === "1") copyFileSync(raw, png);
       else {
         const python = process.env.EDGE_PYTHON?.trim() || "python3";

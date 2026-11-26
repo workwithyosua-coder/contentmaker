@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { notFound, renderAuthorized } from "@/lib/render";
-import { SlotStateError, edgeFinish, propFinish, propGenerate, propPlan, propUpload, edgePlan, edgeUpload, failSlot, finishSlot, scriptSlot, startSlotRender, voiceSlot } from "@/lib/scheduler-server";
+import { normalizeProgress } from "@/lib/slotProgress";
+import { SlotStateError, setProgress, edgeFinish, propFinish, propGenerate, propPlan, propUpload, edgePlan, edgeUpload, failSlot, finishSlot, scriptSlot, startSlotRender, voiceSlot } from "@/lib/scheduler-server";
 
 export const maxDuration = 300;
 
@@ -18,11 +19,23 @@ export const maxDuration = 300;
 //   render → opens the render job for render.mts / rvc-stage.mts        (voicing → rendering)
 //   finish → queues YouTube / Instagram / Facebook, TikTok hand-off     (rendering → ready_to_post | published)
 //   fail   → { error, runUrl }                                          (→ failed)
+//   progress → { stage, percent, detail } the progress bar on the Schedule page (400 on a bad stage; a report for a
+//              slot that isn't running is ignored; never fails the slot)
 export async function POST(request: Request, ctx: RouteContext<"/api/scheduler/slots/[id]/[step]">) {
   if (!renderAuthorized(request)) return notFound();
   const { id, step } = await ctx.params;
   if (!/^[0-9a-f-]{36}$/.test(id)) return Response.json({ error: "Bad slot id." }, { status: 400 });
-  const b = (await request.json().catch(() => ({}))) as { error?: string; runUrl?: string; lineIndex?: number; path?: string; durationMs?: number; name?: string; ok?: boolean };
+  const raw = await request.json().catch(() => ({}));
+  if (step === "progress") {
+    const v = normalizeProgress(raw);
+    if (!v.ok) return Response.json({ error: v.error }, { status: 400 });
+    try {
+      return Response.json({ ...(await setProgress(id, v.value)), ...v.value });
+    } catch (e) {
+      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    }
+  }
+  const b = raw as { error?: string; runUrl?: string; lineIndex?: number; path?: string; durationMs?: number; name?: string; ok?: boolean };
   try {
     let out: unknown;
     if (step === "script") out = await scriptSlot(id, b.runUrl ?? null);

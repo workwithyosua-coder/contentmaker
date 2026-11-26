@@ -57,7 +57,7 @@ test("routing: Own Voice always uses the worker's Edge TTS; Gemini TTS slots han
   const src = fs.readFileSync(path.join(ROOT, "src/lib/scheduler-server.ts"), "utf8");
   const fn = src.slice(src.indexOf("export async function voiceSlot"), src.indexOf("// ------------------------------------------------------------------ step 2b"));
   assert.ok(fn.indexOf('schedulerVoiceEngine(v.provider) === "edge"') < fn.indexOf('import("./voice/providers")'), "Own Voice never reaches Gemini TTS");
-  assert.match(fn, /if \(bad && isQuotaError\(bad\.message\)\) \{[\s\S]*?Edge TTS fallback used[\s\S]*?return \{ voiced, remaining: todo\.length - voiced, engine: "edge", note \}/);
+  assert.match(fn, /if \(bad && isQuotaError\(bad\.message\)\) \{[\s\S]*?Edge TTS fallback used[\s\S]*?return \{ voiced, remaining: todo\.length - voiced, total, rvc, engine: "edge", note \}/);
   const step = fs.readFileSync(path.join(ROOT, "video/scheduler-step.mts"), "utf8");
   assert.match(step, /if \(v\.engine === "edge"\) \{\s*const e = await edgeStage\(/);
 });

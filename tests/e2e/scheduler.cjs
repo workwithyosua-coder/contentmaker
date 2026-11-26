@@ -228,12 +228,19 @@ const step = async (...args) =>
   const outputs = fs.readFileSync(path.join(OUT, 'gh-output.txt'), 'utf8');
   check('prepare: workflow outputs episode_id, job_id, voice=none', outputs.includes(`episode_id=${slot.episode_id}`) && outputs.includes(`job_id=${slot.render_job_id}`) && outputs.includes('voice=none'));
 
+  const [pv] = await sql`SELECT progress_stage, progress_percent, progress_detail FROM episode_queue WHERE id = ${target}`;
+  check('progress: the worker reported real voicing (no RVC: 30-75 %), last line at 75%', pv.progress_stage === 'voicing' && pv.progress_percent === 75 && pv.progress_detail === 'Voicing line 15 of 15', JSON.stringify(pv));
+  check('progress: every report on the way was accepted (no "progress report skipped" warning)', !/progress report skipped/.test(prep), prep.split('\n').find((l) => /skipped/.test(l)));
   if (process.env.RENDER === '1') {
-    const r = await run('npx', ['tsx', 'render.mts', slot.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: { ...process.env, JOB_ID: slot.render_job_id }, maxBuffer: 64 * 1024 * 1024 });
+    const r = await run('npx', ['tsx', 'render.mts', slot.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: { ...process.env, JOB_ID: slot.render_job_id, SLOT_ID: target, APP_URL: base }, maxBuffer: 64 * 1024 * 1024 });
     console.log(r.stdout.split('\n').filter((l) => !/frame/i.test(l)).slice(-8).join('\n'));
   } else {
     // stand-in for render.mts's upload: a stored MP4 row
     await sql`INSERT INTO episode_videos (project_id, script_id, storage_path, size_bytes, duration_ms) SELECT ${slot.episode_id}, id, ${`${slot.episode_id}/test.mp4`}, 10, 7000 FROM scripts WHERE project_id = ${slot.episode_id}`;
+  }
+  if (process.env.RENDER === '1') {
+    const [pr] = await sql`SELECT progress_stage, progress_percent, progress_detail FROM episode_queue WHERE id = ${target}`;
+    check('progress: render.mts reported Remotion progress, then the upload at 95%', pr.progress_stage === 'uploading' && pr.progress_percent === 95 && pr.progress_detail === 'Uploading MP4 & queueing posts...', JSON.stringify(pr));
   }
   const v = await sql`SELECT count(*)::int AS n FROM episode_videos WHERE project_id = ${slot.episode_id}`;
   check('render: a video landed', v[0].n === 1);
@@ -242,6 +249,8 @@ const step = async (...args) =>
   check('finish: ready_to_post with the TikTok hand-off (no account connected)', done.status === 'ready_to_post' && /Cek keranjang kuning|#/.test(done.handoff.tiktokCaption ?? '') && done.handoff.notConnected.length === 3, JSON.stringify(done));
   const [job] = await sql`SELECT status FROM render_jobs WHERE id = ${slot.render_job_id}`;
   check('finish: the render job is done', job.status === 'done');
+  const [pd] = await sql`SELECT progress_stage, progress_percent, progress_detail FROM episode_queue WHERE id = ${target}`;
+  check('progress: 100% "Ready to post" when finished', pd.progress_stage === 'done' && pd.progress_percent === 100 && pd.progress_detail === 'Ready to post', JSON.stringify(pd));
 
   // ---- a bad script: the slot fails with the reason, retry puts it back
   scriptMode = 'bad';

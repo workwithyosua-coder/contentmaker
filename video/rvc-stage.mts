@@ -8,9 +8,11 @@
 //
 // Usage: RENDER_TOKEN=... npx tsx rvc-stage.mts <episodeId> [--base URL]
 // Env:   RVC_PYTHON (python with worker/rvc/requirements.txt installed), RVC_FAKE=1 (tests: a pitch shift, no RVC)
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { progressAt } from "../src/lib/slotProgress.ts";
+import { slotReporter } from "./slot-progress.mts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--")) ?? process.env.EPISODE_ID;
@@ -90,14 +92,36 @@ for (const l of plan.lines) {
 
 // Stage B: RVC on CPU (or, in tests, a pitch shift standing in for it)
 const started = Date.now();
+// the scheduled slot's progress bar (SLOT_ID set by the autonomous scheduler; nothing for a manual render)
+const slotReport = slotReporter(base);
+const converted = (i: number) => slotReport("converting_voice", progressAt("converting_voice", i, jobs.length), `Converting voice ${i} of ${jobs.length}`, { force: i === 0 || i === jobs.length });
+await converted(0);
 if (process.env.RVC_FAKE === "1") {
-  for (const j of jobs) execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", j.input, "-af", "asetrate=44100*0.94,aresample=44100,atempo=1.0638", j.output]);
+  for (const [i, j] of jobs.entries()) {
+    execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", j.input, "-af", "asetrate=44100*0.94,aresample=44100,atempo=1.0638", j.output]);
+    await converted(i + 1);
+  }
 } else {
   const python = process.env.RVC_PYTHON?.trim() || "python";
   const list = path.join(work, "jobs.json");
   writeFileSync(list, JSON.stringify(jobs.map(({ model, index, input, output, pitch }) => ({ model, index, input, output, pitch }))));
-  const r = spawnSync(python, [path.resolve(here, "../worker/rvc/convert.py"), list], { stdio: "inherit" });
-  if (r.status !== 0) throw new Error(`RVC conversion failed (exit ${r.status}). See the log above.`);
+  // convert.py prints "[rvc] i/n …" after each line: passed through to the log and to the progress bar
+  const code = await new Promise<number | null>((resolve) => {
+    const child = spawn(python, [path.resolve(here, "../worker/rvc/convert.py"), list], { stdio: ["ignore", "pipe", "inherit"] });
+    let buf = "";
+    child.stdout.on("data", (d: Buffer) => {
+      process.stdout.write(d);
+      buf += d.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const m = /^\[rvc\] (\d+)\/(\d+)/.exec(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        if (m) void converted(Number(m[1]));
+      }
+    });
+    child.on("close", resolve);
+  });
+  if (code !== 0) throw new Error(`RVC conversion failed (exit ${code}). See the log above.`);
 }
 log(`own voice: converted in ${((Date.now() - started) / 1000).toFixed(0)} s`);
 

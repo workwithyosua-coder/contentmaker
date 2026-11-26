@@ -124,7 +124,9 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   check('A: per-pose prosody (Uco shocked thought, Ocu cta)', /rate=-4% pitch=-2Hz pose=thought/.test(takesA[4].ai_prompt) && /rate=\+8% pitch=-2Hz pose=cta/.test(takesA[13].ai_prompt) && /rate=\+16% pitch=\+8Hz pose=defensive/.test(takesA[2].ai_prompt));
   check('A: speech frames logged per line', (prepA.match(/speech frames \d+–\d+/g) ?? []).length === N);
   check('A: render job with voice=rvc', outA.voice === 'rvc' && outA.episode_id === fa.episode_id, JSON.stringify(outA));
-  await run('npx', ['tsx', 'rvc-stage.mts', fa.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: env({ RVC_FAKE: '1', JOB_ID: outA.job_id }) });
+  await run('npx', ['tsx', 'rvc-stage.mts', fa.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: env({ RVC_FAKE: '1', JOB_ID: outA.job_id, SLOT_ID: a.id }) });
+  const [pa] = await sql`SELECT progress_stage, progress_percent, progress_detail FROM episode_queue WHERE id = ${a.id}`;
+  check('A: RVC reported per line, ending at 75% (Own Voice: voices 30-55, RVC 55-75)', pa.progress_stage === 'converting_voice' && pa.progress_percent === 75 && pa.progress_detail === `Converting voice ${N} of ${N}`, JSON.stringify(pa));
   const conv = await sql`SELECT ai_prompt FROM recordings WHERE project_id = ${fa.episode_id} AND is_selected ORDER BY line_index`;
   check('A: RVC converted every Edge TTS take (origin kept)', conv.length === N && conv.every((t) => /^\[rvc\] converted from .* \(edge-tts\)$/.test(t.ai_prompt)), conv[0]?.ai_prompt);
   const manifest = await (await fetch(`${base}/api/render/${fa.episode_id}`, { headers: { Authorization: `Bearer ${process.env.RENDER_TOKEN}` } })).json();
