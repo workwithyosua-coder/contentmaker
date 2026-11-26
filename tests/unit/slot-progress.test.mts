@@ -128,7 +128,7 @@ test("progress endpoint: RENDER_TOKEN first, a known stage, percent clamped to 0
   assert.doesNotMatch(fail, /progress_/, "failing keeps the last percent and stage");
   // queued / retried / regenerated slots reset; a manual run and the cron's claim start at "Starting GitHub worker..."
   assert.equal((srv.match(/progress_stage = 'starting', progress_detail = 'Starting GitHub worker\.\.\.'/g) ?? []).length, 3);
-  assert.equal((srv.match(/progress_percent = NULL, progress_stage = NULL, progress_detail = NULL, progress_updated_at = NULL/g) ?? []).length, 2);
+  assert.equal((srv.match(/progress_percent = NULL, progress_stage = NULL, progress_detail = NULL, progress_updated_at = NULL/g) ?? []).length, 3, "retry, regenerate, and a refused dispatch");
   const sql = fs.readFileSync(path.join(ROOT, "db/migrations/019_slot_progress.sql"), "utf8");
   for (const c of ["progress_percent integer", "progress_stage text", "progress_detail text", "progress_updated_at timestamptz"]) assert.ok(sql.includes(c), c);
   assert.match(sql, /progress_percent BETWEEN 0 AND 100/);
@@ -173,6 +173,21 @@ test("the last report of every counted stage is forced past the throttle (the ba
   assert.match(step, /\{ force: done === n \}/);
   assert.match(step, /\{ force: i === n && phase === "cutting" \}/);
   assert.match(step, /report\("scripting", 15, `Script ready \(\$\{s\.lines\} lines\)`, \{ force: true \}\)/);
+});
+
+test("Run slot now / Retry / Regenerate: the Starting bar is saved before GitHub is asked, cleared if GitHub refuses", () => {
+  const srv = fs.readFileSync(path.join(ROOT, "src/lib/scheduler-server.ts"), "utf8");
+  const fn = srv.slice(srv.indexOf("export async function dispatchSlot"), srv.indexOf("export async function setProgress"));
+  const starting = fn.indexOf("progress_stage = 'starting', progress_detail = 'Starting GitHub worker...', progress_updated_at = now()");
+  assert.ok(starting > 0 && starting < fn.indexOf("await fetch("), "persisted before the dispatch request");
+  assert.match(fn, /if \(!res\.ok\) \{\s*await db\(\)`UPDATE episode_queue SET progress_percent = NULL, progress_stage = NULL/);
+  const actions = fs.readFileSync(path.join(ROOT, "src/app/schedule/actions.ts"), "utf8");
+  for (const name of ["runSlotAction", "retrySlotAction", "regenerateSlotAction"]) {
+    const body = actions.slice(actions.indexOf(`export async function ${name}`), actions.indexOf("\n}\n", actions.indexOf(`export async function ${name}`)));
+    assert.match(body, /await dispatchSlot\(o\.id, id\);\s*revalidatePath\("\/schedule"\);/, `${name} starts the run and refreshes the page`);
+  }
+  // a queued slot that is starting counts as running: the Waiting bar shows and the page polls
+  assert.equal(shouldPoll([{ progressStage: "starting", status: "queued" }], "visible"), true);
 });
 
 test("zero Anthropic in the progress path", () => {

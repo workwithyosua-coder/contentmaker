@@ -1,10 +1,11 @@
-// Free Microsoft Edge TTS (edge-tts, voice id-ID-ArdiNeural), run inside the GitHub Actions worker so unattended
-// episodes never touch Gemini TTS's free daily cap. This module is the app's half: which lines need a voice, the text
+// Free Microsoft Edge TTS (edge-tts, voice id-ID-ArdiNeural), run inside the GitHub Actions worker as the fallback
+// when Gemini TTS is out of quota. This module is the app's half: which lines need a voice, the text
 // the voice reads, and each line's prosody (rate / pitch from the character and the pose). Pure code: no network, no AI.
 //
-// Routing in the scheduler:
-//   gemini_tts_rvc (Own Voice): Edge TTS makes every base take in the worker (never Gemini TTS), then RVC converts it
-//   gemini_tts:                  Gemini TTS first; on 429 / quota, Edge TTS takes over the remaining lines
+// Routing in the scheduler (Gemini API key on Paid Tier 1):
+//   gemini_tts_rvc (Own Voice): gemini-3.8-flash-tts first (the acted base takes), then RVC converts them; on a 429 /
+//                               quota error Edge TTS makes the remaining base takes in the worker (also converted)
+//   gemini_tts:                  gemini-3.8-flash-tts first; on 429 / quota, Edge TTS takes over the remaining lines
 import { RVC_BASE_MARK } from "../renderWorker";
 import { actingPose, linesToVoice, type VoiceProvider } from "./acting";
 import { ttsText } from "./phonetic";
@@ -53,9 +54,12 @@ export function takeSource(source: string, aiPrompt: string | null | undefined):
   return source === "ai" && isEdgeTake(aiPrompt) ? "ai_edge" : source;
 }
 
-/** Which engine the scheduler's worker voices with first. Own Voice never uses Gemini TTS (its 10-a-day cap). */
+/**
+ * Which engine the scheduler's worker voices with first: Gemini TTS for both Gemini providers (Own Voice keeps the
+ * full acted Indonesian delivery before RVC). Edge TTS only takes over after a 429 / quota error (isQuotaError).
+ */
 export function schedulerVoiceEngine(provider: VoiceProvider): "edge" | "gemini" {
-  return provider === "gemini_tts_rvc" ? "edge" : "gemini";
+  return provider === "gemini_tts" || provider === "gemini_tts_rvc" ? "gemini" : "edge";
 }
 
 /** A TTS failure that means "out of quota / rate limited": the cue to hand the rest of the slot to Edge TTS. */

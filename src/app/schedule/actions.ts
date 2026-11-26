@@ -54,6 +54,7 @@ export async function runSlotAction(id: string): Promise<Result> {
   try {
     const o = await owner();
     await dispatchSlot(o.id, id);
+    revalidatePath("/schedule"); // the card's Starting bar and the 4 s polling show right away
     return { ok: true, message: "Started on GitHub. The status updates as each step finishes (a few minutes)." };
   } catch (e) {
     return fail(e);
@@ -64,6 +65,12 @@ export async function retrySlotAction(id: string): Promise<Result> {
   try {
     const o = await owner();
     const r = await retrySlot(o.id, id);
+    // a slot back in the queue runs right away (Starting bar from this click) when the dispatch token is set
+    if (r === "queued" && process.env.GITHUB_DISPATCH_TOKEN?.trim()) {
+      await dispatchSlot(o.id, id);
+      revalidatePath("/schedule");
+      return { ok: true, message: "Retrying on GitHub now. The bar shows each step as it finishes." };
+    }
     revalidatePath("/schedule");
     return { ok: true, message: r === "posting" ? "Posting the failed platforms again." : "Back in the queue. Tap Run slot now, or the next scheduled run picks it up." };
   } catch (e) {
@@ -92,6 +99,7 @@ export async function regenerateSlotAction(id: string): Promise<Result> {
     revalidatePath("/schedule");
     if (!process.env.GITHUB_DISPATCH_TOKEN?.trim()) return { ok: true, message: "Draft deleted, slot back in the queue. The next scheduled run writes a fresh script." };
     await dispatchSlot(o.id, id);
+    revalidatePath("/schedule");
     return { ok: true, message: "Draft deleted. A fresh script is being written on GitHub now." };
   } catch (e) {
     return fail(e);

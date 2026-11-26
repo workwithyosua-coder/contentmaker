@@ -47,9 +47,13 @@ jobs:
         run: |
           [[ -n "$RENDER_TOKEN" ]] || { echo "Add the RENDER_TOKEN repository secret"; exit 1; }
           [[ -z "$SLOT_ID" || "$SLOT_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "slot_id must be a uuid"; exit 1; }
+      # plan only needs this one file: scheduler-step.mts loads its stage modules inside `prepare` (produce job, full
+      # checkout). tests/unit/scheduler-plan.test.mts runs `plan` from exactly these paths, so a new top-level import
+      # that isn't listed here fails the tests instead of this job (ERR_MODULE_NOT_FOUND).
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: video/scheduler-step.mts
+          sparse-checkout: |
+            video/scheduler-step.mts
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v4
         with:
