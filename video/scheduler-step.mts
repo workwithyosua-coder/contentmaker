@@ -9,6 +9,7 @@
 // Env: RENDER_TOKEN, APP_URL (default production), RUN_URL (the Actions run, shown on the Schedule page)
 import { appendFileSync } from "node:fs";
 import { edgeStage } from "./edge-stage.mts";
+import { propStage } from "./prop-stage.mts";
 
 const [cmd, slotId, ...rest] = process.argv.slice(2);
 const base = (process.env.APP_URL ?? "https://contentmaker-lime.vercel.app").replace(/\/$/, "");
@@ -58,6 +59,10 @@ try {
   } else if (cmd === "prepare") {
     const s = await post<{ episodeId: string; title: string; reused: boolean }>(`slots/${slotId}/script`);
     log(`${s.reused ? "kept the script of" : "wrote"} "${s.title}" (episode ${s.episodeId})`);
+    // the episode's fresh props (Gemini image model in the app → cut-out here → upload); a failed one drops to none
+    // (a reused script only makes the props still pending)
+    const props = await propStage({ slotId: slotId!, post, log, base });
+    if (props.done.length || props.dropped.length) log(`props: ${props.done.length} ready${props.dropped.length ? `, ${props.dropped.length} dropped to none` : ""}`);
     // Own Voice → Edge TTS in this worker (then RVC); Gemini TTS → Gemini, with Edge TTS taking over on a 429
     for (let round = 0; round < 10; round++) {
       const v = await post<{ voiced: number; remaining: number; engine: "gemini" | "edge"; note: string | null }>(`slots/${slotId}/voice`);

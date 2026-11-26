@@ -9,6 +9,8 @@ import {
   GEMINI_KEY_VARS,
   GEMINI_TEXT_DEFAULT,
   GEMINI_TEXT_FALLBACK,
+  geminiImageModel,
+  geminiTtsModels,
   GeminiError,
   geminiApiKey,
   geminiErrorDetail,
@@ -34,14 +36,24 @@ test("TTS and the scheduler read the Gemini key through one chain, and a missing
   }
 });
 
-test("text models: gemini-3.5-flash-lite by default, GEMINI_TEXT_MODEL overrides, gemini-3.8-flash as the fallback", () => {
-  assert.equal(GEMINI_TEXT_DEFAULT, "gemini-3.5-flash-lite");
-  assert.deepEqual(geminiTextModels({}), ["gemini-3.5-flash-lite", "gemini-3.8-flash"]);
+test("models: gemini-3.8-flash text and gemini-3.8-flash-tts by default, env overrides, the lite models as fallbacks", () => {
+  assert.equal(GEMINI_TEXT_DEFAULT, "gemini-3.8-flash");
+  assert.deepEqual(geminiTextModels({}), ["gemini-3.8-flash", "gemini-3.5-flash-lite"]);
   assert.deepEqual(geminiTextModels({ GEMINI_TEXT_MODEL: "gemini-4-pro" }), ["gemini-4-pro", GEMINI_TEXT_FALLBACK]);
-  assert.deepEqual(geminiTextModels({ GEMINI_TEXT_MODEL: "gemini-3.8-flash" }), ["gemini-3.8-flash"]);
+  assert.deepEqual(geminiTextModels({ GEMINI_TEXT_MODEL: "gemini-3.5-flash-lite" }), ["gemini-3.5-flash-lite"]);
+  assert.deepEqual(geminiTtsModels({}), ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"]);
+  assert.deepEqual(geminiTtsModels({ GEMINI_TTS_MODEL: "gemini-3.8-flash-lite-tts" }), ["gemini-3.8-flash-lite-tts"]);
+  assert.deepEqual(geminiTtsModels({ GEMINI_TTS_MODEL: "my-tts" }), ["my-tts", "gemini-3.8-flash-lite-tts"]);
+  assert.equal(geminiImageModel({}), "gemini-nano-banana-2.1");
+  assert.equal(geminiImageModel({ GEMINI_IMAGE_MODEL: "x-image" }), "x-image");
+  // TTS uses the chain, with the model fallback and the quota wording the worker's Edge TTS hand-over reads
+  const tts = fs.readFileSync(path.join(ROOT, "src/lib/voice/gemini.ts"), "utf8");
+  assert.match(tts, /const models = geminiTtsModels\(\);/);
+  assert.match(tts, /if \(isModelError\(res\.status, detail\) && model !== models\.at\(-1\)\) continue;/);
+  assert.match(tts, /quota is used up/);
   // no retired model id left in the scheduler's Gemini calls
-  for (const f of ["src/lib/gemini-text.ts", "src/lib/gemini-core.ts", "src/lib/scheduler-server.ts"]) {
-    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, f), "utf8"), /gemini-2\.[05]-flash(?!-preview-tts)/, f);
+  for (const f of ["src/lib/gemini-text.ts", "src/lib/gemini-core.ts", "src/lib/scheduler-server.ts", "src/lib/voice/gemini.ts"]) {
+    assert.doesNotMatch(fs.readFileSync(path.join(ROOT, f), "utf8"), /gemini-2\.[05]-flash/, f);
   }
   // only a model problem moves on to the fallback; key, quota and prompt problems don't
   assert.equal(isModelError(404, "NOT_FOUND: models/gemini-2.0-flash is not found for API version v1beta"), true);

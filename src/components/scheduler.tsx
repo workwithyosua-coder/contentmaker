@@ -10,6 +10,7 @@ import {
   useTransition,
 } from "react";
 import {
+  regenerateSlotAction,
   retrySlotAction,
   runSlotAction,
   savePropAction,
@@ -600,6 +601,19 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
             onClick={() => run(() => retrySlotAction(s.id))}
           >
             Retry
+          </button>
+        )}
+        {(s.status === "failed" || s.status === "queued") && s.episodeId && (
+          <button
+            type="button"
+            className="btn btn-outline"
+            disabled={pending}
+            onClick={() => {
+              if (window.confirm(`Delete the draft "${s.episodeTitle ?? "episode"}" (script, voices, video) and write a fresh script for this slot?`))
+                run(() => regenerateSlotAction(s.id));
+            }}
+          >
+            Regenerate script &amp; run
           </button>
         )}
         {isWorking(s.status) && s.runUrl && (
