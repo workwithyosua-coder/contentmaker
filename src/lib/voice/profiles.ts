@@ -1,9 +1,8 @@
 import "server-only";
 import { db } from "../db";
 import { getObject } from "../storage";
-import { DEFAULT_SETTINGS, directLine } from "./direction";
-import { cloneVoice, speak, type VoiceSettings } from "./elevenlabs";
-import { storeTake, type SaveResult } from "../takes";
+import { DEFAULT_SETTINGS } from "./direction";
+import { cloneVoice, type VoiceSettings } from "./elevenlabs";
 
 export type Speaker = "uco" | "ocu";
 export type VoiceProfile = { speaker: Speaker; voice_id: string; name: string | null; settings: VoiceSettings & { model?: string }; created_at: Date };
@@ -53,28 +52,4 @@ export async function cloneFromTakes(userId: string, speaker: Speaker) {
   const voiceId = await cloneVoice(name, desc, samples);
   await setVoiceProfile(userId, speaker, voiceId, name);
   return { voiceId, samples: samples.length, seconds };
-}
-
-type ScriptLine = { speaker: Speaker; text: string; expression: string; thought_bubble?: boolean; delivery?: string | null; beat?: string };
-
-/** Generates an AI take for one line in the character's cloned voice and saves it as that line's selected take. */
-export async function aiTake(p: { userId: string; projectId: string; scriptId: string; lineIndex: number; line: ScriptLine; extra?: string }): Promise<SaveResult> {
-  const profiles = await getVoiceProfiles(p.userId);
-  const profile = profiles[p.line.speaker];
-  if (!profile) return { ok: false, message: `${p.line.speaker.toUpperCase()} has no AI voice yet. Set it up on the Create page.` };
-  const prompt = directLine(p.line, p.extra);
-  const { model, ...settings } = profile.settings ?? {};
-  const audio = await speak(profile.voice_id, prompt, { model, settings: { ...DEFAULT_SETTINGS[p.line.speaker], ...settings } });
-  return storeTake({
-    ownerId: p.userId,
-    projectId: p.projectId,
-    scriptId: p.scriptId,
-    lineIndex: p.lineIndex,
-    data: audio,
-    mime: "audio/mpeg",
-    ext: "mp3",
-    durationMs: null,
-    source: "ai",
-    aiPrompt: prompt,
-  });
 }

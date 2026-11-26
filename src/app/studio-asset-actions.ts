@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { audioUploadType } from "@/lib/assetSlots";
 import { getOwner } from "@/lib/queries";
 import { ensureStudioBucket, listStudioAssets } from "@/lib/studio-assets";
-import { STUDIO_BUCKET, STUDIO_MAX_BYTES, isStudioObjectPath, originalPath, parseOriginal, studioSlot, type StudioAssetStatus } from "@/lib/studioAssets";
-import { deleteObjects, listObjectInfo, signedUploadUrl } from "@/lib/storage";
+import { MODEL_MAX_BYTES, MODEL_TYPE, STUDIO_BUCKET, isStudioObjectPath, maxBytesFor, originalPath, parseOriginal, studioSlot, type StudioAssetStatus } from "@/lib/studioAssets";
+import { deleteObjects, listObjectInfo, raisePrivateBucketLimit, signedUploadUrl } from "@/lib/storage";
 
 // Studio Assets: upload / replace / remove one global slot by key. Plain code and Storage calls, no AI. Only the
 // allowlisted keys (studioAssets.ts) can be written, whatever the browser sends.
@@ -39,7 +39,14 @@ export async function startStudioUploadAction(
     await owner();
     const slot = studioSlot(key);
     if (!slot) return { ok: false, message: "Unknown studio asset." };
-    if (!(size > 0) || size > STUDIO_MAX_BYTES) return { ok: false, message: `That file is over ${STUDIO_MAX_BYTES / 1024 / 1024} MB. Pick a smaller one.` };
+    const max = maxBytesFor(slot);
+    if (!(size > 0) || size > max) return { ok: false, message: `That file is over ${max / 1024 / 1024} MB. Pick a smaller one.` };
+    if (slot.kind === "model") {
+      // private voice model: straight from the phone to the private bucket (never through a function body)
+      if (part !== "file" || type !== MODEL_TYPE) return { ok: false, message: `Pick a ${slot.ext} file.` };
+      await raisePrivateBucketLimit(MODEL_MAX_BYTES, [MODEL_TYPE]);
+      return { ok: true, url: await signedUploadUrl(slot.path, undefined, true), path: slot.path };
+    }
     let path: string | null;
     if (part === "original") path = originalPath(slot, removeWhite, type);
     else if (slot.kind === "sprite") path = type === "image/png" ? slot.path : null;
@@ -66,7 +73,7 @@ export async function finishStudioUploadAction(key: string, keptOriginal: string
       if (keptOriginal) await deleteObjects(stale, STUDIO_BUCKET);
     }
     const status = (await listStudioAssets()).find((s) => s.key === slot.key);
-    if (!status?.url) return { ok: false, message: "The upload didn't arrive. Try again." };
+    if (!status?.present) return { ok: false, message: "The upload didn't arrive. Try again." };
     refresh();
     return { ok: true, status };
   } catch (err) {
@@ -80,6 +87,11 @@ export async function removeStudioAssetAction(key: string): Promise<{ ok: true }
     await owner();
     const slot = studioSlot(key);
     if (!slot) return { ok: false, message: "Unknown studio asset." };
+    if (slot.kind === "model") {
+      await deleteObjects([slot.path]); // the private recordings bucket
+      refresh();
+      return { ok: true };
+    }
     const originals = (await listObjectInfo("originals", STUDIO_BUCKET).catch(() => [])).map((o) => `originals/${o.name}`).filter((p) => parseOriginal(p)?.key === slot.key);
     await deleteObjects([slot.path, ...originals], STUDIO_BUCKET);
     refresh();

@@ -53,6 +53,9 @@ import {
   updateLineAction,
 } from "../actions";
 import { approveWithoutAiAction, publishAction, setAutoPublishAction } from "../publish-actions";
+import { setEpisodeVoiceAction } from "../voice-actions";
+import { VoiceProviderPicker } from "@/components/voice-provider";
+import { getEpisodeVoice } from "@/lib/voice/settings";
 
 export const maxDuration = 300;
 
@@ -121,6 +124,7 @@ async function Episode({
   ]);
   const custom = Boolean(latestScript?.custom);
   const direction = latestScript?.direction ?? "";
+  const voice = await getEpisodeVoice(project.id).catch(() => ({ provider: "gemini_tts" as const, preset: "standard" as const }));
   const rendering = job?.status === "queued" || job?.status === "running";
   const [[pubProject], pubAccounts, pubs] = await Promise.all([
     db()<{ platform_captions: PlatformCaptions | null; publish_settings: Record<string, object>; auto_publish: boolean; publish_at: Date | null; video_style: string }[]>`
@@ -523,6 +527,9 @@ async function Episode({
           <Link href={`/create/${project.id}/record`} className="btn btn-primary">
             {progress.recorded ? "Open the recording booth" : "Start recording"}
           </Link>
+          <div className="mt-4 border-t border-border pt-4">
+            <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} />
+          </div>
         </Card>
       )}
 

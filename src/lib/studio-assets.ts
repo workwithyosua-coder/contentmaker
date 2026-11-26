@@ -18,17 +18,25 @@ export async function ensureStudioBucket() {
  * isn't uploaded. Storage problems read as "not uploaded" so pages and renders never fail on them.
  */
 export async function listStudioAssets(origin?: string): Promise<StudioAssetStatus[]> {
-  const [sprites, sfx, originals] = await Promise.all(
-    ["sprites", "sfx", "originals"].map((dir) => listObjectInfo(dir, STUDIO_BUCKET).catch(() => [] as { name: string; updatedAt: number | null }[])),
-  );
+  type Info = { name: string; updatedAt: number | null; size?: number | null };
+  const [sprites, sfx, originals, models] = await Promise.all([
+    ...["sprites", "sfx", "originals"].map((dir) => listObjectInfo(dir, STUDIO_BUCKET).catch(() => [] as Info[])),
+    // voice models: private, in the recordings bucket
+    listObjectInfo("studio-assets/voices").catch(() => [] as Info[]),
+  ]);
   const found = new Map<string, { name: string; updatedAt: number | null }>();
   for (const [dir, list] of [["sprites", sprites], ["sfx", sfx]] as const) for (const f of list) found.set(`${dir}/${f.name}`, f);
   return STUDIO_SLOTS.map((slot) => {
+    if (slot.kind === "model") {
+      const m = models.find((x) => `studio-assets/voices/${x.name}` === slot.path);
+      return { key: slot.key, url: null, present: Boolean(m), sizeBytes: m?.size ?? null, updatedAt: m?.updatedAt ?? null, originalUrl: null, removeWhite: true };
+    }
     const f = found.get(slot.path);
     const orig = originals.map((o) => ({ o, info: parseOriginal(`originals/${o.name}`) })).find((x) => x.info?.key === slot.key);
     return {
       key: slot.key,
       url: f ? withVersion(publicObjectUrl(slot.path, STUDIO_BUCKET, origin), f.updatedAt) : null,
+      present: Boolean(f),
       updatedAt: f?.updatedAt ?? null,
       originalUrl: orig ? withVersion(publicObjectUrl(`originals/${orig.o.name}`, STUDIO_BUCKET, origin), orig.o.updatedAt) : null,
       removeWhite: orig?.info?.removeWhite ?? true,

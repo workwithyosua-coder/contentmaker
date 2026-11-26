@@ -1,5 +1,6 @@
 "use client";
 
+import { VoiceProviderPicker } from "./voice-provider";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import type { StepResult } from "@/app/create/actions";
@@ -64,6 +65,7 @@ export function NewEpisodeForm({ action }: { action: (prev: StepResult, form: Fo
         placeholder="e.g. Is coffee actually bad for you?  ·  Tax on sugary drinks  ·  Why Indonesians love instant noodles  ·  anything in this week's news"
         className="field"
       />
+      <VoiceProviderPicker provider="gemini_tts" preset="standard" />
       <div className="flex flex-wrap items-center gap-3">
         <button disabled={pending} className={VARIANT.primary}>
           {pending ? "Starting…" : "Pitch me 5 ideas"}

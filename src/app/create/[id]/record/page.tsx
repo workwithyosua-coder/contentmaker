@@ -8,6 +8,11 @@ import { RecordingBooth } from "@/components/recording-booth";
 import { AiVoicePanel } from "@/components/voice-ui";
 import { elevenLabsConfigured } from "@/lib/voice/elevenlabs";
 import { getVoiceProfiles } from "@/lib/voice/profiles";
+import { routeVoice } from "@/lib/voice/acting";
+import { geminiConfigured } from "@/lib/voice/gemini";
+import { getEpisodeVoice } from "@/lib/voice/settings";
+import { VoiceProviderPicker } from "@/components/voice-provider";
+import { setEpisodeVoiceAction } from "../../voice-actions";
 import { generateAiTakesAction } from "./ai-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, EmptyState } from "@/components/ui";
@@ -49,6 +54,8 @@ async function Booth({
   if (!data) notFound();
   const { project, script, lines, recorded } = data;
   const voices = elevenLabsConfigured() ? await getVoiceProfiles(owner.id).catch(() => ({})) : null;
+  const voice = await getEpisodeVoice(project.id).catch(() => ({ provider: "gemini_tts" as const, preset: "standard" as const }));
+  const route = routeVoice(voice.provider, { geminiKey: geminiConfigured(), elevenLabsKey: elevenLabsConfigured(), elevenLabsVoices: Boolean(voices && "uco" in voices && "ocu" in voices) });
   const missing = lines.filter((l) => !recorded[l.index]).length;
 
   return (
@@ -72,22 +79,20 @@ async function Booth({
             </p>
           )}
           <Card title="AI voices">
-            {!voices ? (
-              <p className="text-sm text-muted">
-                Want the app to voice lines for you? Set up AI voices on the <Link href="/create" className="text-link underline">Create</Link> page.
-              </p>
-            ) : Object.keys(voices).length < 2 ? (
-              <p className="text-sm text-muted">
-                Clone {"uco" in voices ? "Ocu's" : "ocu" in voices ? "Uco's" : "Uco's and Ocu's"} voice on the{" "}
-                <Link href="/create" className="text-link underline">Create</Link> page first.
-              </p>
-            ) : (
+            <div className="space-y-4">
+              <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} note={route.ok ? null : route.message} />
               <AiVoicePanel
                 action={generateAiTakesAction.bind(null, project.id)}
                 lines={lines.map((l) => ({ index: l.index, speaker: l.speaker, text: l.text }))}
                 missing={missing}
               />
-            )}
+              {voice.provider === "elevenlabs" && voices && Object.keys(voices).length < 2 && (
+                <p className="text-sm text-muted">
+                  ElevenLabs needs {"uco" in voices ? "Ocu's" : "ocu" in voices ? "Uco's" : "Uco's and Ocu's"} cloned voice: set it up on the{" "}
+                  <Link href="/create" className="text-link underline">Create</Link> page.
+                </p>
+              )}
+            </div>
           </Card>
           <Card title="Full voice-over">
             <FullVoiceover projectId={project.id} scriptId={script.id} lines={lines} />
