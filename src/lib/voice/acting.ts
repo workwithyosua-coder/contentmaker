@@ -4,13 +4,13 @@
 
 export const VOICE_PROVIDERS = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"] as const;
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
-/** Providers the pickers offer today (Own-Voice RVC arrives with the GitHub Actions worker). */
-export const SELECTABLE_PROVIDERS: readonly VoiceProvider[] = ["gemini_tts", "elevenlabs"];
+/** Providers the pickers offer. Own Voice = Gemini TTS acting, converted to the user's voice by the RVC worker. */
+export const SELECTABLE_PROVIDERS: readonly VoiceProvider[] = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"];
 export const DEFAULT_PROVIDER: VoiceProvider = "gemini_tts";
 export const PROVIDER_LABEL: Record<VoiceProvider, string> = {
   gemini_tts: "Gemini TTS (Free)",
   elevenlabs: "ElevenLabs",
-  gemini_tts_rvc: "Own voice (Gemini TTS + RVC)",
+  gemini_tts_rvc: "Own Voice (Gemini + RVC)",
 };
 
 export const asProvider = (v: unknown): VoiceProvider => (VOICE_PROVIDERS as readonly string[]).includes(String(v)) ? (v as VoiceProvider) : DEFAULT_PROVIDER;
@@ -114,18 +114,33 @@ export function linesToVoice<L extends { index: number }>(lines: L[], hasTake: (
   return lines.filter((l) => !hasTake(l.index));
 }
 
-export type VoiceRoute = { ok: true; engine: "gemini" | "elevenlabs" } | { ok: false; message: string };
+export type VoiceRoute = { ok: true; engine: "gemini" | "elevenlabs"; rvc?: boolean } | { ok: false; message: string; href?: string };
+
+/** Where missing Own-Voice models are uploaded. */
+export const STUDIO_ASSETS_HREF = "/accounts#studio-assets";
 
 /**
  * Which engine voices a line for the chosen provider, or why it can't (shown in the booth instead of crashing):
- * Gemini needs GEMINI_API_KEY; ElevenLabs needs its key and both cloned voices; Own-Voice RVC isn't wired yet.
+ * Gemini needs GEMINI_API_KEY; ElevenLabs needs its key and both cloned voices; Own Voice needs Gemini for the acted
+ * base take and the speaking character's .pth model (never a silent fallback to Gemini's or ElevenLabs' voice).
  */
-export function routeVoice(provider: VoiceProvider, env: { geminiKey: boolean; elevenLabsKey: boolean; elevenLabsVoices: boolean }): VoiceRoute {
+export function routeVoice(
+  provider: VoiceProvider,
+  env: { geminiKey: boolean; elevenLabsKey: boolean; elevenLabsVoices: boolean; rvcModels?: { uco: boolean; ocu: boolean } },
+  speakers: ("uco" | "ocu")[] = ["uco", "ocu"],
+): VoiceRoute {
   if (provider === "gemini_tts") return env.geminiKey ? { ok: true, engine: "gemini" } : { ok: false, message: "GEMINI_API_KEY is not set in environment variables." };
   if (provider === "elevenlabs") {
     if (!env.elevenLabsKey) return { ok: false, message: "ELEVENLABS_API_KEY isn't set in Vercel yet. Switch the voice provider to Gemini TTS (Free)." };
     if (!env.elevenLabsVoices) return { ok: false, message: "Clone Uco's and Ocu's voices on the Create page first, or switch to Gemini TTS (Free)." };
     return { ok: true, engine: "elevenlabs" };
   }
-  return { ok: false, message: "Own-voice (RVC) rendering isn't available yet. Pick Gemini TTS (Free) or ElevenLabs for now." };
+  // gemini_tts_rvc
+  const missing = speakers.filter((w) => !env.rvcModels?.[w]);
+  if (missing.length) {
+    const names = missing.map((w) => `${w === "uco" ? "Uco" : "Ocu"} (${w}-voice.pth)`).join(" and ");
+    return { ok: false, message: `Own Voice needs ${missing.length > 1 ? "voice models" : "a voice model"} for ${names}. Upload ${missing.length > 1 ? "them" : "it"} in Accounts → Studio Assets.`, href: STUDIO_ASSETS_HREF };
+  }
+  if (!env.geminiKey) return { ok: false, message: "GEMINI_API_KEY is not set in environment variables." };
+  return { ok: true, engine: "gemini", rvc: true };
 }

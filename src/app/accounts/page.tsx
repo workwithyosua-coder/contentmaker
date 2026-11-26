@@ -194,9 +194,12 @@ async function AccountsList({ searchParams }: { searchParams: PageProps<"/accoun
         </div>
       </Card>
 
-      <Card title="Studio Assets">
-        <StudioAssetsPanel initial={await listStudioAssets().catch(() => [])} />
-      </Card>
+      {/* #studio-assets: the booth's and episode page's "missing voice model" links land here */}
+      <div id="studio-assets" className="scroll-mt-4">
+        <Card title="Studio Assets">
+          <StudioAssetsPanel initial={await listStudioAssets().catch(() => [])} />
+        </Card>
+      </div>
 
       <Card title="Creative tools">
         <ul className="divide-y divide-border text-sm">

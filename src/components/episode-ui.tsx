@@ -131,9 +131,25 @@ export function AutoRefresh({ active, everyMs = 4000 }: { active: boolean; every
 /** Render progress bar: the percentage and stage the renderer last reported (the page refreshes every few seconds). */
 export function RenderProgress({ job }: { job: { status: string; progress: number | null; stage: string | null } }) {
   const pct = job.status === "queued" ? 0 : (job.progress ?? 0);
-  const stage = job.status === "queued" ? "Waiting for GitHub to start the render" : (job.stage ?? "Starting");
+  const stage = job.status === "queued" ? "Waiting for GitHub to start the worker" : (job.stage ?? "Starting");
+  // queued → converting_voice (Own Voice) → rendering → done / failed
+  const steps = [
+    ["queued", "Queued"],
+    ["converting_voice", "Converting voice"],
+    ["rendering", "Rendering"],
+  ] as const;
+  const at = job.status === "running" ? "rendering" : job.status;
+  const reached = steps.findIndex(([s]) => s === at);
   return (
     <div className="space-y-1">
+      <ol className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-label="Render steps">
+        {steps.map(([s, label], i) => (
+          <li key={s} aria-current={s === at ? "step" : undefined} className={i <= reached ? "font-semibold" : "text-muted"}>
+            {i < reached ? "✓ " : ""}
+            {label}
+          </li>
+        ))}
+      </ol>
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="font-semibold">{stage}…</span>
         <span className="font-mono tabular-nums">{pct}%</span>

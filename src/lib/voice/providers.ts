@@ -5,6 +5,8 @@ import { DEFAULT_SETTINGS, directLine } from "./direction";
 import { elevenLabsConfigured, speak } from "./elevenlabs";
 import { geminiConfigured, speakGemini } from "./gemini";
 import { getVoiceProfiles } from "./profiles";
+import { rvcModelStatus } from "../studio-assets";
+import { RVC_BASE_MARK } from "../renderWorker";
 
 // One door for every AI voice: the episode's provider decides the engine (Gemini TTS, free, by default; ElevenLabs
 // with the cloned voices; Own-Voice RVC later), and every take is stored the same way, as that line's selected take
@@ -23,17 +25,20 @@ export async function voiceTake(p: {
   extra?: string;
 }): Promise<SaveResult> {
   const profiles = p.provider === "elevenlabs" && elevenLabsConfigured() ? await getVoiceProfiles(p.userId).catch(() => ({})) : {};
-  const route = routeVoice(p.provider, {
-    geminiKey: geminiConfigured(),
-    elevenLabsKey: elevenLabsConfigured(),
-    elevenLabsVoices: "uco" in profiles && "ocu" in profiles,
-  });
+  const rvcModels = p.provider === "gemini_tts_rvc" ? await rvcModelStatus().catch(() => ({ uco: false, ocu: false })) : undefined;
+  const route = routeVoice(
+    p.provider,
+    { geminiKey: geminiConfigured(), elevenLabsKey: elevenLabsConfigured(), elevenLabsVoices: "uco" in profiles && "ocu" in profiles, rvcModels },
+    [p.line.speaker],
+  );
   if (!route.ok) return { ok: false, message: route.message };
 
   if (route.engine === "gemini") {
+    // Own Voice: this is Stage A, the acted base take; the render worker converts it to the user's voice (Stage B)
     const prompt = geminiPrompt(p.line, p.preset, p.extra);
     const wav = await speakGemini(prompt, p.line.speaker);
-    return storeTake({ ownerId: p.userId, projectId: p.projectId, scriptId: p.scriptId, lineIndex: p.lineIndex, data: wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer, mime: "audio/wav", ext: "wav", durationMs: wavDurationMs(wav), source: "ai", aiPrompt: `[gemini_tts] ${prompt}` });
+    const mark = route.rvc ? RVC_BASE_MARK : "[gemini_tts]";
+    return storeTake({ ownerId: p.userId, projectId: p.projectId, scriptId: p.scriptId, lineIndex: p.lineIndex, data: wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer, mime: "audio/wav", ext: "wav", durationMs: wavDurationMs(wav), source: "ai", aiPrompt: `${mark} ${prompt}` });
   }
 
   const profile = (profiles as Record<string, { voice_id: string; settings?: Record<string, unknown> | null }>)[p.line.speaker];

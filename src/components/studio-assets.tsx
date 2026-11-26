@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { finishStudioUploadAction, removeStudioAssetAction, startStudioUploadAction } from "@/app/studio-asset-actions";
+import { SUPABASE_FREE_FILE_LIMIT, mb } from "@/lib/renderWorker";
 import { audioUploadType } from "@/lib/assetSlots";
 import { processPropFile } from "@/lib/clientPropProcessor";
 import { MODEL_TYPE, ORIGINAL_TYPES, RVC_GROUP, RVC_HELP, STUDIO_SLOTS, acceptFor, maxBytesFor, modelFileOk, originalType, studioSlot, type StudioAssetStatus, type StudioSlot } from "@/lib/studioAssets";
@@ -74,6 +75,8 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
   const [note, setNote] = useState<string | null>(null);
   // the photo picked this visit (re-processed when the background switch changes)
   const [picked, setPicked] = useState<File | null>(null);
+  // a voice model over Supabase Free's 50 MB file cap waits for a decision instead of failing mid-upload
+  const [oversize, setOversize] = useState<File | null>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const busy = phase === "processing" || phase === "uploading" || phase === "removing";
   const sprite = slot.kind === "sprite";
@@ -190,6 +193,13 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
           e.target.value = "";
           if (!f) return;
           setPicked(f);
+          setError(null);
+          if (slot.kind === "model" && f.size > SUPABASE_FREE_FILE_LIMIT && f.size <= maxBytesFor(slot) && modelFileOk(slot, f.name)) {
+            setOversize(f);
+            setPhase("idle");
+            return;
+          }
+          setOversize(null);
           void upload(f, true, true);
         }}
       />
@@ -241,6 +251,38 @@ export function StudioSlotControl({ slot, initial, compact = false }: { slot: St
         </div>
       )}
 
+      {slot.kind === "model" && picked && !oversize && busy && (
+        <p className="text-xs text-muted">
+          {picked.name} · {mb(picked.size)}
+        </p>
+      )}
+      {oversize && (
+        <div role="alert" className="space-y-2 rounded-control border p-3 text-xs" style={{ borderColor: "var(--bad)", background: "var(--bad-bg)" }}>
+          <p>
+            <span className="font-semibold">
+              {oversize.name} is {mb(oversize.size)}.
+            </span>{" "}
+            Supabase&apos;s Free plan stores files up to 50 MB, so this upload will likely be refused. Export the model as FP16 (half
+            precision) or a pruned / small model in your RVC trainer: those are usually 25–55 MB. A Supabase Pro plan accepts it as is.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn btn-secondary text-xs" onClick={pick}>
+              Pick another file
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary text-xs"
+              onClick={() => {
+                const f = oversize;
+                setOversize(null);
+                void upload(f, true, true);
+              }}
+            >
+              Upload anyway ({mb(oversize.size)})
+            </button>
+          </div>
+        </div>
+      )}
       <p id={`${id}-status`} role="status" aria-live="polite" className="text-xs text-muted">
         {working ? null : note}
       </p>

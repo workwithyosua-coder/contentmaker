@@ -11,6 +11,7 @@ import { getVoiceProfiles } from "@/lib/voice/profiles";
 import { routeVoice } from "@/lib/voice/acting";
 import { geminiConfigured } from "@/lib/voice/gemini";
 import { getEpisodeVoice } from "@/lib/voice/settings";
+import { rvcModelStatus } from "@/lib/studio-assets";
 import { VoiceProviderPicker } from "@/components/voice-provider";
 import { setEpisodeVoiceAction } from "../../voice-actions";
 import { generateAiTakesAction } from "./ai-actions";
@@ -55,7 +56,9 @@ async function Booth({
   const { project, script, lines, recorded } = data;
   const voices = elevenLabsConfigured() ? await getVoiceProfiles(owner.id).catch(() => ({})) : null;
   const voice = await getEpisodeVoice(project.id).catch(() => ({ provider: "gemini_tts" as const, preset: "standard" as const }));
-  const route = routeVoice(voice.provider, { geminiKey: geminiConfigured(), elevenLabsKey: elevenLabsConfigured(), elevenLabsVoices: Boolean(voices && "uco" in voices && "ocu" in voices) });
+  const rvcModels = voice.provider === "gemini_tts_rvc" ? await rvcModelStatus().catch(() => ({ uco: false, ocu: false })) : undefined;
+  const speakers = [...new Set(lines.map((l) => l.speaker))].filter((w): w is "uco" | "ocu" => w === "uco" || w === "ocu");
+  const route = routeVoice(voice.provider, { geminiKey: geminiConfigured(), elevenLabsKey: elevenLabsConfigured(), elevenLabsVoices: Boolean(voices && "uco" in voices && "ocu" in voices), rvcModels }, speakers);
   const missing = lines.filter((l) => !recorded[l.index]).length;
 
   return (
@@ -80,7 +83,7 @@ async function Booth({
           )}
           <Card title="AI voices">
             <div className="space-y-4">
-              <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} note={route.ok ? null : route.message} />
+              <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} note={route.ok ? null : route.message} noteHref={route.ok ? null : (route.href ?? null)} />
               <AiVoicePanel
                 action={generateAiTakesAction.bind(null, project.id)}
                 lines={lines.map((l) => ({ index: l.index, speaker: l.speaker, text: l.text }))}

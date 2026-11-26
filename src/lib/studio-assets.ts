@@ -58,3 +58,13 @@ export async function videoAssetUrls(origin?: string): Promise<{ props: Record<s
   const [attached, studio] = await Promise.all([attachedAssetUrls(origin).catch(() => ({ props: {}, sfx: {} })), studioAssetUrls(origin)]);
   return { props: attached.props, sfx: { ...attached.sfx, ...studio.sfx }, cast: studio.cast };
 }
+
+/** Which characters have an Own-Voice .pth model (and optional .index) in the private recordings bucket. */
+export async function rvcModelStatus(): Promise<{ uco: boolean; ocu: boolean; index: { uco: boolean; ocu: boolean } }> {
+  const names = new Set((await listObjectInfo("studio-assets/voices").catch(() => [])).map((o) => o.name));
+  return {
+    uco: names.has("uco-voice.pth"),
+    ocu: names.has("ocu-voice.pth"),
+    index: { uco: names.has("uco-voice.index"), ocu: names.has("ocu-voice.index") },
+  };
+}

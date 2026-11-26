@@ -15,15 +15,18 @@ export function VoiceProviderPicker({
   preset: initialPreset,
   onSave,
   note,
+  noteHref,
 }: {
   provider: VoiceProvider;
   preset: DeliveryPreset;
   onSave?: (provider: VoiceProvider, preset: DeliveryPreset) => Promise<Result>;
   /** e.g. a warning that the chosen provider isn't set up */
   note?: string | null;
+  /** where the note's problem is fixed (e.g. Accounts → Studio Assets for missing voice models) */
+  noteHref?: string | null;
 }) {
   const id = useId();
-  const [provider, setProvider] = useState<VoiceProvider>(initialProvider === "gemini_tts_rvc" ? "gemini_tts" : initialProvider);
+  const [provider, setProvider] = useState<VoiceProvider>(initialProvider);
   const [preset, setPreset] = useState(initialPreset);
   const [state, setState] = useState<Result>(null);
   const [pending, start] = useTransition();
@@ -81,7 +84,12 @@ export function VoiceProviderPicker({
       </fieldset>
       {note && (
         <p className="text-xs" style={{ color: "var(--bad)" }}>
-          {note}
+          {note}{" "}
+          {noteHref && (
+            <a href={noteHref} className="inline-flex min-h-11 items-center font-semibold text-link underline">
+              Open Studio Assets
+            </a>
+          )}
         </p>
       )}
       <div aria-live="polite">

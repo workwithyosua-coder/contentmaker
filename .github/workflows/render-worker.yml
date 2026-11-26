@@ -1,0 +1,126 @@
+# Render worker: converts Own Voice lines with RVC (when asked) and renders one Uco & Ocu episode to a 1080×1920 MP4.
+# Started by the app's "Render video" button (src/lib/render-jobs.ts → workflow_dispatch) or by hand from the Actions tab.
+#
+# Needs ONE repository secret: RENDER_TOKEN (the same value as RENDER_TOKEN in Vercel). The worker talks to the app only
+# through /api/render/:id/* with that token: the app hands it short-lived signed URLs for the private voice models and
+# takes, and signed upload URLs for the results, so no database or Supabase keys ever live in GitHub.
+#
+# Job states reported to the app: queued → converting_voice (voice = rvc) → rendering → done / failed.
+name: Render worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode_id:
+        description: Episode id (the uuid in /create/<id>)
+        required: true
+      job_id:
+        description: Render job id (set by the app; leave empty when starting by hand)
+        required: false
+        default: ""
+      voice:
+        description: "rvc = convert Own Voice lines with RVC first; none = render only"
+        required: false
+        default: none
+        type: choice
+        options: [none, rvc]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-${{ github.event.inputs.episode_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      APP_URL: https://contentmaker-lime.vercel.app
+      RENDER_TOKEN: ${{ secrets.RENDER_TOKEN }}
+      EPISODE_ID: ${{ github.event.inputs.episode_id }}
+      JOB_ID: ${{ github.event.inputs.job_id }}
+      VOICE: ${{ github.event.inputs.voice || 'none' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check inputs
+        run: |
+          [[ "$EPISODE_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "episode_id must be a uuid"; exit 1; }
+          [[ -z "$JOB_ID" || "$JOB_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "job_id must be a uuid"; exit 1; }
+          [[ "$VOICE" == none || "$VOICE" == rvc ]] || { echo "voice must be none or rvc"; exit 1; }
+          [[ -n "$RENDER_TOKEN" ]] || { echo "Add the RENDER_TOKEN repository secret"; exit 1; }
+
+      - name: Report started
+        if: env.JOB_ID != ''
+        run: |
+          if [[ "$VOICE" == rvc ]]; then STATUS=converting_voice; STAGE="Setting up the voice converter"; else STATUS=rendering; STAGE="Setting up the renderer"; fi
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"$STATUS\",\"runUrl\":\"$RUN_URL\",\"progress\":0,\"stage\":\"$STAGE\"}"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Remotion's headless Chrome (render.mts runs in video/, so it lives in video/node_modules/.remotion)
+      - name: Cache the Remotion browser
+        uses: actions/cache@v4
+        with:
+          path: video/node_modules/.remotion
+          key: remotion-browser-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # ---- Stage B (Own Voice): RVC v2 on CPU ------------------------------------------------------------------
+      - uses: actions/setup-python@v5
+        if: env.VOICE == 'rvc'
+        with:
+          python-version: "3.10"
+
+      # the whole virtualenv is cached: CPU PyTorch, fairseq and RVC's HuBERT / RMVPE base models (downloaded into the
+      # package on first use), so later runs skip a ~5-minute install
+      - name: Cache the RVC environment
+        if: env.VOICE == 'rvc'
+        id: rvc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.venv-rvc
+          key: rvc-venv-${{ runner.os }}-py310-${{ hashFiles('worker/rvc/requirements.txt') }}
+
+      - name: Install RVC
+        if: env.VOICE == 'rvc' && steps.rvc-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/.venv-rvc
+          ~/.venv-rvc/bin/pip install --quiet --upgrade "pip<24.1"
+          ~/.venv-rvc/bin/pip install --quiet -r worker/rvc/requirements.txt
+          # fetch the base models now, so they're part of the cache
+          ~/.venv-rvc/bin/python -c "import os, rvc_python; from rvc_python.download_model import download_rvc_models; download_rvc_models(os.path.dirname(rvc_python.__file__))"
+
+      - name: Convert Own Voice lines (RVC)
+        if: env.VOICE == 'rvc'
+        working-directory: video
+        run: RVC_PYTHON="$HOME/.venv-rvc/bin/python" npx tsx rvc-stage.mts "$EPISODE_ID" --base "$APP_URL"
+
+      # ---- Render -----------------------------------------------------------------------------------------------
+      - name: Render and upload
+        working-directory: video
+        run: npx tsx render.mts "$EPISODE_ID" --base "$APP_URL"
+
+      - name: Report done
+        if: success() && env.JOB_ID != ''
+        run: |
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"done\"}"
+
+      - name: Report failure
+        if: failure() && env.JOB_ID != ''
+        run: |
+          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+            -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"failed\",\"error\":\"The worker failed. Open the run on GitHub for the log.\",\"runUrl\":\"$RUN_URL\"}"
