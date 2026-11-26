@@ -7,7 +7,7 @@
 //                               quota error Edge TTS makes the remaining base takes in the worker (also converted)
 //   gemini_tts:                  gemini-3.8-flash-tts first; on 429 / quota, Edge TTS takes over the remaining lines
 import { RVC_BASE_MARK } from "../renderWorker";
-import { actingPose, linesToVoice, type VoiceProvider } from "./acting";
+import { actingPose, assertSpokenOnly, linesToVoice, type VoiceProvider } from "./acting";
 import { ttsText } from "./phonetic";
 
 export const EDGE_VOICE = "id-ID-ArdiNeural";
@@ -78,6 +78,6 @@ export function edgeJobs(lines: (ProsodyLine & { index: number; text: string })[
     .filter((l) => (l.speaker === "uco" || l.speaker === "ocu") && l.text.trim())
     .map((l) => {
       const p = edgeProsody(l);
-      return { lineIndex: l.index, speaker: l.speaker, text: ttsText(l.text), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
+      return { lineIndex: l.index, speaker: l.speaker, text: assertSpokenOnly(ttsText(l.text)), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
     });
 }

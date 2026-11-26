@@ -2,6 +2,7 @@ import "server-only";
 import { decrypt } from "../crypto";
 import { db } from "../db";
 import { GRAPH_VERSION, graph, graphPost, isMetaRateLimit } from "../platforms/meta";
+import { youtubeUpload, type UploadStep } from "./youtubeUpload";
 import { getObject, signedUrl } from "../storage";
 import { accessTokenFor as tiktokToken } from "../sync/tiktok";
 import { accessTokenFor as youtubeToken } from "../sync/youtube";
@@ -58,28 +59,15 @@ async function videoBytes(path: string) {
 
 // ------------------------------------------------------------------ YouTube Shorts (Data API v3, resumable upload)
 async function youtube(p: PublicationRow): Promise<Advance> {
+  // resumable session saved first, network errors retried 3 times, a finished upload never repeated (youtubeUpload.ts)
   const token = await youtubeToken(p.social_account_id);
   const bytes = await videoBytes(p.video.storage_path);
-  const start = await fetch("https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=UTF-8",
-      "X-Upload-Content-Type": "video/mp4",
-      "X-Upload-Content-Length": String(bytes.byteLength),
-    },
-    body: JSON.stringify({
-      snippet: { title: p.caption.title ?? "Uco & Ocu #Shorts", description: p.caption.text, tags: p.caption.tags ?? [], categoryId: "23", defaultLanguage: "id" },
-      status: { privacyStatus: p.settings.privacy ?? "public", selfDeclaredMadeForKids: false },
-    }),
+  return youtubeUpload({
+    token,
+    bytes: new Uint8Array(bytes),
+    step: p.step as UploadStep,
+    meta: { title: p.caption.title ?? "Uco & Ocu #Shorts", description: p.caption.text, tags: p.caption.tags ?? [], privacy: p.settings.privacy ?? "public" },
   });
-  const location = start.headers.get("location");
-  if (!start.ok || !location) return { status: "failed", step: {}, error: `YouTube refused the upload (${start.status}): ${(await start.text()).slice(0, 300)}` };
-  const put = await fetch(location, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "video/mp4" }, body: new Uint8Array(bytes) });
-  const json = (await put.json()) as { id?: string; status?: { privacyStatus?: string }; error?: { message?: string } };
-  if (!put.ok || !json.id) return { status: "failed", step: {}, error: `YouTube upload failed: ${json.error?.message ?? put.status}` };
-  const note = json.status?.privacyStatus && json.status.privacyStatus !== (p.settings.privacy ?? "public") ? ` (YouTube set it to ${json.status.privacyStatus})` : "";
-  return { status: "published", step: { videoId: json.id, note }, externalId: json.id, externalUrl: `https://www.youtube.com/shorts/${json.id}` };
 }
 
 // ------------------------------------------------------------------ TikTok (Content Posting API v2, Direct Post, FILE_UPLOAD)

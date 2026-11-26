@@ -68,16 +68,28 @@ export function defaultSlotTimes(n: number): string[] {
 
 // ------------------------------------------------------------------ formats
 export const FORMATS = {
-  comedy_debate: { label: "Comedy Debate", style: "uco-ocu-2d-comic", brief: "Uco and Ocu argue a topic from opposite worldviews; real facts, neither one wins." },
+  comedy_debate: { label: "Comedy Debate", brief: "Uco and Ocu argue a topic from opposite worldviews; real facts, neither one wins." },
   affiliate: {
     label: "Affiliate (Yellow Basket)",
-    style: "uco-ocu-2d-comic",
     brief: "Uco and Ocu debate whether an everyday product is worth buying; honest pros and cons, no fake claims, ends by pointing to the yellow basket.",
   },
-  koran_kinetik: { label: "Koran Kinetik", style: "editorial-paper-cutout", brief: "A news-explainer episode built on short on-screen headlines; the key number gets an Evidence Takeover stat card." },
-  diagram_taktis: { label: "Diagram Taktis", style: "tactical-vector-hud", brief: "A tactical breakdown: Ocu explains how something really works step by step while Uco reacts." },
+  koran_kinetik: { label: "Koran Kinetik", brief: "A news-explainer episode built on short on-screen headlines; the key number gets an Evidence Takeover stat card." },
+  diagram_taktis: { label: "Diagram Taktis", brief: "A tactical breakdown: Ocu explains how something really works step by step while Uco reacts." },
 } as const;
 export type EpisodeFormat = keyof typeof FORMATS;
+
+/**
+ * The visual styles a schedule can render in. Every scheduled episode, whatever its format, uses the schedule's style:
+ * Koran Kinetik by default (illustrated PNG cast, generated props, callouts, stat / explainer cards, safe-zone
+ * subtitles). The legacy "2D Vertical Comic" (procedural SVG) and Classic are never offered here.
+ */
+export const SCHEDULE_STYLES = [
+  { id: "editorial-paper-cutout", label: "Koran Kinetik" },
+  { id: "tactical-vector-hud", label: "Diagram Taktis" },
+] as const;
+export type ScheduleStyle = (typeof SCHEDULE_STYLES)[number]["id"];
+export const DEFAULT_VISUAL_STYLE: ScheduleStyle = "editorial-paper-cutout";
+export const asScheduleStyle = (v: unknown): ScheduleStyle => (SCHEDULE_STYLES.some((x) => x.id === v) ? (v as ScheduleStyle) : DEFAULT_VISUAL_STYLE);
 export const FORMAT_IDS = Object.keys(FORMATS) as EpisodeFormat[];
 export const asFormat = (v: unknown): EpisodeFormat => (FORMAT_IDS.includes(v as EpisodeFormat) ? (v as EpisodeFormat) : "comedy_debate");
 
@@ -100,6 +112,7 @@ export type ScheduleRule = {
   slot_times: string[];
   format_mix: EpisodeFormat[];
   voice_provider: ScheduleVoice;
+  visual_style: ScheduleStyle;
   target_platforms: Target[];
   topic_hint: string | null;
   auto_execute: boolean;
@@ -114,6 +127,7 @@ export const DEFAULT_RULE: ScheduleRule = {
   slot_times: [...DEFAULT_SLOT_TIMES],
   format_mix: ["comedy_debate", "koran_kinetik"],
   voice_provider: "gemini_tts",
+  visual_style: DEFAULT_VISUAL_STYLE,
   target_platforms: ["youtube", "instagram", "facebook", "tiktok_drafts"],
   topic_hint: null,
   auto_execute: false,
@@ -153,6 +167,7 @@ export function normalizeRule(input: Partial<Record<keyof ScheduleRule, unknown>
     slot_times: times,
     format_mix: Array.from({ length: slots }, (_, i) => base[i % base.length]),
     voice_provider: voice,
+    visual_style: asScheduleStyle(input.visual_style),
     target_platforms: Array.isArray(input.target_platforms) ? targets : DEFAULT_RULE.target_platforms,
     topic_hint: hint || null,
     auto_execute: input.auto_execute === true || input.auto_execute === "true" || input.auto_execute === "on",

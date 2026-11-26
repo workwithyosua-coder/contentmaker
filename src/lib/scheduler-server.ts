@@ -110,6 +110,10 @@ export async function saveSchedule(
     : await sql<ScheduleRow[]>`
         INSERT INTO content_schedules (user_id, cadence, days_of_week, days_of_month, slots_per_day, slot_times, format_mix, voice_provider, target_platforms, topic_hint, auto_execute, is_active)
         VALUES (${userId}, ${vals}) RETURNING *`;
+  // the visual style (migration 020): saved on its own, so a missing column is a clear message, not a broken save
+  await sql`UPDATE content_schedules SET visual_style = ${r.visual_style} WHERE id = ${row.id}`.catch((e) => {
+    throw new Error(/visual_style/.test(String(e)) ? "The visual style needs database migration 020 (schedule visual style). Apply it, then save again." : String(e));
+  });
   const plan = r.is_active ? plannedSlots(r, new Date()) : [];
   const keep = plan.map((p) => p.scheduledFor.toISOString());
   // open (queued, nothing made yet) future slots that the new rule doesn't have; manual seeds move to the new slots
@@ -489,7 +493,7 @@ export async function scriptSlot(
   const [p] = await sql<{ id: string }[]>`
     INSERT INTO content_projects (id, user_id, direction_id, title, format, target_platforms, status, video_style, voice_provider, publish_settings)
     VALUES (${episodeId}, ${s.user_id}, ${d.id}, ${title.slice(0, 80)}, 'short_video', '{tiktok,instagram,youtube,facebook}'::platform_t[], 'awaiting_recording',
-            ${FORMATS[format].style}, ${r.voice_provider}, ${sql.json(settings as never)}) RETURNING id`;
+            ${r.visual_style}, ${r.voice_provider}, ${sql.json(settings as never)}) RETURNING id`;
   const seconds = Math.max(20, Math.min(95, Math.round(script.lines.reduce((n, l) => n + l.text.split(/\s+/).length, 0) / 2.6)));
   await sql`
     INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
@@ -722,6 +726,9 @@ export async function startSlotRender(
   const { missingModelMessage } = await import("./renderWorker");
   const plan = await ownVoicePlan(s.episode_id);
   if (plan.missing.length) throw new Error(missingModelMessage(plan.missing));
+  // the schedule's visual style goes through to the render (also for older drafts made as 2D Vertical Comic)
+  const [rule] = await db()<ScheduleRow[]>`SELECT * FROM content_schedules WHERE id = ${s.schedule_id}`;
+  await db()`UPDATE content_projects SET video_style = ${normalizeRule(rule ?? DEFAULT_RULE).visual_style}, updated_at = now() WHERE id = ${s.episode_id}`;
   const [job] = await db()<
     { id: string }[]
   >`INSERT INTO render_jobs (project_id) VALUES (${s.episode_id}) RETURNING id`;

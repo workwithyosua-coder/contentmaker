@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { speechBounds } from "./src/shared/motion.ts";
 import { FPS } from "./src/types.ts";
+import { assertSpokenOnly } from "../src/lib/voice/acting.ts";
 
 type Job = { lineIndex: number; speaker: "uco" | "ocu"; text: string; rate: string; pitch: string; pose: string; leadIn: boolean };
 type Post = <T>(path: string, body?: Record<string, unknown>) => Promise<T>;
@@ -63,7 +64,7 @@ export async function edgeStage(p: { slotId: string; post: Post; log: (s: string
     }
   } else {
     const list = path.join(work, "jobs.json");
-    writeFileSync(list, JSON.stringify(plan.lines.map((j) => ({ text: j.text, voice: plan.voice, rate: j.rate, pitch: j.pitch, out: raw(j) }))));
+    writeFileSync(list, JSON.stringify(plan.lines.map((j) => ({ text: assertSpokenOnly(j.text), voice: plan.voice, rate: j.rate, pitch: j.pitch, out: raw(j) }))));
     const python = process.env.EDGE_PYTHON?.trim() || "python3";
     const r = spawnSync(python, [path.resolve(here, "../scripts/edge_tts_worker.py"), list], { stdio: "inherit" });
     if (r.status !== 0) throw new Error(`Edge TTS failed (exit ${r.status}). See the log above.`);

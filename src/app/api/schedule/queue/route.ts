@@ -15,6 +15,7 @@ export async function GET() {
         status: q.status,
         error: q.error_message,
         runUrl: q.run_url,
+        episodeId: q.episode_id,
         episodeTitle: q.episode_title ?? null,
         progressPercent: q.progress_percent,
         progressStage: q.progress_stage,

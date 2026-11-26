@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "../db";
 import { syncAccount } from "../sync";
 import { ADAPTERS, type PlatformSettings, type PublicationRow } from "./adapters";
+import { describeFetchError } from "./youtubeUpload";
 import { PUBLISH_PLATFORMS, defaultText, type PlatformCaptions, type PublishPlatform } from "./captions";
 
 // Publishing queue. queuePublish() creates one episode_publications row per platform for the episode's latest video;
@@ -70,7 +71,9 @@ export async function queuePublish(p: { userId: string; projectId: string; at?: 
       VALUES (${p.projectId}, ${video.id}, ${platform}, ${acct.id}, 'queued', ${sql.json(caption as never)}, ${sql.json(s as never)}, ${runAfter})
       ON CONFLICT (video_id, platform) DO UPDATE
         SET status = 'queued', caption = EXCLUDED.caption, settings = EXCLUDED.settings, social_account_id = EXCLUDED.social_account_id,
-            step = '{}', error = NULL, attempts = 0, run_after = EXCLUDED.run_after, locked_until = NULL, updated_at = now()
+            -- a YouTube upload session survives the retry: the adapter asks it first, so a video that did arrive
+            -- is never posted a second time
+            step = CASE WHEN episode_publications.step ? 'uploadUrl' THEN jsonb_build_object('uploadUrl', episode_publications.step -> 'uploadUrl') ELSE '{}'::jsonb END, error = NULL, attempts = 0, run_after = EXCLUDED.run_after, locked_until = NULL, updated_at = now()
         WHERE episode_publications.status ${p.onlyFailed ? sql`= 'failed'` : sql`IN ('failed', 'idle', 'queued')`}
       RETURNING id`;
     if (rows.length) queued.push(platform);
@@ -128,7 +131,8 @@ export async function tick(limit = 8) {
         }
         return { id: r.id, platform: r.platform, status: a.status };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        // "youtube: fetch failed" → the real cause (ECONNRESET, a DNS failure, …), also for the OAuth token refresh
+        const message = describeFetchError(err);
         await sql`UPDATE episode_publications SET status = 'failed', error = ${message.slice(0, 1000)}, locked_until = NULL, updated_at = now() WHERE id = ${r.id}`;
         return { id: r.id, platform: r.platform, status: "failed", error: message };
       }

@@ -21,7 +21,7 @@ const mock = http
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       const b = JSON.parse(body || '{}');
-      requests.push({ url: req.url, key: req.headers['x-goog-api-key'], voice: b.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName, text: b.contents?.[0]?.parts?.[0]?.text });
+      requests.push({ url: req.url, key: req.headers['x-goog-api-key'], voice: b.generationConfig?.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName, text: b.contents?.[0]?.parts?.[0]?.text, style: b.contents?.[0]?.parts?.[0]?.speechMetadata?.style, url: req.url });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: Buffer.alloc(48000).toString('base64') } }] } }] }));
     });
@@ -74,8 +74,8 @@ const mock = http
   await page.waitForSelector('text=/2 line\\(s\\) voiced with Gemini TTS/', { timeout: 30000 });
   check('booth: 2 Gemini requests, the cached line skipped', requests.length === 2, `${requests.length}`);
   check('booth: Uco → Puck, Ocu → Charon', requests[0]?.voice === 'Puck' && requests[1]?.voice === 'Charon', requests.map((r) => r.voice).join(','));
-  check('booth: the exact script line ends each prompt', requests[0]?.text.endsWith('\nBadak Jawa mau dipindah ke Alas Purwo?!') && requests[1]?.text.endsWith('\nSatu tsunami, habis semua.'));
-  check('booth: pose + preset acting direction', /geram/.test(requests[0]?.text) && /urgen/.test(requests[0]?.text) && /menyelidik/.test(requests[1]?.text));
+  check('booth: parts[0].text is the script line only (no acting instruction read aloud)', requests[0]?.text === 'Badak Jawa mau dipindah ke Alas Purwo?!' && requests[1]?.text === 'Satu tsunami, habis semua.' && requests.every((r) => !/Bacakan|Ucapkan persis|tanpa menambah|style:/i.test(r.text)), JSON.stringify(requests.map((r) => r.text)));
+  check('booth: pose + preset acting cue only in speechMetadata.style, on /v1beta', /Outraged/.test(requests[0]?.style) && /urgent/.test(requests[0]?.style) && /probing/.test(requests[1]?.style) && requests.every((r) => /^\/models\/[^/]+:generateContent$/.test(r.url)), JSON.stringify(requests.map((r) => r.style)));
   const takes = await sql`SELECT line_index, mime_type, source, duration_ms FROM recordings WHERE script_id = ${s.id} AND is_selected ORDER BY line_index`;
   check('booth: takes stored as WAV AI takes, 1 s long', takes.length === 3 && takes.filter((t) => t.source === 'ai').every((t) => t.mime_type === 'audio/wav' && t.duration_ms === 1000), JSON.stringify(takes));
   // again: nothing left to voice

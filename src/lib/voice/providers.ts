@@ -1,6 +1,6 @@
 import "server-only";
 import { storeTake, type SaveResult } from "../takes";
-import { geminiPrompt, routeVoice, wavDurationMs, type DeliveryPreset, type VoiceProvider } from "./acting";
+import { geminiSpeech, routeVoice, wavDurationMs, type DeliveryPreset, type VoiceProvider } from "./acting";
 import { DEFAULT_SETTINGS, directLine } from "./direction";
 import { elevenLabsConfigured, speak } from "./elevenlabs";
 import { geminiConfigured, speakGemini } from "./gemini";
@@ -35,9 +35,11 @@ export async function voiceTake(p: {
 
   if (route.engine === "gemini") {
     // Own Voice: this is Stage A, the acted base take; the render worker converts it to the user's voice (Stage B)
-    const prompt = geminiPrompt(p.line, p.preset, p.extra);
-    const wav = await speakGemini(prompt, p.line.speaker);
+    // the dialogue only (verbatim) as text, the acting cue as speechMetadata.style
+    const { text, style } = geminiSpeech(p.line, p.preset, p.extra);
+    const wav = await speakGemini(text, style, p.line.speaker);
     const mark = route.rvc ? RVC_BASE_MARK : "[gemini_tts]";
+    const prompt = `style: ${style} | text: ${text}`;
     return storeTake({ ownerId: p.userId, projectId: p.projectId, scriptId: p.scriptId, lineIndex: p.lineIndex, data: wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer, mime: "audio/wav", ext: "wav", durationMs: wavDurationMs(wav), source: "ai", aiPrompt: `${mark} ${prompt}` });
   }
 

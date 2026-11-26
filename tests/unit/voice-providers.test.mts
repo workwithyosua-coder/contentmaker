@@ -10,7 +10,7 @@ import {
   actingPose,
   asPreset,
   asProvider,
-  geminiPrompt,
+  geminiSpeech,
   linesToVoice,
   pcmRate,
   pcmToWav,
@@ -49,12 +49,12 @@ test("the Angry / Urgent preset adds urgency to every line except muttered inner
   assert.equal(asPreset("anything"), "standard");
 });
 
-test("Gemini gets the line exactly as written (no script rewriting), after a separate acting instruction", () => {
+test("Gemini gets the line exactly as written (no script rewriting) as its text, the acting cue only as its style", () => {
   const text = 'Uco & Ocu: "Ujung Kulon ke Alas Purwo?!" (serius)';
-  const prompt = geminiPrompt(L({ text, emotion: "angry" }), "angry", "lebih keras di akhir");
-  assert.ok(prompt.endsWith(`\n${text}`), "the line is the last thing, verbatim");
-  assert.match(prompt, /Ucapkan persis kalimat ini saja, tanpa menambah atau mengubah kata/);
-  assert.match(prompt, /lebih keras di akhir/);
+  const g = geminiSpeech(L({ text, emotion: "angry" }), "angry", "lebih keras di akhir");
+  assert.equal(g.text, 'U-co dan Ocu: "Ujung Kulon ke Alas Purwo?!" (serius)', "the line only (phonetic fixes), nothing added");
+  assert.match(g.style, /Outraged Jakartan Indonesian rant.*urgent, pressing; lebih keras di akhir$/);
+  assert.doesNotMatch(g.text, /Bacakan|Ucapkan persis|lebih keras/);
   assert.notEqual(GEMINI_VOICES.uco, GEMINI_VOICES.ocu, "Uco and Ocu sound different");
   assert.deepEqual(GEMINI_VOICES, { uco: "Puck", ocu: "Charon" });
 });
