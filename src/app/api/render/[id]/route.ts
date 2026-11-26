@@ -1,6 +1,7 @@
 import { styleById } from "../../../../../video/src/styles/registry";
 import { videoAssetUrls } from "@/lib/studio-assets";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
+import { takeSource } from "@/lib/voice/edge";
 
 // GET /api/render/:id → everything the renderer needs to animate an episode (script lines + which lines have audio).
 export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]">) {
@@ -9,8 +10,9 @@ export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]"
   const src = await renderSource(id);
   if (!src?.script) return notFound();
   const recorded = new Set(src.takes.map((t) => t.line_index));
-  // where each take came from ("ai" = ElevenLabs TTS, "upload", "booth"…): the renderer paces AI voices a little faster
-  const sourceOf = new Map(src.takes.map((t) => [t.line_index, t.source]));
+  // where each take came from ("ai" = Gemini / ElevenLabs TTS, "ai_edge" = Edge TTS, "upload", "booth"…): the
+  // renderer paces "ai" voices a little faster; Edge TTS takes already have their pace from the prosody
+  const sourceOf = new Map(src.takes.map((t) => [t.line_index, takeSource(t.source, t.ai_prompt)]));
   return Response.json({
     projectId: src.project.id,
     title: src.script.title || src.project.title,
