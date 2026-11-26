@@ -27,6 +27,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/scheduler/s
     return Response.json(out);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    console.error(`[scheduler] slot ${id} ${step} failed: ${message}`);
     // a step that can't go on fails the slot right away, with the reason the Schedule page shows
     if (step !== "fail") await failSlot(id, message, b.runUrl ?? null).catch(() => {});
     revalidatePath("/schedule");

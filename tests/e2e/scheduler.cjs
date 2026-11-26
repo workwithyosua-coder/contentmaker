@@ -45,14 +45,26 @@ const mock = http
       const text = b.contents?.[0]?.parts?.[0]?.text ?? '';
       const tts = /tts/.test(req.url);
       requests.push({ url: req.url, tts, text });
-      res.writeHead(200, { 'content-type': 'application/json' });
-      if (tts) return res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: PCM } }] } }] }));
+      const ok = () => res.writeHead(200, { 'content-type': 'application/json' });
+      if (tts) return ok(), res.end(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: PCM } }] } }] }));
+      // the default text model is "retired" here: the app must fall back to gemini-3.8-flash
+      if (/gemini-3\.5-flash-lite/.test(req.url)) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: { code: 404, message: 'models/gemini-3.5-flash-lite is not found for API version v1beta', status: 'NOT_FOUND' } }));
+      }
+      if (scriptMode === 'quota') {
+        res.writeHead(429, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: { code: 429, message: 'Quota exceeded for generate_content_free_tier_requests', status: 'RESOURCE_EXHAUSTED' } }));
+      }
+      ok();
       let out;
       if (/topik episode/.test(text)) {
         const n = Number(/Tulis (\d+) topik/.exec(text)?.[1] ?? 1);
         out = { seeds: Array.from({ length: n }, (_, i) => `Topik Gemini ${i + 1}: kenapa harga cabai naik tiap Lebaran`) };
       } else out = scriptMode === 'good' ? SCRIPT : { title: 'x', lines: [{ speaker: 'uco', text: 'cuma satu baris' }] };
-      res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(out) }] }, finishReason: 'STOP' }] }));
+      // topics come back in a ```json fence, as models sometimes answer
+      const answer = /topik episode/.test(text) ? '```json\n' + JSON.stringify(out, null, 2) + '\n```' : JSON.stringify(out);
+      res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: answer }] }, finishReason: 'STOP' }] }));
     });
   })
   .listen(4012);
@@ -200,6 +212,23 @@ const step = async (...args) =>
   }
   const [bad] = await sql`SELECT status, error_message FROM episode_queue WHERE id = ${other}`;
   check('failure: a thin script fails the slot with a reason', failed && bad.status === 'failed' && /only 1 usable line/.test(bad.error_message), JSON.stringify(bad));
+  check('fallback: lite 404 → gemini-3.8-flash answered', requests.some((r) => /gemini-3\.5-flash-lite/.test(r.url)) && requests.some((r) => /gemini-3\.8-flash:/.test(r.url)));
+
+  // ---- a slot with no topic while Gemini is out of quota: the real error (status, model, message) reaches the slot
+  scriptMode = 'quota';
+  const bare = (await sql`SELECT id FROM episode_queue WHERE user_id = ${u.id} AND status = 'queued' AND id <> ${other} ORDER BY scheduled_for LIMIT 1`)[0].id;
+  await sql`UPDATE episode_queue SET topic_seed = NULL, topic_source = NULL WHERE id = ${bare}`;
+  await step('plan', bare);
+  let quotaOut = '';
+  try {
+    await step('prepare', bare);
+  } catch (e) {
+    quotaOut = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+  }
+  const [q429] = await sql`SELECT status, error_message FROM episode_queue WHERE id = ${bare}`;
+  check('no topic + 429: slot error names status, model and Gemini message', q429.status === 'failed' && /Gemini 429 \(gemini-3\.8-flash\): RESOURCE_EXHAUSTED: Quota exceeded/.test(q429.error_message) && !/couldn't suggest/.test(q429.error_message), q429.error_message);
+  check('no topic + 429: the same detail is in the worker log (GitHub Actions)', /422: .*Gemini 429 \(gemini-3\.8-flash\)/.test(quotaOut), quotaOut.trim().split('\n').pop());
+  scriptMode = 'good';
 
   await page.reload();
   const readyRow = page.locator('li', { hasText: 'TikTok / Shopee hand-off' });

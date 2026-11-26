@@ -71,10 +71,12 @@ async function ScheduleBody() {
   }));
   const rule = schedule ? normalizeRule(schedule) : DEFAULT_RULE;
   const canRun = Boolean(process.env.GITHUB_DISPATCH_TOKEN?.trim());
+  const { geminiConfigured } = await import("@/lib/voice/gemini");
+  const geminiReady = geminiConfigured();
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <Card title={schedule ? "Schedule rule" : "Schedule rule (not saved yet)"} className="min-w-0">
-        <RuleEditor initial={rule} rvcReady={{ uco: rvc.uco, ocu: rvc.ocu }} geminiReady={Boolean(process.env.GEMINI_API_KEY?.trim())} />
+        <RuleEditor initial={rule} rvcReady={{ uco: rvc.uco, ocu: rvc.ocu }} geminiReady={geminiReady} />
       </Card>
       <div className="min-w-0 space-y-4">
         <Card title="Upcoming queue" className="min-w-0">
