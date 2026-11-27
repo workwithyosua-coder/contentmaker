@@ -16,10 +16,16 @@ export function VoiceProviderPicker({
   onSave,
   note,
   noteHref,
+  onChange,
+  locked = false,
 }: {
   provider: VoiceProvider;
   preset: DeliveryPreset;
   onSave?: (provider: VoiceProvider, preset: DeliveryPreset) => Promise<Result>;
+  /** the current choice, for a parent that acts on it (the booth's "Redo all") */
+  onChange?: (provider: VoiceProvider, preset: DeliveryPreset) => void;
+  /** locked while a batch runs (radios disabled, cursor not-allowed) */
+  locked?: boolean;
   /** e.g. a warning that the chosen provider isn't set up */
   note?: string | null;
   /** where the note's problem is fixed (e.g. Accounts → Studio Assets for missing voice models) */
@@ -31,13 +37,15 @@ export function VoiceProviderPicker({
   const [state, setState] = useState<Result>(null);
   const [pending, start] = useTransition();
   const save = (p: VoiceProvider, d: DeliveryPreset) => {
+    onChange?.(p, d);
     if (!onSave) return;
     start(async () => setState(await onSave(p, d)));
   };
-  const option = "flex min-h-11 cursor-pointer items-center gap-2 rounded-control border border-border px-3 text-sm has-[:checked]:border-[var(--text)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2";
+  const option =
+    "flex min-h-11 cursor-pointer items-center gap-2 rounded-control border border-border px-3 text-sm has-[:checked]:border-[var(--text)] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60";
   return (
     <div className="min-w-0 space-y-3">
-      <fieldset className="min-w-0 space-y-2" disabled={pending}>
+      <fieldset className="min-w-0 space-y-2" disabled={pending || locked}>
         <legend className="text-sm font-semibold">Voice provider</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {SELECTABLE_PROVIDERS.map((p) => (
@@ -58,7 +66,7 @@ export function VoiceProviderPicker({
           ))}
         </div>
       </fieldset>
-      <fieldset className="min-w-0 space-y-2" disabled={pending} aria-describedby={`${id}-help`}>
+      <fieldset className="min-w-0 space-y-2" disabled={pending || locked} aria-describedby={`${id}-help`}>
         <legend className="text-sm font-semibold">Delivery</legend>
         <div className="grid gap-2 sm:grid-cols-2">
           {DELIVERY_PRESETS.map((d) => (

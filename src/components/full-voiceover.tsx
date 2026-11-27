@@ -1,5 +1,6 @@
 "use client";
 
+import { useBoothBusy } from "./booth-busy";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { saveRecordingAction, type SaveResult } from "@/app/create/[id]/record/actions";
@@ -124,7 +125,9 @@ export function FullVoiceover({ projectId, scriptId, lines }: { projectId: strin
   const ready = state.status === "ready" ? state : null;
   const segs = ready ? segments({ ...ready.split, cuts: ready.cuts }, ready.buffer.duration) : [];
   const guessed = ready ? ready.split.chosen.filter((c) => c === null).length : 0;
-  const busy = state.status === "reading" || (saving !== null && saving.done < lines.length && !saving.error);
+  // an AI "Redo all" running in the booth locks the upload too
+  const { busy: boothBusy } = useBoothBusy();
+  const busy = boothBusy || state.status === "reading" || (saving !== null && saving.done < lines.length && !saving.error);
 
   return (
     <div className="space-y-3">
@@ -132,7 +135,7 @@ export function FullVoiceover({ projectId, scriptId, lines }: { projectId: strin
         Recorded the whole episode in one go? Upload it here and the app cuts it into the {lines.length} lines. Read the lines in script order with a
         short pause (about half a second) between them.
       </p>
-      <label className="btn btn-secondary inline-flex min-h-11 cursor-pointer items-center">
+      <label className={`btn btn-secondary inline-flex min-h-11 items-center ${busy ? "cursor-not-allowed opacity-55" : "cursor-pointer"}`} aria-disabled={busy || undefined}>
         {state.status === "reading" ? "Reading the recording…" : ready ? "Choose a different file" : "Upload full voice-over"}
         <input type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" className="sr-only" disabled={busy} onChange={(e) => onFile(e.target.files?.[0])} />
       </label>
