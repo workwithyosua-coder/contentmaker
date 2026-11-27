@@ -242,10 +242,10 @@ export function DirectorStage({
         </React.Fragment>
       ))}
       {/* the visual stage, in front of the cast */}
-      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} box={cardBox} skin={skin.prop} frame={frame - beat.speechStart} reduced={reduced} duration={beat.durationInFrames - beat.speechStart} />}
+      {cardBox && beat.overlay && <ExplainerCard kind={beat.overlay.kind} title={beat.overlay.title} graphic={beat.overlay.graphic} box={cardBox} skin={skin.prop} frame={frame - beat.speechStart} reduced={reduced} duration={beat.durationInFrames - beat.speechStart} />}
       {propBox && propNode(propBox)}
       {bubbleBox && thinker && (
-        <ThoughtBubble box={bubbleBox} toward={{ x: thinker.head.cx + (bubbleBox.x > thinker.head.cx ? 1 : -1) * thinker.head.height * 0.3, y: thinker.head.top + thinker.head.height * 0.1 }} skin={skin.prop} frame={frame} reduced={reduced}>
+        <ThoughtBubble box={bubbleBox} toward={{ x: thinker.head.cx + (bubbleBox.x > thinker.head.cx ? 1 : -1) * thinker.head.height * 0.3, y: thinker.head.top + thinker.head.height * 0.1 }} skin={skin.prop} frame={frame} reduced={reduced} caption={beat.thoughtCaption}>
           {hasProp ? <div style={{ position: "relative", width: "100%", height: "100%" }}>{propNode({ x: 0, y: 0, w: (bubbleBox as Box).w * 0.62, h: (bubbleBox as Box).h * 0.6 }, true)}</div> : undefined}
         </ThoughtBubble>
       )}

@@ -5,6 +5,7 @@
 //   pause: 0.4s | jeda 0.4 detik | breath 300ms      gap between lines (default: the tight comedic timing)
 //   thought pause: 0.6s                             extra breath around (thought) lines
 //   bgm: on | music on | pakai musik                background music bed (needs sfx/bgm.mp3)
+//   bgm: urgent                                     the urgent track (sfx/bgm-urgent.mp3, else the regular bed)
 //   bgm volume: 15%                                 bed level (default 8%)
 //   duck bgm on thought | bgm off on thought        music under inner thoughts: −12 dB (the default) or silent
 //   cta: off | no outro | tanpa cta                 drop the closing Follow stinger
@@ -16,6 +17,8 @@ export type RenderDirection = {
   /** gap before and after (thought) lines in seconds; null = default */
   thoughtPauseS: number | null;
   bgm: boolean;
+  /** "BGM: urgent": the urgent track (bgm-urgent) whatever the lines' poses, falling back to the regular bed */
+  urgentBgm?: boolean;
   /** music bed level 0..1 */
   bgmVolume: number;
   /** music level under (thought) lines, as a fraction of the bed (0 = silent) */
@@ -93,6 +96,7 @@ export function parseDirection(text: string | null | undefined): RenderDirection
         d.bgm = true;
       } else {
         d.bgm = !OFF.test(low.replace(/\b(bgm|music|musik|backsound)\b/, ""));
+        if (d.bgm && /\b(urgent|urgensi|tegang|darurat)\b/.test(low)) d.urgentBgm = true;
       }
     }
     if (/\b(cta|outro|follow stinger|end card)\b/.test(low)) {

@@ -82,6 +82,11 @@ export const POSE_STYLE: Record<string, string> = {
   phone: "Excited Jakartan Indonesian, reacting to a phone screen, fast",
 };
 
+/** Ocu's pacing, added to every non-thought line of his. */
+export const OCU_PACE = "brisk, crisp, steady Jakartan pace, no slow pauses or stretched syllables";
+/** Added when the line says the show's handle. */
+export const HANDLE_DICTION = 'enunciate the name "Uco Ocu" clearly, both names distinct';
+
 /** Instruction text that must never be spoken: the old prompt's phrases and any inline style label. */
 export const INSTRUCTION_IN_TEXT = /\bbacakan dalam\b|\bucapkan persis\b|\btanpa menambah atau mengubah\b|\bstyle\s*:|\bspeak (this|the following)\b/i;
 
@@ -99,11 +104,16 @@ export function assertSpokenOnly(text: string): string {
  */
 export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): { text: string; style: string } {
   const pose = actingPose(l);
+  const text = assertSpokenOnly(ttsText(l.text));
   const parts = [POSE_STYLE[pose] ?? POSE_STYLE.triumphant];
+  // Ocu: brisk and steady even when deadpan (the first live render dragged on his lines)
+  if (l.speaker === "ocu" && pose !== "thought") parts.push(OCU_PACE);
   if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
+  // the outro handle: every syllable of "U-co Ocu" said clearly
+  if (/U-co Ocu/.test(text)) parts.push(HANDLE_DICTION);
   const note = (extra ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
   if (note) parts.push(note);
-  return { text: assertSpokenOnly(ttsText(l.text)), style: parts.join("; ").slice(0, 300) };
+  return { text, style: parts.join("; ").slice(0, 400) };
 }
 
 /** The generateContent body for one line: the verbatim dialogue in parts[0].text, the acting cue in speechMetadata.style. */

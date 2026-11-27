@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { ManualLine } from "./manualScriptParser";
 import type { ProgressUpdate } from "./slotProgress";
-import { MIN_LINES, PROP_STYLE, SHOW_DIRECTION, SHOW_SCHEMA, dropProp, betterAttempt, episodePropName, mapPropSlugs, parsePropSpecs, showBibleProblems, showBiblePrompt, withCta, type PropSpec } from "./showBible";
+import { LEGACY_SHOW_DIRECTION, MIN_LINES, PROP_STYLE, SHOW_SCHEMA, showDirection, dropProp, betterAttempt, episodePropName, mapPropSlugs, parsePropSpecs, showBibleProblems, showBiblePrompt, withCta, type PropSpec } from "./showBible";
 import manifest from "../../video/src/assets/assetManifest.json";
 import { PNG_PROPS } from "../../video/src/props/library";
 import { db } from "./db";
@@ -25,6 +25,7 @@ import {
   normalizeRule,
   plannedSlots,
   usableProps,
+  fillDeadAir,
   sanitizeScript,
   slotDue,
   statusAfterPublishing,
@@ -499,7 +500,7 @@ export async function scriptSlot(
     INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
     VALUES (${p.id}, 1, ${title}, ${seconds}, ${sql.json(script.lines as never)}, '[]',
             ${`Autonomous scheduler: ${FORMATS[format].label}, Uco & Ocu Show Bible, written by Gemini from the topic seed "${seed}".${best.problems.length ? ` Still short of the Show Bible after one retry: ${best.problems.join("; ")}.` : ""}`},
-            ${SHOW_DIRECTION}, true, now())`;
+            ${showDirection(r.visual_style)}, true, now())`;
   await saveCaptions(
     p.id,
     manualCaptions({ title, hook: hookLine(script.lines) }),
@@ -631,6 +632,9 @@ export async function edgeFinish(id: string, b: { lineIndex: number; path: strin
 }
 
 // ------------------------------------------------------------------ step 1b: the episode's fresh props
+/** A PNG file (its 8-byte signature), not an HTML page or an error body. */
+export const isPng = (b: Buffer | Uint8Array) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a;
+
 async function propContext(id: string) {
   const s = await slot(id);
   if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
@@ -643,13 +647,18 @@ async function setProp(id: string, name: string, patch: Partial<FreshProp>) {
   await db()`UPDATE episode_queue SET handoff = ${db().json({ ...(s.handoff ?? {}), props } as never)}, updated_at = now() WHERE id = ${id}`;
 }
 
-/** A failed prop: its lines show no prop ("none") instead, never an unrelated stand-in. The takes are untouched. */
-async function dropPropFromScript(episodeId: string, name: string) {
+/**
+ * A failed prop: its lines show no prop ("none") instead, never an unrelated stand-in, and the no-dead-air rule runs
+ * again so the lines it left empty get a callout. The takes are untouched (only visual fields change).
+ */
+async function dropPropFromScript(episodeId: string, name: string, keep: string[]) {
   const sql = db();
   const [sc] = await sql<{ id: string; lines: ManualLine[] }[]>`SELECT id, lines FROM scripts WHERE project_id = ${episodeId} ORDER BY version DESC LIMIT 1`;
   if (!sc) return;
-  await sql`UPDATE scripts SET lines = ${sql.json(dropProp(sc.lines, name) as never)} WHERE id = ${sc.id}`;
+  await sql`UPDATE scripts SET lines = ${sql.json(fillDeadAir(dropProp(sc.lines, name), keep) as never)} WHERE id = ${sc.id}`;
 }
+/** The episode's props that are still usable once `name` failed. */
+const stillUsable = (props: FreshProp[], name: string) => props.filter((p) => p.name !== name && p.status !== "failed").map((p) => p.name);
 
 /** The props still to make: name (the stored prop name, also on the beats) and the full image prompt. */
 export async function propPlan(id: string) {
@@ -667,12 +676,25 @@ export async function propGenerate(id: string, name: string, origin: string): Pr
   const prop = props.find((p) => p.name === name && p.status === "pending");
   if (!prop) return { ok: false, error: "Unknown or finished prop." };
   try {
+    // two of the repo's own props as style references (public files, fetched from this app). Only real PNGs are
+    // sent: a login page or an error page sent as an image is what made every prop fail with "Unable to process input
+    // image" on the first live run
     const refs: { mime: string; data: Buffer }[] = [];
     for (const file of (manifest.props as string[]).filter((f) => f.endsWith(".png")).slice(0, 2)) {
-      const r = await fetch(new URL(`/props/${file}`, origin), { signal: AbortSignal.timeout(15_000) }).catch(() => null);
-      if (r?.ok) refs.push({ mime: "image/png", data: Buffer.from(await r.arrayBuffer()) });
+      const r = await fetch(new URL(`/props/${file}`, origin), { signal: AbortSignal.timeout(15_000), redirect: "manual" }).catch(() => null);
+      const data = r?.ok ? Buffer.from(await r.arrayBuffer()) : null;
+      if (data && isPng(data)) refs.push({ mime: "image/png", data });
+      else console.warn(`[scheduler] prop ${name}: style reference ${file} skipped (${r ? `${r.status} ${r.headers.get("content-type") ?? ""}` : "unreachable"})`);
     }
-    const img = await geminiImage(`${prop.prompt}. ${PROP_STYLE}`, refs);
+    let img;
+    try {
+      img = await geminiImage(`${prop.prompt}. ${PROP_STYLE}`, refs);
+    } catch (e) {
+      // the model refused a reference image: once more without references (style from the prompt alone)
+      if (!refs.length || !/input image|INVALID_ARGUMENT/i.test(String(e))) throw e;
+      console.warn(`[scheduler] prop ${name}: ${e instanceof Error ? e.message : e}; retrying without style references`);
+      img = await geminiImage(`${prop.prompt}. ${PROP_STYLE}`, []);
+    }
     const { putObject, signedUrl } = await import("./storage");
     const raw = `${episodeId}/props-raw/${name}.${img.mime.includes("jpeg") ? "jpg" : "png"}`;
     await putObject(raw, new Uint8Array(img.data).buffer, img.mime);
@@ -681,7 +703,7 @@ export async function propGenerate(id: string, name: string, origin: string): Pr
     const error = e instanceof Error ? e.message : String(e);
     console.error(`[scheduler] slot ${id} prop ${name} failed: ${error}`);
     await setProp(id, name, { status: "failed", error: error.slice(0, 300) });
-    await dropPropFromScript(episodeId, name);
+    await dropPropFromScript(episodeId, name, stillUsable(props, name));
     return { ok: false, error };
   }
 }
@@ -710,7 +732,7 @@ export async function propFinish(id: string, name: string, ok: boolean, error?: 
     error = "the cut-out PNG didn't arrive";
   }
   await setProp(id, name, { status: "failed", error: (error ?? "failed").slice(0, 300) });
-  await dropPropFromScript(episodeId, name);
+  await dropPropFromScript(episodeId, name, stillUsable(props, name));
   return { status: "failed" };
 }
 
@@ -728,7 +750,10 @@ export async function startSlotRender(
   if (plan.missing.length) throw new Error(missingModelMessage(plan.missing));
   // the schedule's visual style goes through to the render (also for older drafts made as 2D Vertical Comic)
   const [rule] = await db()<ScheduleRow[]>`SELECT * FROM content_schedules WHERE id = ${s.schedule_id}`;
-  await db()`UPDATE content_projects SET video_style = ${normalizeRule(rule ?? DEFAULT_RULE).visual_style}, updated_at = now() WHERE id = ${s.episode_id}`;
+  const style = normalizeRule(rule ?? DEFAULT_RULE).visual_style;
+  await db()`UPDATE content_projects SET video_style = ${style}, updated_at = now() WHERE id = ${s.episode_id}`;
+  // drafts scripted before the BGM / pacing direction existed get it too (only the scheduler's own outro-only one)
+  await db()`UPDATE scripts SET direction = ${showDirection(style)} WHERE project_id = ${s.episode_id} AND custom AND (direction IS NULL OR direction = ${LEGACY_SHOW_DIRECTION})`;
   const [job] = await db()<
     { id: string }[]
   >`INSERT INTO render_jobs (project_id) VALUES (${s.episode_id}) RETURNING id`;

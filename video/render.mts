@@ -18,6 +18,7 @@ import { FPS, cueTotalFrames, type AssetUrls, type EpisodeProps, type ManifestLi
 import { buildBeats } from "./src/beats.ts";
 import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
+import { LEAD_IN, PAUSES, TRIM, fades } from "./src/audioChain.ts";
 import { renderProgress } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 
@@ -102,26 +103,18 @@ mkdirSync(path.join(pub, episodeId), { recursive: true });
 mkdirSync(work, { recursive: true });
 
 const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", ...a], { timeout: 120_000 });
-// Trim silence at both ends (keep a short tail), even out loudness, 48 kHz mono.
+// Trim silence at both ends (keep a short tail), even out loudness, 48 kHz mono: the chain in src/audioChain.ts
+// (gentle onset with a 0.05 s pad, pauses inside a line capped at 0.18 s, 15 / 35 ms fades on every clip).
 // Two passes: running loudnorm in the same chain as areverse can stall ffmpeg on some browser recordings.
-// Dead air: silence is trimmed at both ends (a 0.08 s lead-in and 0.1 s tail stay), and pauses inside a line are
-// capped at 0.25 s (--no-tighten keeps them). Thresholds sit under soft consonants so the first syllable isn't cut.
-const TRIM =
-  "highpass=f=70," +
-  "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.08," +
-  "areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.1,areverse";
 const TIGHTEN = !args.includes("--no-tighten");
-const PAUSES = "silenceremove=stop_periods=-1:stop_duration=0.25:stop_threshold=-40dB:stop_silence=0.25,";
-// Pace: ElevenLabs (TTS) voices are sped up a little, pitch kept (Uco ×1.12, Ocu ×1.05); recorded voices play at
-// their own pace (--speed-up applies the same to every take, --no-speed-up to none). Timestamped lines stay anchored.
+// Pace: ElevenLabs / Gemini (TTS) voices are sped up a little, pitch kept (Uco ×1.12, Ocu ×1.05); recorded voices and
+// Edge TTS play at their own pace (--speed-up applies the same to every take, --no-speed-up to none).
 const AI_SPEED: Record<string, number> = { uco: 1.12, ocu: 1.05 };
 const speedFor = (speaker: string, source: string | null | undefined) =>
   args.includes("--no-speed-up") ? 1 : args.includes("--speed-up") || source === "ai" ? (AI_SPEED[speaker] ?? 1) : 1;
-// The first line gets an extra 0.08 s of silence before it, so frame 1 never clips its opening syllable ("Lo…").
-const LEAD_IN = "adelay=80:all=1,";
 const LEVEL = "highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,loudnorm=I=-14:TP=-1.5:LRA=7";
 // Inner thoughts: a subtle bandpass plus a light room reverb, so they read as "in his head" (and the music dips
-// −12 dB under them, see BackgroundMusic).
+// under them, see BackgroundMusic).
 const THOUGHT = "highpass=f=250,lowpass=f=4500,aecho=0.8:0.5:40|80:0.2|0.12,";
 
 const lines: EpisodeProps["lines"] = [];
@@ -147,7 +140,11 @@ for (const line of manifest.lines) {
   ffmpeg("-i", raw, "-af", TRIM, "-ar", "48000", "-ac", "1", trimmed);
   const speed = speedFor(line.speaker, (line as { audioSource?: string | null }).audioSource);
   const tighten = (TIGHTEN ? PAUSES : "") + (speed !== 1 ? `atempo=${speed},` : "");
-  ffmpeg("-i", trimmed, "-af", tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL + (line.index === 0 ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", wav);
+  const leveled = path.join(work, `line-${n}.level.wav`);
+  ffmpeg("-i", trimmed, "-af", tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL + (line.index === 0 ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
+  // the clean edges last, on the final length (after trimming, tightening, speed and the lead-in)
+  const secs = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", leveled]).toString().trim()) || 0;
+  ffmpeg("-i", leveled, "-af", fades(secs), "-ar", "48000", "-ac", "1", wav);
 
   // Loudness per video frame → mouth openness 0..1
   const pcm = execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-i", wav, "-f", "s16le", "-ac", "1", "-ar", "48000", "-"], {

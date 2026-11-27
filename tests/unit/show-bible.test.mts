@@ -79,14 +79,17 @@ test("Show Bible content checks: thought twist, explainer card, callouts, SFX, t
   const problems = showBibleProblems(clean(flat), "comedy_debate").join("; ");
   assert.match(problems, /0 thought line\(s\)/);
   assert.match(problems, /no explainerCard/);
-  assert.match(problems, /callout\(s\) \(needs at least 5\)/);
+  // a flat draft gets callouts from the dead-air rule: never two lines in a row with an empty stage
+  const flatLines = clean(flat);
+  assert.doesNotMatch(problems, /callout/);
+  for (let i = 1; i < flatLines.length; i++) assert.ok(flatLines[i - 1].kinetic_text || flatLines[i].kinetic_text || flatLines[i].layout === "takeover" || flatLines[i - 1].layout === "takeover", `lines ${i}-${i + 1}`);
   assert.match(problems, /SFX on only 1 line\(s\)/, "the hook's default SFX is the only one");
   // no CTA at the end: the outro line is appended (spoken), and the direction gives the animated FOLLOW @UCO.OCU
   const noCta = draft(14).slice(0, 13);
   const withOutro = clean(noCta);
   assert.equal(withOutro.length, 14);
   assert.deepEqual(withOutro.at(-1), CTA_LINE);
-  assert.equal(SHOW_DIRECTION, "CTA: FOLLOW @UCO.OCU");
+  assert.equal(SHOW_DIRECTION.split("\n")[0], "CTA: FOLLOW @UCO.OCU");
   assert.equal(parseDirection(SHOW_DIRECTION).ctaText, "FOLLOW @UCO.OCU");
   assert.equal(ttsText(CTA_LINE.text), "Follow U-co Ocu biar nggak ketipu lagi!", "the handle is spoken as a name");
 });
@@ -126,7 +129,7 @@ test("a short script is retried once with the problems spelled out; the better a
   assert.match(src, /for \(const strict of \[false, true\]\) \{\s*if \(strict && best && !best\.problems\.length\) break;/);
   assert.match(src, /strict: strict \? \(best\?\.problems \?\? \[/);
   assert.match(src, /if \(best\.lines\.length < MIN_LINES\) throw new Error\(`Gemini wrote only/);
-  assert.match(src, /\$\{SHOW_DIRECTION\}, true, now\(\)\)/, "every scheduled script carries the FOLLOW @UCO.OCU outro");
+  assert.match(src, /\$\{showDirection\(r\.visual_style\)\}, true, now\(\)\)/, "every scheduled script carries the FOLLOW @UCO.OCU outro (and BGM, pacing)");
 });
 
 test("fresh props: 2-3 clean specs, stored per episode, mapped onto the beats; a failed one becomes none", () => {

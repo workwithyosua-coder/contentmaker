@@ -12,6 +12,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { speechBounds } from "./src/shared/motion.ts";
 import { FPS } from "./src/types.ts";
+import { LEAD_IN, TRIM, fades } from "./src/audioChain.ts";
 import { assertSpokenOnly } from "../src/lib/voice/acting.ts";
 
 type Job = { lineIndex: number; speaker: "uco" | "ocu"; text: string; rate: string; pitch: string; pose: string; leadIn: boolean };
@@ -20,11 +21,9 @@ type Post = <T>(path: string, body?: Record<string, unknown>) => Promise<T>;
 const here = path.dirname(new URL(import.meta.url).pathname);
 const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", ...a], { timeout: 120_000 });
 
-// Trim dead air at both ends (0.08 s lead and 0.1 s tail stay), then level: same thresholds as render.mts, so a clip
-// survives the renderer's own trim unchanged. Beat 1 gets the 0.08 s lead-in pad so frame 1 never clips a syllable.
-const TRIM = "highpass=f=70,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.08,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.1,areverse";
+// Trim dead air at both ends with the shared chain (src/audioChain.ts: a gentle onset keeping a 0.05 s pad, a 0.1 s
+// tail), level, then the 15 / 35 ms edge fades. Beat 1 gets the 0.05 s lead-in so frame 1 never clips a syllable.
 const LEVEL = "loudnorm=I=-16:TP=-1.5:LRA=11";
-const LEAD_IN = "adelay=80:all=1";
 
 /** Loudness per video frame (0..1), the same measure render.mts uses for the mouth. */
 export function envelopeOf(wav: string): number[] {
@@ -76,7 +75,10 @@ export async function edgeStage(p: { slotId: string; post: Post; log: (s: string
     const trimmed = path.join(work, `line-${n}.trim.wav`);
     const wav = path.join(work, `line-${n}.wav`);
     ffmpeg("-i", raw(j), "-af", TRIM, "-ar", "48000", "-ac", "1", trimmed);
-    ffmpeg("-i", trimmed, "-af", LEVEL + (j.leadIn ? `,${LEAD_IN}` : ""), "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", wav);
+    const leveled = path.join(work, `line-${n}.level.wav`);
+    ffmpeg("-i", trimmed, "-af", LEVEL + (j.leadIn ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
+    const secs = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", leveled]).toString().trim()) || 0;
+    ffmpeg("-i", leveled, "-af", fades(secs), "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", wav);
     const env = envelopeOf(wav);
     const speech = speechBounds(env, env.length);
     if (!env.some((v) => v > 0.2)) throw new Error(`Edge TTS line ${n} came back silent.`);
