@@ -51,7 +51,7 @@ test("runtime guard: instruction text is never sent to Gemini TTS or Edge TTS", 
   for (const ok of ["Gue baca beritanya tadi pagi.", "Ucapin makasih dulu dong!", "Lo bacain dong, Co."]) assert.equal(assertSpokenOnly(ok), ok);
   // Edge TTS gets the same clean line
   const jobs = edgeJobs([{ index: 0, speaker: "uco", text: "Uco & Ocu, follow @uco.ocu", emotion: "shocked" }], () => false);
-  assert.equal(jobs[0].text, "U-co dan Ocu, follow U-co Ocu");
+  assert.equal(jobs[0].text, "Uco dan Ocu, follow Uco Ocu");
   assert.throws(() => edgeJobs([{ index: 0, speaker: "uco", text: "Ucapkan persis kalimat ini: halo" }], () => false), /Refusing/);
   // the code paths: the old prompt builder is gone; Gemini goes through the body builder on /v1beta; Edge is guarded
   const acting = read("src/lib/voice/acting.ts");

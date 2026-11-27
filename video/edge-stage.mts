@@ -13,6 +13,7 @@ import path from "node:path";
 import { speechBounds } from "./src/shared/motion.ts";
 import { FPS } from "./src/types.ts";
 import { LEAD_IN, TRIM, fades } from "./src/audioChain.ts";
+import { cutAt, speechEnd } from "./audio-tail.mts";
 import { assertSpokenOnly } from "../src/lib/voice/acting.ts";
 
 type Job = { lineIndex: number; speaker: "uco" | "ocu"; text: string; rate: string; pitch: string; pose: string; leadIn: boolean };
@@ -76,7 +77,7 @@ export async function edgeStage(p: { slotId: string; post: Post; log: (s: string
     const wav = path.join(work, `line-${n}.wav`);
     ffmpeg("-i", raw(j), "-af", TRIM, "-ar", "48000", "-ac", "1", trimmed);
     const leveled = path.join(work, `line-${n}.level.wav`);
-    ffmpeg("-i", trimmed, "-af", LEVEL + (j.leadIn ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
+    ffmpeg("-i", trimmed, "-af", cutAt(speechEnd(trimmed)) + LEVEL + (j.leadIn ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
     const secs = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", leveled]).toString().trim()) || 0;
     ffmpeg("-i", leveled, "-af", fades(secs), "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", wav);
     const env = envelopeOf(wav);

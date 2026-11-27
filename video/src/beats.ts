@@ -78,12 +78,35 @@ export const BEAT_LAYOUTS = ["standard", "takeover"] as const;
 export type BeatLayout = (typeof BEAT_LAYOUTS)[number];
 export type BeatStat = { headline: string; subline: string | null };
 
-/** "20 KM | MATI DALAM 2 HARI" → headline and subline (quotes stripped, ≤ 32 / 48 characters); empty → null. */
+/** Words a clamped phrase never ends on ("… NEET DI", "… KARENA"): dropped with the cut. */
+const DANGLING = /^(di|ke|dari|dan|yang|untuk|karena|atau|dengan|pada|oleh|the|of|in|to|and|for)$/i;
+
+/**
+ * `text` at most `max` characters, cut only between words (never "INDONES"); a dangling connective at the cut goes
+ * too. A single word longer than `max` stays whole.
+ */
+export function clampWords(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const words = t.split(" ");
+  const out: string[] = [];
+  for (const w of words) {
+    if ([...out, w].join(" ").length > max) break;
+    out.push(w);
+  }
+  while (out.length > 1 && DANGLING.test(out.at(-1)!)) out.pop();
+  return out.length ? out.join(" ") : words[0];
+}
+
+/** Longest stat card texts (the Show Bible asks for a subline of ≤ 42 characters; the card wraps up to 3 lines). */
+export const STAT_MAX = { headline: 32, subline: 64 } as const;
+
+/** "20 KM | MATI DALAM 2 HARI" → headline and subline (quotes stripped, cut between words only); empty → null. */
 export function parseStat(raw: string | null | undefined): BeatStat | null {
-  const clean = (x: string | undefined, max: number) => (x ?? "").replace(/["“”„«»]/g, "").replace(/\s+/g, " ").trim().slice(0, max).trim();
+  const clean = (x: string | undefined, max: number) => clampWords((x ?? "").replace(/["“”„«»]/g, ""), max);
   const [h, ...rest] = (raw ?? "").split("|");
-  const headline = clean(h, 32);
-  const subline = clean(rest.join(" "), 48);
+  const headline = clean(h, STAT_MAX.headline);
+  const subline = clean(rest.join(" "), STAT_MAX.subline);
   if (!headline && !subline) return null;
   return headline ? { headline, subline: subline || null } : { headline: subline, subline: null };
 }
@@ -250,9 +273,13 @@ export function overlayFor(l: Pick<EpisodeLine, "text" | "subtitle"> & { visual?
   return { kind, title, graphic: Boolean(concept) };
 }
 
-/** The card's header: the kind label, then the title only when it says something else (never "GRAFIK GRAFIK"). */
-export function cardHeader(kind: Overlay, title: string): string[] {
-  const label = kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI";
+/**
+ * The card's header: the kind label, then the title only when it says something else (never "GRAFIK GRAFIK"). GRAFIK
+ * only over a drawn graph and PSIKOLOGI only for a named psychology concept (`graphic`: the line names one the card
+ * draws); a card that's just the line's point says DATA (numbers) or FAKTA.
+ */
+export function cardHeader(kind: Overlay, title: string, graphic = true): string[] {
+  const label = graphic ? (kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI") : kind === "wave-graph" ? "DATA" : "FAKTA";
   const t = title.trim().toUpperCase();
   return !t || t === label ? [label] : [label, t];
 }

@@ -19,7 +19,8 @@ import { buildBeats } from "./src/beats.ts";
 import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
 import { LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades } from "./src/audioChain.ts";
-import { BGM_UNDER_DIALOGUE } from "./src/shared/bgm.ts";
+import { BED_CHAIN, BGM_UNDER_DIALOGUE } from "./src/shared/bgm.ts";
+import { cutAt, speechEnd } from "./audio-tail.mts";
 import { renderProgress } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 
@@ -115,6 +116,33 @@ mkdirSync(path.join(pub, episodeId), { recursive: true });
 mkdirSync(work, { recursive: true });
 
 const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", ...a], { timeout: 120_000 });
+
+// The music bed, prepared for this episode (BED_CHAIN: leading silence skipped, quiet sections evened out, −16 LUFS)
+// so it's heard from 0:00, not only once the track's drums come in. Uploaded beds first (as bgmFile() picks them),
+// else the repo's public/sfx; a bed that can't be prepared plays as it is.
+const bedFrom: Record<string, string> = {};
+if (direction.bgm) {
+  for (const name of ["bgm", "bgm-urgent"]) {
+    const remote = assetUrls.sfx?.[name];
+    const repo = path.join(here, "..", "public", "sfx", `${name}.mp3`);
+    if (!remote && !existsSync(repo)) continue;
+    try {
+      let src = repo;
+      if (remote) {
+        const res = await fetch(remote, { signal: AbortSignal.timeout(60_000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        src = path.join(work, `${name}.src`);
+        writeFileSync(src, Buffer.from(await res.arrayBuffer()));
+      }
+      ffmpeg("-i", src, "-vn", "-af", BED_CHAIN, "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "192k", path.join(pub, episodeId, `${name}.mp3`));
+      assetUrls.sfx![name] = `${episodeId}/${name}.mp3`;
+      bedFrom[name] = remote ? `${remote} (uploaded in Studio Assets)` : `public/sfx/${name}.mp3`;
+    } catch (e) {
+      log(`bgm ${name}: couldn't prepare it (${e instanceof Error ? e.message : e}); it plays as it is`);
+    }
+  }
+  registerRemoteAssets(assetUrls);
+}
 // Trim silence at both ends (keep a short tail), even out loudness, 48 kHz mono: the chain in src/audioChain.ts
 // (gentle onset with a 0.05 s pad, pauses inside a line capped at 0.18 s, 15 / 35 ms fades on every clip).
 // Two passes: running loudnorm in the same chain as areverse can stall ffmpeg on some browser recordings.
@@ -152,7 +180,10 @@ for (const line of manifest.lines) {
   const speed = speedFor(line.speaker, (line as { audioSource?: string | null }).audioSource);
   const tighten = (TIGHTEN ? PAUSES : "") + (speed !== 1 ? `atempo=${speed},` : "");
   const leveled = path.join(work, `line-${n}.level.wav`);
-  ffmpeg("-i", trimmed, "-af", tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL + (line.index === 0 ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
+  // the tail gate before the level step: a click after the last word (Gemini takes) never reaches the compressor
+  // and loudnorm, which used to lift it into a loud "tsk"
+  const end = speechEnd(trimmed);
+  ffmpeg("-i", trimmed, "-af", cutAt(end) + tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL + (line.index === 0 ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
   // the clean edges last, on the final length (after trimming, tightening, speed and the lead-in)
   const secs = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", leveled]).toString().trim()) || 0;
   ffmpeg("-i", leveled, "-af", fades(secs), "-ar", "48000", "-ac", "1", wav);
@@ -208,7 +239,7 @@ if (direction.bgm) {
   // the music bed the video will load (same order as bgmFile(): uploaded urgent, repo urgent, uploaded bed, repo bed),
   // from the manifest just written (the imported one is from the last commit)
   const urgent = Boolean(direction.urgentBgm);
-  const pick = (name: string) => assetUrls.sfx?.[name] ? `${assetUrls.sfx[name]} (uploaded in Studio Assets)` : assets.sfx.includes(`${name}.mp3`) ? `public/sfx/${name}.mp3` : null;
+  const pick = (name: string) => bedFrom[name] ? `${bedFrom[name]}, prepared (even level from 0:00)` : assetUrls.sfx?.[name] ? `${assetUrls.sfx[name]} (uploaded in Studio Assets)` : assets.sfx.includes(`${name}.mp3`) ? `public/sfx/${name}.mp3` : null;
   const bgm = (urgent ? pick("bgm-urgent") : null) ?? pick("bgm");
   log(`bgm: ${bgm ?? "NONE (add public/sfx/bgm.mp3): this episode has no music"} at ${Math.round(direction.bgmVolume * 100)}%, ${Math.round(BGM_UNDER_DIALOGUE * 100)}% under dialogue`);
 }

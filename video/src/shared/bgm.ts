@@ -17,3 +17,12 @@ export function bgmLevel(beats: Beat[], lines: EpisodeLine[], volume: number, th
   const bed = talking ? Math.min(volume, BGM_UNDER_DIALOGUE) : volume;
   return bed * (b.thought ? thoughtDuck : 1);
 }
+
+/**
+ * The music bed as the video plays it, prepared once per render (render.mts): leading silence skipped, the track's
+ * quiet sections (an intro, a breakdown) lifted toward its loud ones (dynaudnorm: ~12 s window, up to +20 dB), then
+ * normalized to −16 LUFS. A bed with a near-silent first 15 s and a quiet 30-55 s breakdown used to sit inaudible
+ * under the dialogue until its drums came in at 0:51; prepared, it reads at an even level from 0:00, so the fixed
+ * BGM_UNDER_DIALOGUE gain lands about 20 dB under −14 LUFS speech everywhere.
+ */
+export const BED_CHAIN = "silenceremove=start_periods=1:start_threshold=-45dB,dynaudnorm=f=400:g=31:p=0.95:m=10:s=12,loudnorm=I=-16:TP=-1.5:LRA=4";

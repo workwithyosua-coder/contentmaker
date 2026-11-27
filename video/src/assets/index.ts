@@ -72,10 +72,14 @@ export function resetRemoteAssets() {
  * Registers uploaded assets by name → HTTPS URL ({ props: { "sate-padang": "https://…" }, sfx: { slurp: "https://…" } }).
  * A remote file wins over a repo file of the same name. Re-registering replaces the URL (signed URLs expire).
  */
+/** The music bed render.mts prepares for one episode (in public/<episode id>/, served with staticFile). */
+export const PREPARED_BED = /^[0-9a-f-]{36}\/bgm(-urgent)?\.mp3$/;
+
 export function registerRemoteAssets(urls: { props?: Record<string, string>; sfx?: Record<string, string>; cast?: Record<string, string> } | null | undefined) {
   const ok = (u: string) => /^https?:\/\//.test(u) || /^\/[^/]/.test(u); // HTTPS, or root-relative in the in-app preview
   for (const [name, url] of Object.entries(urls?.props ?? {})) if (ok(url)) remoteProps.set(name, url);
-  for (const [name, url] of Object.entries(urls?.sfx ?? {})) if (ok(url)) remoteSfx.set(name, url);
+  // (and the renderer's prepared music bed, next to the episode's audio: "<episode id>/bgm.mp3")
+  for (const [name, url] of Object.entries(urls?.sfx ?? {})) if (ok(url) || PREPARED_BED.test(url)) remoteSfx.set(name, url);
   // sprites only at the cast keys the video asks for ("uco/angry-closed.png")
   for (const [name, url] of Object.entries(urls?.cast ?? {})) if (ok(url) && /^(uco|ocu)\/[a-z]+-(closed|open)\.png$/.test(name)) remoteCast.set(name, url);
 }

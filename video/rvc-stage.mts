@@ -14,6 +14,7 @@ import path from "node:path";
 import { progressAt } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 import { fades } from "./src/audioChain.ts";
+import { cutAt, speechEnd } from "./audio-tail.mts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--")) ?? process.env.EPISODE_ID;
@@ -86,7 +87,10 @@ for (const l of plan.lines) {
   const input = path.join(work, "in", `line-${l.lineIndex + 1}.wav`);
   const output = path.join(work, "out", `line-${l.lineIndex + 1}.wav`);
   await download(l.url, raw);
-  execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", raw, "-ac", "1", "-ar", "44100", input]);
+  // RVC gets only the speech: the trailing click / noise floor is cut first, so RVC can't turn it into a breath or
+  // a click of its own
+  const end = speechEnd(raw);
+  execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", raw, "-af", cutAt(end).slice(0, -1), "-ac", "1", "-ar", "44100", input]);
   const pitch = Number(process.env[`RVC_PITCH_${l.speaker.toUpperCase()}`] ?? 0) || 0;
   jobs.push({ ...l, model: models[l.speaker].pth, index: models[l.speaker].index, input, output, pitch });
 }
@@ -129,10 +133,11 @@ log(`own voice: converted in ${((Date.now() - started) / 1000).toFixed(0)} s`);
 // upload each converted take and make it the line's selected take
 let done = 0;
 for (const j of jobs) {
-  const seconds = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", j.output]).toString().trim());
-  // RVC tail noise / DC offset must not click at the cut: DC removed (20 Hz high-pass), 15 ms in, 35 ms out
+  // after RVC: the tail gate again (anything RVC added after the last word), DC removed (20 Hz high-pass), then the
+  // clean edges on the final length: 15 ms in, 40 ms out
+  const seconds = speechEnd(j.output);
   const clean = j.output.replace(/\.wav$/, ".clean.wav");
-  execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", j.output, "-af", `highpass=f=20,${fades(seconds)}`, clean]);
+  execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", j.output, "-af", `${cutAt(seconds)}highpass=f=20,${fades(seconds)}`, clean]);
   const up = await json<{ url: string; path: string }>(`${base}/api/render/${episodeId}/voices/upload`, { method: "POST", body: JSON.stringify({ lineIndex: j.lineIndex }) });
   const put = await fetch(abs(up.url), { method: "PUT", headers: { "Content-Type": "audio/wav", "x-upsert": "true" }, body: readFileSync(clean) });
   if (!put.ok) throw new Error(`Upload of line ${j.lineIndex + 1} failed (${put.status}).`);

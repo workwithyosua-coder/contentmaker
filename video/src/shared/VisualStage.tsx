@@ -3,10 +3,11 @@ import { Img, interpolate, spring, useVideoConfig } from "remotion";
 import { propFile } from "../assets";
 import { assetSrc } from "../assets/src";
 import { brainChips, cardHeader, type BeatStat, type Overlay } from "../beats";
-import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
+import { HEAVY, MONO, textWidth } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
-import { badgeMaxScale, badgeRect, badgeScale } from "./motion";
+import { badgeMaxScale, badgeRect, badgeScale, statCardText } from "./motion";
+export { statWrap } from "./motion";
 
 // The open "visual stage" beside or above the speaker: floating kinetic text, callout labels on a PNG prop, explainer
 // cards (wave / emulsion graph, brain / psychology badge) and the comic thought bubble. Canvas coordinates; the
@@ -241,7 +242,7 @@ export function ExplainerCard({ kind, title, graphic = false, box, skin, frame, 
       }}
     >
       <div style={{ height: barH, display: "flex", alignItems: "center", gap: 12, padding: "0 16px", background: skin === "paper" ? INK : "rgba(56,189,248,0.16)", borderBottom: `3px solid ${k.line}` }}>
-        {cardHeader(kind, graphic ? title : "").map((t, i) =>
+        {cardHeader(kind, graphic ? title : "", graphic).map((t, i) =>
           i === 0 ? (
             <span key={t} data-card-label style={{ fontFamily: MONO, fontWeight: 700, fontSize: 24, color: skin === "paper" ? "#FFE600" : k.accent, letterSpacing: 2 }}>
               {t}
@@ -466,8 +467,10 @@ export function EvidenceStage({
   const propBox: Box = { x: hero.x + pad, y: hero.y + pad, w: hero.w - 2 * pad, h: hero.h - 2 * pad - (stat ? statH + 18 : 0) };
   const statBox: Box = { x: hero.x + pad, y: hero.y + hero.h - pad - statH, w: hero.w - 2 * pad, h: statH };
   // the headline wraps (2 lines under a prop, 3 alone) rather than shrinking to one tiny line
-  const head = stat ? statWrap(stat.headline, statBox.w - 48, children ? 64 : 132, children ? 2 : 3) : null;
-  const sub = stat?.subline ? statWrap(stat.subline, statBox.w - 48, children ? 36 : 56, 2) : null;
+  // headline 2 lines under a prop (3 alone), subline up to 3 lines, both shrunk until they fit the card's height
+  const text = stat ? statCardText(stat, statBox.w - 48, statH - 32, Boolean(children)) : null;
+  const head = text?.head ?? null;
+  const sub = text?.sub ?? null;
   return (
     <div
       style={{
@@ -531,12 +534,3 @@ export function EvidenceStage({
   );
 }
 
-/** Largest size (≤ max, ≥ 24) at which `text` wraps into at most `maxLines` lines that each fit `w` px. */
-export function statWrap(text: string, w: number, max: number, maxLines: number): { size: number; lines: string[] } {
-  const t = text.toUpperCase();
-  for (let size = max; size >= 24; size -= 2) {
-    const lines = wrapHeadline(t, size, w);
-    if (lines.length <= maxLines && lines.every((l) => textWidth(l, size) <= w)) return { size, lines };
-  }
-  return { size: 24, lines: wrapHeadline(t, 24, w).slice(0, maxLines) };
-}

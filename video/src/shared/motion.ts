@@ -470,3 +470,37 @@ export function stackColumn(
   if (o.hasProp) out.propBox = { x: col.x, y, w: col.w, h: Math.max(propMinH, bottom - y) };
   return out;
 }
+
+// ------------------------------------------------------------------ takeover stat card text
+/** Largest size (≤ max, ≥ 24) at which `text` wraps into at most `maxLines` lines that each fit `w` px. */
+export function statWrap(text: string, w: number, max: number, maxLines: number): { size: number; lines: string[] } {
+  const t = text.toUpperCase();
+  for (let size = max; size >= 24; size -= 2) {
+    const lines = wrapHeadline(t, size, w);
+    if (lines.length <= maxLines && lines.every((l) => textWidth(l, size) <= w)) return { size, lines };
+  }
+  // still too long at the smallest size: whole lines only, the last one ending on a whole word with "…"
+  const lines = wrapHeadline(t, 24, w);
+  if (lines.length <= maxLines) return { size: 24, lines };
+  const kept = lines.slice(0, maxLines);
+  kept[maxLines - 1] = `${kept[maxLines - 1].replace(/\s+\S+$/, "")}…`;
+  return { size: 24, lines: kept };
+}
+
+/**
+ * The stat card's headline and subline, wrapped between words and shrunk together until both fit the card's text
+ * area (`w` × `h`): headline ≤ 2 lines under a prop (3 alone), subline ≤ 3 lines. Never cut mid-word.
+ */
+export function statCardText(stat: { headline: string; subline: string | null }, w: number, h: number, withProp: boolean) {
+  const height = (hd: { size: number; lines: string[] }, sb: { size: number; lines: string[] } | null) =>
+    hd.lines.length * hd.size * 1.02 + (sb ? 6 + 6 + sb.lines.length * sb.size * 1.08 : 0);
+  let headMax = withProp ? 64 : 132;
+  let subMax = withProp ? 36 : 56;
+  for (;;) {
+    const head = statWrap(stat.headline, w, headMax, withProp ? 2 : 3);
+    const sub = stat.subline ? statWrap(stat.subline, w, subMax, 3) : null;
+    if (height(head, sub) <= h || (headMax <= 32 && subMax <= 24)) return { head, sub, height: height(head, sub) };
+    headMax = Math.max(32, headMax - 4);
+    subMax = Math.max(24, subMax - 2);
+  }
+}

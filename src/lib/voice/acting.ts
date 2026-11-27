@@ -1,6 +1,7 @@
 // Voice providers and the acting direction they get. Pure code (no network, no server-only imports): the pickers,
 // the server and the unit tests share it. The script text itself is never changed: a provider gets the line exactly
 // as written, plus a separate acting direction derived from the line's pose and the episode's delivery preset.
+import { FADE_OUT_S, speechEndSeconds } from "../../../video/src/audioChain";
 import { ttsText } from "./phonetic";
 
 export const VOICE_PROVIDERS = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"] as const;
@@ -154,6 +155,21 @@ export function pcmToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uin
   v.setUint32(40, pcm.length, true);
   out.set(pcm, 44);
   return out;
+}
+
+/**
+ * Stage A's take, cleaned before it's stored (and before RVC sees it): whole 16-bit samples only (a stray odd byte
+ * would shift every sample after it), everything after the last real speech cut (Gemini's trailing "tsk" click, see
+ * speechEndSeconds), and a 40 ms fade to zero on the new last edge.
+ */
+export function cleanPcmTail(pcm: Uint8Array, sampleRate = 24000): Uint8Array {
+  const even = pcm.subarray(0, pcm.length - (pcm.length % 2));
+  const samples = new Int16Array(even.buffer.slice(even.byteOffset, even.byteOffset + even.length));
+  const keep = Math.min(samples.length, Math.round(speechEndSeconds(samples, sampleRate) * sampleRate));
+  const out = samples.slice(0, keep);
+  const fade = Math.min(keep, Math.round(FADE_OUT_S * sampleRate));
+  for (let i = 0; i < fade; i++) out[keep - fade + i] = Math.round(out[keep - fade + i] * (1 - (i + 1) / fade));
+  return new Uint8Array(out.buffer);
 }
 
 /** Length of a 16-bit WAV made by pcmToWav, in ms. */

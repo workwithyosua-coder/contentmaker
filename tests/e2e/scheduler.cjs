@@ -209,7 +209,7 @@ const step = async (...args) =>
   const [slot] = await sql`SELECT status, episode_id, render_job_id FROM episode_queue WHERE id = ${target}`;
   check('prepare: rendering, with an episode and a render job', slot.status === 'rendering' && slot.episode_id && slot.render_job_id, JSON.stringify(slot));
   const scriptReqs = requests.filter((r) => !r.tts && !r.image).slice(textBefore).filter((r) => /Show Bible|head writer "Uco & Ocu"/.test(r.text));
-  check('script: Show Bible prompt; the 9-line draft is retried once, strictly', scriptReqs.length === 2 && /1[46]-1[68] baris/.test(scriptReqs[0].text) && /PERCOBAAN SEBELUMNYA DITOLAK karena: only 9 lines \(needs 1[46]-1[68]\)/.test(scriptReqs[1].text), `${scriptReqs.length} script requests`);
+  check('script: Show Bible prompt; the 9-line draft is retried once, strictly', scriptReqs.length === 2 && /13-15 baris termasuk outro CTA/.test(scriptReqs[0].text) && /PERCOBAAN SEBELUMNYA DITOLAK karena: only 9 lines \(needs 13-15\)/.test(scriptReqs[1].text), `${scriptReqs.length} script requests`);
   const [s] = await sql`SELECT lines, custom, approved_at, direction FROM scripts WHERE project_id = ${slot.episode_id}`;
   const ep6 = slot.episode_id.replace(/-/g, '').slice(0, 6);
   const tags = s.lines.map((l) => l.prop_tag);
