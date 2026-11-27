@@ -10,7 +10,6 @@ import { GAPS } from "../../video/src/audioChain.ts";
 import { propFile, registerRemoteAssets, resetRemoteAssets } from "../../video/src/assets/index.ts";
 import { buildBeats, type EpisodeLine } from "../../video/src/beats.ts";
 import { parseDirection } from "../../video/src/direction.ts";
-import { SFX_VOLUME, majorShift, sfxCuesFor } from "../../video/src/shared/sfxCues.ts";
 import { FPS, naturalGap, timeline } from "../../video/src/types.ts";
 import { extractImage, imageRequestBody } from "../../src/lib/gemini-core.ts";
 import { showDirection, showBiblePrompt } from "../../src/lib/showBible.ts";
@@ -64,29 +63,11 @@ test("natural speaking speed: energy in the tone, never in speed; shorter lines 
   assert.match(prompt, /Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat/);
   assert.match(prompt, /"nge-hang", "eror"/);
   assert.match(prompt, /Minimal 75% baris punya sesuatu di layar/);
-  assert.match(prompt, /termasuk baris inspecting .* dan baris thought/);
+  assert.match(prompt, /termasuk baris inspecting/);
+  assert.match(prompt, /Baris thought hanya memakai prop kalau objek itu memang yang sedang dipikirkan/);
 });
 
-// ------------------------------------------------------------------ 2. SFX
-test("whoosh only on major shifts (takeover in, two-shot in / out, outro), never on dialogue cuts or thoughts; SFX under the dialogue", () => {
-  const b = (o: Record<string, unknown>) => ({ cameraShot: "solo-uco", layout: "standard", thought: false, line: 0, ...o }) as never;
-  assert.equal(majorShift(b({}), b({ cameraShot: "solo-ocu" })), false, "back-and-forth cut");
-  assert.equal(majorShift(b({}), b({ cameraShot: "closeup-punch" })), false);
-  assert.equal(majorShift(b({}), b({ layout: "takeover" })), true);
-  assert.equal(majorShift(b({ layout: "takeover" }), b({ layout: "takeover" })), false, "already in a takeover");
-  assert.equal(majorShift(b({}), b({ cameraShot: "two-shot" })), true);
-  assert.equal(majorShift(b({ cameraShot: "two-shot" }), b({ cameraShot: "solo-ocu" })), true);
-  assert.equal(majorShift(b({}), b({ cameraShot: "cta-stinger", line: null })), true, "into the outro");
-  assert.equal(majorShift(b({}), b({ thought: true, cameraShot: "two-shot" })), false, "never on a thought");
-  assert.equal(majorShift(b({ thought: true }), b({ layout: "takeover" })), false);
-  assert.deepEqual([SFX_VOLUME.whoosh, SFX_VOLUME.pop, SFX_VOLUME.stamp], [0.15, 0.24, 0.26]);
-  // a 14-line back-and-forth: whoosh only where the picture really changes
-  const lines = Array.from({ length: 14 }, (_, i) => line({ speaker: i % 2 ? "ocu" : "uco", sfx: ["whoosh"], ...(i === 6 ? { layout: "takeover", stat: "35 RIBU | SEGELAS" } : {}), ...(i === 9 ? { thought_bubble: true } : {}) }, i));
-  const cues = sfxCuesFor(buildBeats(lines, { exact: true } as never), { stampAt: 10 });
-  const whooshes = cues.filter((c) => c.name === "whoosh");
-  assert.ok(whooshes.length <= 3, `${whooshes.length} whooshes (was one per cut)`);
-  assert.ok(cues.every((c) => (c.volume ?? 1) <= 0.3), JSON.stringify(cues.filter((c) => (c.volume ?? 1) > 0.3)));
-});
+// ------------------------------------------------------------------ 2. SFX: see audio-layout-fixes.test.mts (stamp / pop only)
 
 // ------------------------------------------------------------------ 3. generated props
 test("the image request: refs as valid base64 inlineData, then the prompt, IMAGE output on /v1beta", () => {

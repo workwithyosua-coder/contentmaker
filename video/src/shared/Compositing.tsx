@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Audio, Sequence, useCurrentFrame } from "remotion";
 import { bgmFile, sfxFile } from "../assets";
 import { assetSrc } from "../assets/src";
+import { bgmLevel } from "./bgm";
 import type { Beat } from "../beats";
 import type { EpisodeLine } from "../types";
 
@@ -51,23 +52,15 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
 }
 
 /**
- * Background music bed (public/sfx/bgm.mp3, looped) when the direction turns it on: at the bed level, ducked to a
- * third while someone talks, and to `thoughtDuck` of the bed under (thought) lines (−12 dB by default, or silent),
- * with ≈ 150 ms fades. Silent without the file.
+ * Background music bed (sfx/bgm.mp3, or bgm-urgent.mp3 for urgent episodes; looped) when the direction turns it on,
+ * at bgmLevel with ≈ 150 ms fades. Silent without the file.
  */
 export function BackgroundMusic({ volume, thoughtDuck, urgent = false, beats, lines }: { volume: number; thoughtDuck: number; urgent?: boolean; beats: Beat[]; lines: EpisodeLine[] }) {
   // urgent episodes ("BGM: urgent", or an angry line) use the urgent track when there is one: uploaded, then repo,
   // then the regular bed
   const file = assetSrc(bgmFile(urgent || beats.some((b) => b.angry)));
   if (!file) return null;
-  const target = (f: number) => {
-    const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);
-    if (!b || b.line === null) return volume; // end card: full bed
-    const l = lines[b.line];
-    const talking = (l.envelope?.[f - b.startFrame] ?? 0) > 0.08;
-    const duck = b.thought ? thoughtDuck : 1;
-    return volume * duck * (talking ? 0.35 : 1);
-  };
+  const target = (f: number) => bgmLevel(beats, lines, volume, thoughtDuck, f);
   // a 5-frame (≈ 150 ms) moving average: dips into and out of thoughts (and under speech) fade instead of clicking
   const level = (f: number) => [0, 1, 2, 3, 4].reduce((s, k) => s + target(Math.max(0, f - k)), 0) / 5;
   return <Audio src={file} loop volume={level} onError={() => undefined} />;

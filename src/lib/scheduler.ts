@@ -440,8 +440,9 @@ export function fillDeadAir(lines: ManualLine[], fresh: string[] = []): ManualLi
     let line = l;
     if (l.prop_tag && fresh.includes(l.prop_tag)) lastProp = l.prop_tag;
     const held = lastProp ?? firstFresh;
-    // the magnifier examines, and the thought bubble holds, the episode's own prop rather than empty air
-    if ((l.emotion === "inspecting" || l.thought_bubble) && (!l.prop_tag || l.prop_tag === "none") && held) line = { ...line, prop_tag: held };
+    // the magnifier examines the episode's own prop rather than empty air. A thought bubble never borrows one: it shows
+    // only the prop its own line names (else its 2-4 word caption), so Ocu's coffee never turns up in Uco's thought
+    if (l.emotion === "inspecting" && !l.thought_bubble && (!l.prop_tag || l.prop_tag === "none") && held) line = { ...line, prop_tag: held };
     const prev = out.at(-1);
     if (prev && !hasVisual(prev) && !hasVisual(line)) line = { ...line, kinetic_text: cleanCalloutText(line.important_message?.headline ?? line.text) };
     out.push(line);

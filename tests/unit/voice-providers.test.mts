@@ -52,7 +52,7 @@ test("the Angry / Urgent preset adds urgency to every line except muttered inner
 test("Gemini gets the line exactly as written (no script rewriting) as its text, the acting cue only as its style", () => {
   const text = 'Uco & Ocu: "Ujung Kulon ke Alas Purwo?!" (serius)';
   const g = geminiSpeech(L({ text, emotion: "angry" }), "angry", "lebih keras di akhir");
-  assert.equal(g.text, 'U-co dan Ocu: "Ujung Kulon ke Alas Purwo?!" (serius)', "the line only (phonetic fixes), nothing added");
+  assert.equal(g.text, 'Ucho dan Ochu: "Ujung Kulon ke Alas Purwo?!" (serius)', "the line only (phonetic fixes), nothing added");
   assert.match(g.style, /Outraged Jakartan Indonesian rant.*urgent, pressing; lebih keras di akhir$/);
   assert.doesNotMatch(g.text, /Bacakan|Ucapkan persis|lebih keras/);
   assert.notEqual(GEMINI_VOICES.uco, GEMINI_VOICES.ocu, "Uco and Ocu sound different");

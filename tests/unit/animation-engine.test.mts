@@ -214,7 +214,7 @@ test("subtitles stay hidden until the voice starts (and during the whip in), and
   assert.equal(nb.subtitleChunks[0].startFrame, 0);
 });
 
-test("on-screen callouts, script SFX and the urgent shake land when the voice starts", () => {
+test("callouts land when the voice starts; script SFX stay silent; only an angry delivery shakes", () => {
   const e = env(12, 60, 8);
   const beats = buildBeats(
     [
@@ -223,11 +223,8 @@ test("on-screen callouts, script SFX and the urgent shake land when the voice st
     ],
     exact,
   );
-  const cues = sfxCuesFor(beats, { stampAt: 10 });
-  const at = (n: string) => cues.filter((c) => c.name === n).map((c) => c.frame);
-  assert.ok(at("ding").includes(beats[0].startFrame + 12));
-  assert.ok(at("stamp").every((f) => f >= beats[0].startFrame + 12), "nothing stamps before the voice");
-  assert.equal(beats[0].impactFrame, 12 + 6, "the script's stamp (2nd SFX) is the impact");
+  assert.deepEqual(sfxCuesFor(beats), [], "no callout stamp, no script ding / stamp: plain dialogue is silent");
+  assert.equal(beats[0].impactFrame, null, "a script's (silent) stamp no longer shakes");
   assert.equal(beats[1].angry, true);
   assert.equal(beats[1].impactFrame, 12);
   assert.deepEqual(impactShake(11, 12), { x: 0, y: 0 });

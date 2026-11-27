@@ -6,7 +6,7 @@ import { brainChips, cardHeader, type BeatStat, type Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
-import { badgeFit, badgeMaxScale, badgeRect, badgeScale } from "./motion";
+import { badgeMaxScale, badgeRect, badgeScale } from "./motion";
 
 // The open "visual stage" beside or above the speaker: floating kinetic text, callout labels on a PNG prop, explainer
 // cards (wave / emulsion graph, brain / psychology badge) and the comic thought bubble. Canvas coordinates; the
@@ -22,11 +22,7 @@ export const STAGE_INK: Record<PropSkin, StageInk> = {
 };
 
 // ------------------------------------------------------------------ kinetic text
-/** Height a kinetic block needs for `text` in a box `w` wide. */
-export const kineticHeight = (text: string, w: number) => {
-  const { size, lines } = badgeFit(text, w);
-  return Math.ceil(lines.length * size * 1.05) + 44;
-};
+export { kineticHeight } from "./motion";
 
 /**
  * 2–4 punchy words floating on the stage. Paper: a red stamp that slams in as the voice starts. HUD: an amber bracketed

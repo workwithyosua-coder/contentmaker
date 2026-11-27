@@ -2,13 +2,14 @@ import React from "react";
 import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
 import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
+import { koranPoses } from "./poses";
 import { VoiceTrack } from "../cast/CueShared";
 import { useSpriteFrames } from "../cast/useSpriteFrames";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, WhipStreaks, type DirectorSkin } from "../shared/Director";
 import { BeatSubtitle, SubtitleScrim } from "../shared/MovieSubtitle";
 import { cameraAt, cutDirection, holdFrames, whipOffset } from "../shared/motion";
-import { KINETIC_SLAM, sfxCuesFor } from "../shared/sfxCues";
+import { sfxCuesFor } from "../shared/sfxCues";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
@@ -44,7 +45,7 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
   registerLineAssets(lines);
   // uploaded sprites are measured once so they're framed like the calibrated ones (spriteFrame.ts)
   useSpriteFrames(Object.values(assetUrls?.cast ?? {}));
-  const beats = buildBeats(lines, direction);
+  const beats = koranPoses(buildBeats(lines, direction), lines);
   return (
     <AbsoluteFill style={BACKGROUND}>
       {/* each beat is a full-canvas opaque layer; it stays mounted (held on its last frame) while the next beat
@@ -62,7 +63,7 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
       ))}
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="paper" />
-      <SfxCues cues={sfxCuesFor(beats, { stampAt: KINETIC_SLAM })} />
+      <SfxCues cues={sfxCuesFor(beats)} />
       {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );

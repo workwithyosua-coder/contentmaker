@@ -2,6 +2,7 @@
 // schema Gemini writes to, the checks a script must pass (a short or flat script is retried once with stricter
 // instructions), the outro CTA, and the episode's fresh prop specs. Pure code: no database, no network, no AI.
 import type { ManualLine } from "./manualScriptParser";
+import { cleanHandle } from "./voice/phonetic";
 import { SFX_NAMES, type EpisodeFormat, cleanCalloutText } from "./scheduler";
 
 export const CTA_HANDLE = "@UCO.OCU";
@@ -10,8 +11,8 @@ export const LEGACY_SHOW_DIRECTION = `CTA: FOLLOW ${CTA_HANDLE}`;
 
 /**
  * Direction notes for every scheduled episode (parsed by video/src/direction.ts): the FOLLOW @UCO.OCU outro; the
- * background bed, the urgent track for Koran Kinetik (falling back to the regular bed), at 20 % so it sits about
- * −23 dB under dialogue (the player ducks it to 35 % while someone talks) and silent under inner thoughts; and natural
+ * background bed, the urgent track for Koran Kinetik (falling back to the regular bed), at 20 % between lines and
+ * 12 % (≈ −18 dB) under dialogue (video/src/shared/bgm.ts), silent under inner thoughts; and natural
  * comedic timing between lines (0.30 s speaker switch, 0.24 s same speaker, 0.42 s into a visual shift).
  */
 export function showDirection(style: string = "editorial-paper-cutout"): string {
@@ -131,7 +132,7 @@ KARAKTER
 STRUKTUR (wajib)
 - ${f.lines[0]}-${f.lines[1]} baris. Kurang dari ${f.lines[0]} baris = gagal.
 - ${f.structure}
-- Baris terakhir: outro CTA penuh dari Ocu dengan pose cta, mengajak follow ${CTA_HANDLE} (mis. "Follow @uco.ocu biar nggak ketipu lagi!").
+- Baris terakhir: outro CTA penuh dari Ocu dengan pose cta, mengajak follow ${CTA_HANDLE} (mis. "Follow @uco.ocu biar nggak ketipu lagi!"). Tulis handle PERSIS "@uco.ocu" di text dan subtitle (subtitle: "Follow @uco.ocu ..."). DILARANG mengeja titiknya ("uco titik ocu", "uco dot ocu", "akun uco titik ocu"): suaranya otomatis membaca "Uco Ocu".
 - Sebelum CTA: tutup dengan twist kemunafikan yang lucu atau punchline keras kepala (mis. Uco tetap beli sambil ngeles). DILARANG penutup moral ala karangan sekolah / PSA, DILARANG Uco tiba-tiba sadar dan setuju jadi baik.
 - thought: pakai pose "thought" untuk monolog batin (${f.thoughts[0]}-${f.thoughts[1]} baris).
 - layout "takeover" + statCard "ANGKA | PENJELASAN" untuk angka kunci: ${f.takeovers[0]}-${f.takeovers[1]} baris.${f.explainer ? `\n- Minimal ${f.explainer} baris sains / psikologi dengan explainerCard "brain-badge" (psikologi) atau "wave-graph" (data / grafik).` : ""}
@@ -145,9 +146,9 @@ SUARA
 - Jangan pakai em dash. Jangan mengarang kutipan, studi atau testimoni. Angka harus angka nyata yang masuk akal dan umum diketahui; kalau ragu, pakai hitungan sederhana yang bisa dicek (mis. 25 ribu x 30 hari = 750 ribu).
 
 ARAHAN VISUAL (jangan ada yang kosong)
-- Setiap baris: pose, shot (solo-uco / solo-ocu untuk pembicara, closeup-punch untuk punchline, two-shot kalau keduanya bereaksi; maksimal 3 baris berurutan dengan shot sama), sfx (pilih dari whoosh, pop, stamp, record-scratch, ding; boleh kosong di baris biasa tapi hook, twist, takeover dan punchline wajib ada).
+- Setiap baris: pose, shot (solo-uco / solo-ocu untuk pembicara, closeup-punch untuk punchline, two-shot kalau keduanya bereaksi; maksimal 3 baris berurutan dengan shot sama), sfx (boleh kosong: efek suara dipasang otomatis, hanya stamp saat stat card takeover muncul dan pop saat prop baru muncul).
 - callout 2-4 kata HURUF BESAR di setiap beat penekanan (hook, angka, punchline, CTA), minimal 5 baris.
-- propSpecs: 2-3 objek KHUSUS episode ini (mis. untuk skincare: botol serum mahal, struk belanja). Setiap prompt: satu objek tunggal, bahasa Inggris, tanpa teks kecuali diminta. Pasang slug-nya di field prop pada baris yang membahas objek itu, termasuk baris inspecting (Ocu memeriksa objeknya) dan baris thought (objeknya muncul di gelembung pikiran).
+- propSpecs: 2-3 objek KHUSUS episode ini (mis. untuk skincare: botol serum mahal, struk belanja). Setiap prompt: satu objek tunggal, bahasa Inggris, tanpa teks kecuali diminta. Pasang slug-nya di field prop pada baris yang membahas objek itu, termasuk baris inspecting (Ocu memeriksa objeknya). Baris thought hanya memakai prop kalau objek itu memang yang sedang dipikirkan tokoh di baris itu (mis. saldo ATM Uco, bukan kopi Ocu dari baris sebelumnya); kalau tidak, prop "none" dan gelembungnya menampilkan 2-4 kata.
 - Minimal 75% baris punya sesuatu di layar selain karakter: prop, callout, explainerCard atau statCard. Jangan ada dua baris berturut-turut yang kosong.
 ${p.bankProps ? `- Prop lama yang boleh dipakai HANYA jika objeknya persis sama: ${p.bankProps}. Jangan pernah memakai prop yang tidak berhubungan.\n` : ""}${
     p.strict?.length
@@ -171,8 +172,6 @@ export function showBibleProblems(lines: ManualLine[], format: EpisodeFormat): s
   if (explainers < f.explainer) out.push(`no explainerCard on a science / psychology line`);
   const callouts = lines.filter((l) => l.kinetic_text).length;
   if (callouts < 5) out.push(`only ${callouts} callout(s) (needs at least 5)`);
-  const sfx = lines.filter((l) => l.sfx.length).length;
-  if (sfx < 4) out.push(`SFX on only ${sfx} line(s) (needs at least 4)`);
   const last = lines.at(-1);
   if (!last || !isCtaLine(last)) out.push(`no outro CTA (FOLLOW ${CTA_HANDLE}) as the last line`);
   return out;
@@ -213,7 +212,10 @@ export const CTA_LINE: ManualLine = {
   stat: null,
 };
 
-export function withCta(lines: ManualLine[]): ManualLine[] {
+export function withCta(draft: ManualLine[]): ManualLine[] {
+  // the handle as written ("@uco.ocu"), never spelled out ("uco titik ocu" / "uco dot ocu"), in the text the voice
+  // reads (ttsText makes it "Uco Ocu") and in the English subtitle on screen
+  const lines = draft.map((l) => ({ ...l, text: cleanHandle(l.text), subtitle: cleanHandle(l.subtitle) }));
   const last = lines.at(-1);
   if (last && isCtaLine(last)) return lines.map((l, i) => (i === lines.length - 1 && !l.kinetic_text ? { ...l, kinetic_text: `FOLLOW ${CTA_HANDLE}` } : l));
   return [...lines, CTA_LINE];

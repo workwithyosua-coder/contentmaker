@@ -86,11 +86,12 @@ test("sprites: an uploaded studio file wins, then the repo's public/cast, then s
   assert.equal(castSprites("uco", "angry")?.emotion, "shocked", "removing the upload falls back again");
 });
 
-test("urgent BGM: the uploaded bgm-urgent, else the regular bgm, else none (never a crash)", () => {
+test("urgent BGM: the uploaded bgm-urgent, else the repo's, else the regular bgm (never a crash)", () => {
   resetRemoteAssets();
-  assert.equal(bgmFile(true), null, "no music anywhere: the video plays without it");
+  assert.equal(bgmFile(true), "sfx/bgm-urgent.mp3", "no upload: public/sfx/bgm-urgent.mp3 from the repo");
+  assert.equal(bgmFile(false), "sfx/bgm.mp3");
   registerRemoteAssets({ sfx: { bgm: "https://x/bgm.mp3" } });
-  assert.equal(bgmFile(true), "https://x/bgm.mp3", "urgent episode without the urgent track: the regular bed");
+  assert.equal(bgmFile(true), "sfx/bgm-urgent.mp3", "the repo's urgent track before an uploaded regular bed");
   registerRemoteAssets({ sfx: { "bgm-urgent": "https://x/studio/bgm-urgent.mp3?v=2" } });
   assert.equal(bgmFile(true), "https://x/studio/bgm-urgent.mp3?v=2");
   assert.equal(bgmFile(false), "https://x/bgm.mp3", "calm episodes keep the regular bed");

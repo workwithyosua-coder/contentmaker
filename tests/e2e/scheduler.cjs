@@ -245,6 +245,9 @@ const step = async (...args) =>
   if (process.env.RENDER === '1') {
     const r = await run('npx', ['tsx', 'render.mts', slot.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: { ...process.env, JOB_ID: slot.render_job_id, SLOT_ID: target, APP_URL: base }, maxBuffer: 64 * 1024 * 1024 });
     console.log(r.stdout.split('\n').filter((l) => !/frame/i.test(l)).slice(-8).join('\n'));
+    fs.writeFileSync(path.join(OUT, 'render.log'), r.stdout);
+    const bgmLine = r.stdout.split('\n').find((l) => /\] bgm: /.test(l)) ?? '';
+    check('render: the Koran Kinetik slot has a music bed (urgent track), 12 % under dialogue', /bgm: \S+bgm(-urgent)?\.mp3/.test(bgmLine) && !/NONE/.test(bgmLine) && /12% under dialogue/.test(bgmLine), bgmLine);
   } else {
     // stand-in for render.mts's upload: a stored MP4 row
     await sql`INSERT INTO episode_videos (project_id, script_id, storage_path, size_bytes, duration_ms) SELECT ${slot.episode_id}, id, ${`${slot.episode_id}/test.mp4`}, 10, 7000 FROM scripts WHERE project_id = ${slot.episode_id}`;

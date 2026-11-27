@@ -19,6 +19,7 @@ import { buildBeats } from "./src/beats.ts";
 import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
 import { LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades } from "./src/audioChain.ts";
+import { BGM_UNDER_DIALOGUE } from "./src/shared/bgm.ts";
 import { renderProgress } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 
@@ -92,7 +93,18 @@ if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: 
 // Props and SFX uploaded in the app (public Supabase bucket): Remotion loads them from their HTTPS URLs, saved on the
 // beats and listed by the app (nothing is written to public/).
 // Studio Assets (Accounts → Studio Assets) arrive as `cast` sprite URLs and SFX (bgm-urgent); they win over repo files.
-const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: manifest.assetUrls?.sfx ?? {}, cast: manifest.assetUrls?.cast ?? {} };
+const assetUrls: AssetUrls = { props: manifest.assetUrls?.props ?? {}, sfx: { ...(manifest.assetUrls?.sfx ?? {}) }, cast: manifest.assetUrls?.cast ?? {} };
+// An uploaded music bed that can't be fetched would play as silence (Remotion's <Audio onError> stays quiet): check it
+// now and fall back to the repo's public/sfx file instead.
+for (const name of ["bgm", "bgm-urgent"]) {
+  const url = assetUrls.sfx?.[name];
+  if (!url) continue;
+  const why = await audioUnreachable(url);
+  if (why) {
+    delete assetUrls.sfx![name];
+    log(`uploaded ${name} unusable (${why}): using public/sfx/${name}.mp3 if the repo has it`);
+  }
+}
 registerRemoteAssets(assetUrls);
 registerLineAssets(manifest.lines);
 const uploaded = [...Object.keys(assetUrls.props ?? {}), ...Object.keys(assetUrls.sfx ?? {}), ...Object.keys(assetUrls.cast ?? {}).map((c) => `cast/${c}`)];
@@ -192,6 +204,14 @@ for (const dir of ["cast", "sfx", "props"]) {
   if (existsSync(src)) cpSync(src, path.join(pub, dir), { recursive: true });
 }
 log(`assets: ${assets.cast.length} cast sprites, ${assets.sfx.length} sound effects, ${assets.props.length} props`);
+if (direction.bgm) {
+  // the music bed the video will load (same order as bgmFile(): uploaded urgent, repo urgent, uploaded bed, repo bed),
+  // from the manifest just written (the imported one is from the last commit)
+  const urgent = Boolean(direction.urgentBgm);
+  const pick = (name: string) => assetUrls.sfx?.[name] ? `${assetUrls.sfx[name]} (uploaded in Studio Assets)` : assets.sfx.includes(`${name}.mp3`) ? `public/sfx/${name}.mp3` : null;
+  const bgm = (urgent ? pick("bgm-urgent") : null) ?? pick("bgm");
+  log(`bgm: ${bgm ?? "NONE (add public/sfx/bgm.mp3): this episode has no music"} at ${Math.round(direction.bgmVolume * 100)}%, ${Math.round(BGM_UNDER_DIALOGUE * 100)}% under dialogue`);
+}
 log("bundling…");
 progress(13, "Getting the animation ready");
 const serveUrl = await bundle({ entryPoint: path.join(here, "src/index.ts"), publicDir: pub });
@@ -257,6 +277,19 @@ async function post(url: string, body: Buffer | string, type: string) {
       log(`retrying ${url} (${err instanceof Error ? err.message : err})`);
       await new Promise((r) => setTimeout(r, attempt * 2000));
     }
+  }
+}
+
+/** Why an uploaded audio URL can't be used (HTTP error, not audio, unreachable), or null when it's fine. */
+async function audioUnreachable(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { Range: "bytes=0-1023" }, signal: AbortSignal.timeout(20_000) });
+    await res.body?.cancel();
+    if (!res.ok) return `HTTP ${res.status}`;
+    const type = res.headers.get("content-type") ?? "";
+    return /^audio\/|octet-stream/.test(type) ? null : `content-type ${type || "missing"}`;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
 }
 

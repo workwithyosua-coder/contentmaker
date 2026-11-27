@@ -90,7 +90,7 @@ export const NATURAL_PACE = "natural, conversational Indonesian speaking speed, 
 /** Ocu, on top: crisp and steady, without dragging (no slow pauses or stretched syllables). */
 export const OCU_PACE = "crisp and steady, clear enunciation, no drawn-out pauses or stretched syllables";
 /** Added when the line says the show's handle. */
-export const HANDLE_DICTION = 'enunciate the name "Uco Ocu" clearly, both names distinct';
+export const HANDLE_DICTION = 'say the names "Uco Ocu" the Indonesian way, "OO-cho OH-chu" (c as in "ch", never "k"), both names distinct';
 
 /** Instruction text that must never be spoken: the old prompt's phrases and any inline style label. */
 export const INSTRUCTION_IN_TEXT = /\bbacakan dalam\b|\bucapkan persis\b|\btanpa menambah atau mengubah\b|\bstyle\s*:|\bspeak (this|the following)\b/i;
@@ -103,20 +103,20 @@ export function assertSpokenOnly(text: string): string {
 
 /**
  * One Gemini TTS request's two halves: `text` is ONLY the line to speak, exactly as written (phonetic fixes applied:
- * "&" → "dan", "@uco.ocu" → "Uco Ocu", "Uco" → "U-co"); `style` is the pose's delivery, more urgent under the Angry /
+ * "&" → "dan", "@uco.ocu" → "Ucho Ochu": Gemini reads "Uco" as "Uko"); `style` is the pose's delivery, more urgent under the Angry /
  * Urgent preset (inner thoughts stay muttered), plus an optional booth note. `style` goes in speechMetadata, never in
  * the text.
  */
 export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): { text: string; style: string } {
   const pose = actingPose(l);
-  const text = assertSpokenOnly(ttsText(l.text));
+  const text = assertSpokenOnly(ttsText(l.text, "gemini"));
   const parts = [POSE_STYLE[pose] ?? POSE_STYLE.triumphant];
   // natural speed for both (energy is in the tone); Ocu also crisp and steady, never dragging
   if (pose !== "thought") parts.push(NATURAL_PACE);
   if (l.speaker === "ocu" && pose !== "thought") parts.push(OCU_PACE);
   if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
-  // the outro handle: every syllable of "U-co Ocu" said clearly
-  if (/U-co Ocu/.test(text)) parts.push(HANDLE_DICTION);
+  // the outro handle: every syllable of "Ucho Ochu" said clearly
+  if (/Ucho Ochu/.test(text)) parts.push(HANDLE_DICTION);
   const note = (extra ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
   if (note) parts.push(note);
   return { text, style: parts.join("; ").slice(0, 400) };

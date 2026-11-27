@@ -9,7 +9,7 @@ import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
 import type { MouthStage } from "./motion";
 import { CTA_FACE, CTA_H, FRAME_BOTTOM, PAIR_H, SOLO_H, STAGE_BOTTOM, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, type HeadFrac } from "./castLayout";
-import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, TAKEOVER_HERO } from "./motion";
+import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, stackColumn, TAKEOVER_HERO } from "./motion";
 import { kineticAt } from "./sfxCues";
 import { EvidenceStage, ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
 
@@ -113,27 +113,11 @@ export function DirectorStage({
 
   /** Stacks kinetic text, card and prop top-down in one column (thought lines put the prop in a bubble instead). */
   const stack = (col: { x: number; w: number }, top: number, bottom: number, propMinH = 300) => {
-    // space goes to the prop first, then the kinetic text, then the explainer card (dropped when it doesn't fit)
-    const kh = kinetic ? kineticHeight(kinetic, col.w) + 8 : 0;
-    const showKinetic = Boolean(kinetic) && (beat.thought || !hasProp || bottom - top - kh >= propMinH);
-    let y = top;
-    if (showKinetic && kinetic) {
-      kineticBox = { x: col.x, y, w: col.w, h: kh - 8 };
-      y += kh;
-    }
-    if (beat.thought) {
-      bubbleBox = { x: col.x, y, w: col.w, h: Math.min(bottom - y, col.w * 0.95) };
-      return;
-    }
-    if (beat.overlay) {
-      const free = bottom - y - (hasProp ? propMinH : 0);
-      const h = hasProp ? Math.min(300, free - 22) : Math.min(col.w * 1.15, bottom - y);
-      if (h >= 200) {
-        cardBox = { x: col.x, y, w: col.w, h };
-        y += h + 22;
-      }
-    }
-    if (hasProp) propBox = { x: col.x, y, w: col.w, h: Math.max(propMinH, bottom - y) };
+    const c = stackColumn({ kinetic, align: kineticAlign, tilted: skin.prop === "paper", thought: beat.thought, overlay: Boolean(beat.overlay), hasProp }, col, top, bottom, propMinH);
+    kineticBox = c.kineticBox;
+    cardBox = c.cardBox;
+    propBox = c.propBox;
+    bubbleBox = c.bubbleBox;
   };
 
   if (shot === "solo-uco" || shot === "solo-ocu") {
@@ -246,7 +230,8 @@ export function DirectorStage({
       {propBox && propNode(propBox)}
       {bubbleBox && thinker && (
         <ThoughtBubble box={bubbleBox} toward={{ x: thinker.head.cx + (bubbleBox.x > thinker.head.cx ? 1 : -1) * thinker.head.height * 0.3, y: thinker.head.top + thinker.head.height * 0.1 }} skin={skin.prop} frame={frame} reduced={reduced} caption={beat.thoughtCaption}>
-          {hasProp ? <div style={{ position: "relative", width: "100%", height: "100%" }}>{propNode({ x: 0, y: 0, w: (bubbleBox as Box).w * 0.62, h: (bubbleBox as Box).h * 0.6 }, true)}</div> : undefined}
+          {/* only the thought's own prop (never a text label standing in for one); else the bubble's caption */}
+          {beat.propImage || beat.sceneImageUrl || beat.propTag !== "none" ? <div style={{ position: "relative", width: "100%", height: "100%" }}>{propNode({ x: 0, y: 0, w: (bubbleBox as Box).w * 0.62, h: (bubbleBox as Box).h * 0.6 }, true)}</div> : undefined}
         </ThoughtBubble>
       )}
       {kineticBox && kinetic && !cta && (

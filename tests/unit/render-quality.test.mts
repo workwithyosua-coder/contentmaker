@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { BGM_UNDER_DIALOGUE } from "../../video/src/shared/bgm.ts";
 import { test } from "node:test";
 import { GAPS, LEAD_IN, LEAD_IN_MS, PAUSES, THOUGHT_FILTER, TRIM, fades } from "../../video/src/audioChain.ts";
 import { bgmFile, registerRemoteAssets, resetRemoteAssets } from "../../video/src/assets/index.ts";
@@ -102,7 +103,7 @@ test("generated props: style references must be real PNGs (the live run sent the
 
 // ------------------------------------------------------------------ 2. audio
 test("every clip: gentle onset with a 40-60 ms pad and a 70 ms tail, only dead pauses (> 0.5 s) shortened, 15 / 35 ms fades", () => {
-  assert.match(TRIM, /silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0\.05,/);
+  assert.match(TRIM, /silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0\.05,/);
   assert.ok(LEAD_IN_MS >= 40 && LEAD_IN_MS <= 60);
   assert.equal(LEAD_IN, "adelay=50:all=1,");
   assert.match(TRIM, /areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0\.07,areverse/, "a 70 ms tail pad");
@@ -126,7 +127,7 @@ test("the repo's SFX no longer clip: peaks at or below -3 dBFS (normalize-sfx.sh
 });
 
 // ------------------------------------------------------------------ 3. BGM
-test("scheduled episodes get a background bed: urgent for Koran Kinetik, about -23 dB under dialogue, silent in thoughts", () => {
+test("scheduled episodes get a background bed: urgent for Koran Kinetik, 12 % (about -18 dB) under dialogue, silent in thoughts", () => {
   const kk = parseDirection(showDirection("editorial-paper-cutout"));
   assert.equal(kk.bgm, true);
   assert.equal(kk.urgentBgm, true);
@@ -134,15 +135,17 @@ test("scheduled episodes get a background bed: urgent for Koran Kinetik, about -
   assert.equal(kk.naturalPacing, true);
   assert.equal(kk.pauseS, null, "no flat gap");
   assert.equal(kk.ctaText, "FOLLOW @UCO.OCU");
-  const underDialogue = 20 * Math.log10(kk.bgmVolume * 0.35); // BackgroundMusic ducks to 35 % while someone talks
-  assert.ok(underDialogue <= -22 && underDialogue >= -24, `${underDialogue.toFixed(1)} dB`);
+  const underDialogue = 20 * Math.log10(Math.min(kk.bgmVolume, BGM_UNDER_DIALOGUE));
+  assert.ok(underDialogue <= -17 && underDialogue >= -20, `${underDialogue.toFixed(1)} dB`);
   const dt = parseDirection(showDirection("tactical-vector-hud"));
   assert.equal(dt.bgm, true);
   assert.equal(dt.urgentBgm, undefined);
-  // no custom upload: the repo's track; urgent missing: the regular bed; nothing at all: silent, never a crash
+  // no upload: the repo's tracks (public/sfx/bgm-urgent.mp3, public/sfx/bgm.mp3); an upload wins over the repo's
   resetRemoteAssets();
+  assert.equal(bgmFile(true), "sfx/bgm-urgent.mp3");
+  assert.equal(bgmFile(false), "sfx/bgm.mp3");
   registerRemoteAssets({ sfx: { bgm: "https://x/sfx/bgm.mp3" } });
-  assert.equal(bgmFile(true), "https://x/sfx/bgm.mp3");
+  assert.equal(bgmFile(false), "https://x/sfx/bgm.mp3");
   registerRemoteAssets({ sfx: { "bgm-urgent": "https://x/studio/bgm-urgent.mp3" } });
   assert.equal(bgmFile(true), "https://x/studio/bgm-urgent.mp3");
   resetRemoteAssets();
