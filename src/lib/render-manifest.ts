@@ -3,6 +3,17 @@
 import { styleById } from "../../video/src/styles/registry";
 import { normalizeStatus } from "./renderWorker";
 import { takeSource } from "./voice/edge";
+import { clampTunables, DEFAULT_TUNABLES, type Tunables } from "./insights/tunables";
+
+/** The render-side subset of the tunables, in the renderer's units (seconds, 0..1 gain, multiplier). */
+export function renderTunables(t: Partial<Tunables> | null | undefined) {
+  const c = clampTunables(t);
+  return {
+    gaps: { rapid: c.rapid_cut_gap_ms / 1000, standard: c.standard_gap_ms / 1000, drop: c.pre_punchline_gap_ms / 1000 },
+    speechBgm: c.bgm_speech_volume,
+    motionEnergy: c.motion_energy,
+  };
+}
 
 type AssetUrls = { props: Record<string, string>; sfx: Record<string, string>; cast?: Record<string, string> };
 export type ManifestSource = {
@@ -16,7 +27,7 @@ export type ManifestSource = {
  * are passed through untouched (stat cards, card labels and voices are normalized by the renderer, not here), and a
  * script whose lines aren't a list renders as an empty episode instead of crashing the request.
  */
-export function renderManifest(src: ManifestSource, assetUrls: AssetUrls) {
+export function renderManifest(src: ManifestSource, assetUrls: AssetUrls, tunables: Tunables = DEFAULT_TUNABLES) {
   const recorded = new Set(src.takes.map((t) => t.line_index));
   // where each take came from ("ai" = ElevenLabs, "ai_gemini", "ai_edge", "upload", "booth"…): only "ai" is sped up
   const sourceOf = new Map(src.takes.map((t) => [t.line_index, takeSource(t.source, t.ai_prompt)]));
@@ -33,6 +44,8 @@ export function renderManifest(src: ManifestSource, assetUrls: AssetUrls) {
     custom: src.script.custom ?? false,
     // custom props / SFX and the global Studio Assets (angry sprites, urgent BGM), as public URLs
     assetUrls,
+    // Live Studio Tunables the renderer uses (gaps, music under speech, motion), clamped, the defaults without a row
+    tunables: renderTunables(tunables),
     lines: lines.map((l, index) => ({ ...l, index, hasAudio: recorded.has(index), audioSource: sourceOf.get(index) ?? null })),
   };
 }

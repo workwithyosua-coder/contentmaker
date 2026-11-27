@@ -418,7 +418,7 @@ export async function tick(
 export async function scriptSlot(
   id: string,
   runUrl?: string | null,
-): Promise<{ episodeId: string; title: string; reused: boolean; lines: number }> {
+): Promise<{ episodeId: string; title: string; reused: boolean; lines: number; qa: string[] }> {
   const s = await slot(id);
   if (s.status !== "scripting")
     throw new SlotStateError(`The slot is ${s.status}, not scripting.`);
@@ -431,7 +431,7 @@ export async function scriptSlot(
       SELECT title, jsonb_array_length(lines) AS n FROM scripts WHERE project_id = ${s.episode_id} ORDER BY version DESC LIMIT 1`;
     if (has) {
       await move(id, "scripting", "voicing");
-      return { episodeId: s.episode_id, title: has.title, reused: true, lines: has.n };
+      return { episodeId: s.episode_id, title: has.title, reused: true, lines: has.n, qa: [] };
     }
   }
   const [rule] = await sql<
@@ -451,36 +451,69 @@ export async function scriptSlot(
   }
   const bank = await propBank(s.user_id);
   const episodeId = randomUUID();
+  // the Showrunner Playbook (active rules, winning hooks, recent review complaints, the target line count)
+  const { getPlaybook } = await import("./insights/server");
+  const { playbookBlock } = await import("./insights/playbook");
+  const { runQaGate, auditPrompt, AUDIT_SCHEMA } = await import("./insights/qa-gate");
+  const playbook = await getPlaybook().catch((e) => {
+    console.error(`[scheduler] slot ${id}: playbook unavailable (${e instanceof Error ? e.message : String(e)}); writing without it`);
+    return null;
+  });
+  const playbookText = playbook ? playbookBlock(playbook) : "";
+  const targetLines = playbook?.targetLines ?? null;
   // the Show Bible script; a short or flat one is retried once with the problems spelled out, then the better kept
   type Attempt = { title: string; lines: ManualLine[]; problems: string[]; props: PropSpec[]; names: Record<string, string> };
+  const write = async (strict: string[] | undefined, temperature: number): Promise<Attempt> => {
+    const draft = await geminiJson<DraftScript>(
+      showBiblePrompt({
+        format,
+        label: FORMATS[format].label,
+        brief: FORMATS[format].brief,
+        seed,
+        bankProps: usableProps(bank).map((b) => b.name).join(", "),
+        strict,
+        playbook: playbookText,
+        targetLines,
+      }),
+      SHOW_SCHEMA,
+      { temperature },
+    );
+    const props = parsePropSpecs(draft.propSpecs);
+    const names = Object.fromEntries(props.map((p) => [p.slug, episodePropName(p.slug, episodeId)]));
+    const clean = sanitizeScript({ ...draft, lines: mapPropSlugs(draft.lines ?? [], names) }, { fresh: Object.values(names), bank }, seed.slice(0, 80), 1);
+    const lines = withCta(clean.lines);
+    const used = props.filter((p) => lines.some((l) => l.prop_tag === names[p.slug]));
+    return { title: clean.title, lines, problems: showBibleProblems(lines, format, targetLines), props: used, names };
+  };
   let best: Attempt | null = null;
   let lastError = "";
   for (const strict of [false, true]) {
     if (strict && best && !best.problems.length) break;
     try {
-      const draft = await geminiJson<DraftScript>(
-        showBiblePrompt({
-          format,
-          label: FORMATS[format].label,
-          brief: FORMATS[format].brief,
-          seed,
-          bankProps: usableProps(bank).map((b) => b.name).join(", "),
-          strict: strict ? (best?.problems ?? [lastError || "the script was unusable"]) : undefined,
-        }),
-        SHOW_SCHEMA,
-        { temperature: strict ? 0.6 : 0.85 },
-      );
-      const props = parsePropSpecs(draft.propSpecs);
-      const names = Object.fromEntries(props.map((p) => [p.slug, episodePropName(p.slug, episodeId)]));
-      const clean = sanitizeScript({ ...draft, lines: mapPropSlugs(draft.lines ?? [], names) }, { fresh: Object.values(names), bank }, seed.slice(0, 80), 1);
-      const lines = withCta(clean.lines);
-      const used = props.filter((p) => lines.some((l) => l.prop_tag === names[p.slug]));
-      best = betterAttempt(best, { title: clean.title, lines, problems: showBibleProblems(lines, format), props: used, names });
-      console.log(`[scheduler] slot ${id} script attempt ${strict ? 2 : 1}: ${lines.length} lines${best.problems.length ? `, problems: ${best.problems.join("; ")}` : ", accepted"}`);
+      const prev: Attempt | null = best;
+      const kept: Attempt = betterAttempt(prev, await write(strict ? (prev?.problems ?? [lastError || "the script was unusable"]) : undefined, strict ? 0.6 : 0.85));
+      best = kept;
+      console.log(`[scheduler] slot ${id} script attempt ${strict ? 2 : 1}: ${kept.lines.length} lines${kept.problems.length ? `, problems: ${kept.problems.join("; ")}` : ", accepted"}`);
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
       console.error(`[scheduler] slot ${id} script attempt ${strict ? 2 : 1} failed: ${lastError}`);
     }
+  }
+  // the pre-render QA gate: deterministic checks + the playbook audit; a failing script is regenerated ONCE with the
+  // critique, and both passes go in the slot's run log
+  let qa: string[] = [];
+  if (best) {
+    const rules = playbook?.lessons.map((l) => l.rule_text) ?? [];
+    const gate = await runQaGate({
+      draft: best,
+      rules,
+      audit: (lines, r) => geminiJson<{ pass: boolean; violations: string[] }>(auditPrompt(lines, r), AUDIT_SCHEMA, { temperature: 0.1 }),
+      regenerate: (critique) => write([...critique.map((c) => `QA: ${c}`), ...best!.problems], 0.6),
+    });
+    qa = gate.log;
+    for (const l of qa) console.log(`[scheduler] slot ${id} ${l}`);
+    // the repair still has to be a usable Show Bible script: keep it only when it isn't shorter than the minimum
+    if (gate.final !== best && gate.final.lines.length >= MIN_LINES) best = gate.final;
   }
   if (!best) throw new Error(lastError || "Gemini returned no script.");
   if (best.lines.length < MIN_LINES) throw new Error(`Gemini wrote only ${best.lines.length} lines twice (a scheduled episode needs at least ${MIN_LINES}). Retry or regenerate the slot.`);
@@ -508,7 +541,7 @@ export async function scriptSlot(
   await sql`
     INSERT INTO scripts (project_id, version, title, target_duration_s, lines, sources, feedback, direction, custom, approved_at)
     VALUES (${p.id}, 1, ${title}, ${seconds}, ${sql.json(script.lines as never)}, '[]',
-            ${`Autonomous scheduler: ${FORMATS[format].label}, Uco & Ocu Show Bible, written by Gemini from the topic seed "${seed}".${best.problems.length ? ` Still short of the Show Bible after one retry: ${best.problems.join("; ")}.` : ""}`},
+            ${`Autonomous scheduler: ${FORMATS[format].label}, Uco & Ocu Show Bible, written by Gemini from the topic seed "${seed}".${best.problems.length ? ` Still short of the Show Bible after one retry: ${best.problems.join("; ")}.` : ""}${qa.length ? ` ${qa.join(" | ")}.` : ""}`},
             ${showDirection(r.visual_style)}, true, now())`;
   await saveCaptions(
     p.id,
@@ -518,7 +551,7 @@ export async function scriptSlot(
   const freshProps = best.props.map((x) => ({ slug: x.slug, name: best!.names[x.slug], prompt: x.prompt, status: "pending" }));
   await sql`UPDATE episode_queue SET episode_id = ${p.id}, handoff = ${sql.json({ props: freshProps } as never)}, updated_at = now() WHERE id = ${id}`;
   await move(id, "scripting", "voicing");
-  return { episodeId: p.id, title, reused: false, lines: script.lines.length };
+  return { episodeId: p.id, title, reused: false, lines: script.lines.length, qa };
 }
 
 // ------------------------------------------------------------------ step 2: voices (a few lines per call)
@@ -597,7 +630,9 @@ async function edgeContext(id: string) {
 export async function edgePlan(id: string) {
   const { booth } = await edgeContext(id);
   const { EDGE_VOICE, edgeJobs } = await import("./voice/edge");
-  return { voice: EDGE_VOICE, lines: edgeJobs(booth.lines as never, (i) => Boolean(booth.recorded[i])) };
+  const { getOverrides } = await import("./insights/server");
+  const overrides = await getOverrides().catch(() => []);
+  return { voice: EDGE_VOICE, lines: edgeJobs(booth.lines as never, (i) => Boolean(booth.recorded[i]), overrides) };
 }
 
 const linePrefix = (episodeId: string, scriptId: string, lineIndex: number, speaker: string) =>

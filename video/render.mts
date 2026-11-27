@@ -94,10 +94,13 @@ const manifest = JSON.parse((await get(`/api/render/${episodeId}`)).toString()) 
   custom?: boolean;
   /** uploaded custom props / SFX: name → HTTPS URL (Supabase Storage), loaded directly by Remotion */
   assetUrls?: AssetUrls;
+  /** Live Studio Tunables (gaps in s, music under speech, motion multiplier); absent from older app versions */
+  tunables?: { gaps: { rapid: number; standard: number; drop: number }; speechBgm: number; motionEnergy: number };
 };
 log(`"${manifest.title}" v${manifest.version}: ${manifest.lines.length} lines${manifest.custom ? " (custom script, no AI)" : ""}`);
 // manual (custom) scripts render exactly what they say: no keyword-guessed props or cards
-const direction = { ...parseDirection(manifest.direction), exact: Boolean(manifest.custom) };
+const direction = { ...parseDirection(manifest.direction), exact: Boolean(manifest.custom), ...(manifest.tunables ?? {}) };
+if (manifest.tunables) log(`studio tunables: ${JSON.stringify(manifest.tunables)}`);
 if (manifest.direction) log(`direction: ${JSON.stringify({ ...direction, notes: undefined })}`);
 // Props and SFX uploaded in the app (public Supabase bucket): Remotion loads them from their HTTPS URLs, saved on the
 // beats and listed by the app (nothing is written to public/).
@@ -252,7 +255,7 @@ if (direction.bgm) {
   const urgent = Boolean(direction.urgentBgm);
   const pick = (name: string) => bedFrom[name] ? `${bedFrom[name]}, prepared (even level from 0:00)` : assetUrls.sfx?.[name] ? `${assetUrls.sfx[name]} (uploaded in Studio Assets)` : assets.sfx.includes(`${name}.mp3`) ? `public/sfx/${name}.mp3` : null;
   const bgm = (urgent ? pick("bgm-urgent") : null) ?? pick("bgm");
-  log(`bgm: ${bgm ?? "NONE (add public/sfx/bgm.mp3): this episode has no music"} at ${Math.round(direction.bgmVolume * 100)}%, ${Math.round(BGM_UNDER_DIALOGUE * 100)}% under dialogue`);
+  log(`bgm: ${bgm ?? "NONE (add public/sfx/bgm.mp3): this episode has no music"} at ${Math.round(direction.bgmVolume * 100)}%, ${Math.round((direction.speechBgm ?? BGM_UNDER_DIALOGUE) * 100)}% under dialogue`);
 }
 log("bundling…");
 progress(13, "Getting the animation ready");

@@ -33,6 +33,27 @@ export const ACRONYMS: Record<string, string> = {
 };
 const ACRONYM_RX = new RegExp(`\\b(${Object.keys(ACRONYMS).join("|")})\\b`, "g");
 
+/** A Pronunciation Dictionary row (/insights): the written term (stored trimmed, lower-case) and what to say instead. */
+export type PronunciationOverride = { term: string; spoken_as: string };
+
+const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The owner's pronunciation fixes, for the TTS request only (the script and subtitles never change): each term matched
+ * case-insensitively as a whole word or phrase (not inside a longer word), longest term first, so "kopi susu gula aren"
+ * wins over "kopi susu". Applied before the built-in rules, so an owner fix always takes precedence.
+ */
+export function applyOverrides(text: string, overrides: readonly PronunciationOverride[]): string {
+  const rows = overrides
+    .map((o) => ({ term: o.term.replace(/\s+/g, " ").trim().toLowerCase(), spoken: o.spoken_as.replace(/\s+/g, " ").trim() }))
+    .filter((o) => o.term && o.spoken)
+    .sort((a, b) => b.term.length - a.term.length);
+  if (!rows.length) return text;
+  const map = new Map(rows.map((o) => [o.term, o.spoken]));
+  const rx = new RegExp(`(?<![\\p{L}\\p{N}])(${rows.map((o) => escapeRx(o.term).replace(/\s+/g, "\\s+")).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+  return text.replace(rx, (m) => map.get(m.toLowerCase().replace(/\s+/g, " ")) ?? m);
+}
+
 /**
  * The text the voice model should read for a script line (never shown to anyone), per engine:
  *   gemini      "Ucho" / "Ochu": Gemini reads "Uco" / "U-co" the Spanish / English way ("Uko")
@@ -42,8 +63,8 @@ const ACRONYM_RX = new RegExp(`\\b(${Object.keys(ACRONYMS).join("|")})\\b`, "g")
  *   elevenlabs  "U-co": split so it isn't slurred into "Ucu"
  * Every occurrence is a whole word ("kayak Uco" too, not "Ucok").
  */
-export function ttsText(text: string, voice: "gemini" | "edge" | "elevenlabs" = "elevenlabs"): string {
-  let out = text.replace(ACRONYM_RX, (m) => ACRONYMS[m]);
+export function ttsText(text: string, voice: "gemini" | "edge" | "elevenlabs" = "elevenlabs", overrides: readonly PronunciationOverride[] = []): string {
+  let out = applyOverrides(text, overrides).replace(ACRONYM_RX, (m) => ACRONYMS[m]);
   for (const [re, to] of RULES) out = out.replace(re, to);
   if (voice === "gemini") out = out.replace(/\bU-co\b/g, "Ucho").replace(/\bOcu\b/gi, "Ochu");
   if (voice === "edge") out = out.replace(/\bU-co\b/g, "Uco");

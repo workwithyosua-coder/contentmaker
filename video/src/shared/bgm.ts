@@ -9,14 +9,14 @@ export const BGM_UNDER_DIALOGUE = 0.12;
  * while someone talks, and `thoughtDuck` of that under (thought) lines (0 with "BGM off on thought"). Before this the
  * bed dropped to a third of 20 % (0.07, ≈ −23 dB) under every word, which under −14 LUFS dialogue read as silence.
  */
-export function bgmLevel(beats: Beat[], lines: EpisodeLine[], volume: number, thoughtDuck: number, f: number): number {
+export function bgmLevel(beats: Beat[], lines: EpisodeLine[], volume: number, thoughtDuck: number, f: number, underDialogue: number = BGM_UNDER_DIALOGUE): number {
   const drop = bgmDropOut(beats);
   if (drop && f >= drop.from && f < drop.to) return 0;
   const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);
   if (!b || b.line === null) return volume; // end card: full bed
   const l = lines[b.line];
   const talking = (l.envelope?.[f - b.startFrame] ?? 0) > 0.08;
-  const bed = talking ? Math.min(volume, BGM_UNDER_DIALOGUE) : volume;
+  const bed = talking ? Math.min(volume, underDialogue) : volume;
   return bed * (b.thought ? thoughtDuck : 1);
 }
 

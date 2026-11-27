@@ -223,6 +223,16 @@
     background: var(--bad-bg);
     border-color: var(--bad);
   }
+  /* a pressed toggle (Director's Review rating / issue tags): a heavy text-colour ring and a check, not colour alone */
+  .review-toggle[aria-pressed="true"] {
+    background: var(--surface-2);
+    border-color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--text);
+  }
+  .review-toggle[aria-pressed="true"]::before {
+    content: "✓";
+    font-weight: 700;
+  }
   .btn-quiet {
     background: transparent;
     color: var(--muted);

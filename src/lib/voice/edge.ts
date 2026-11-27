@@ -9,7 +9,7 @@
 //   gemini_tts:                  gemini-3.8-flash-tts first; on 429 / quota, Edge TTS takes over the remaining lines
 import { RVC_BASE_MARK } from "../renderWorker";
 import { actingPose, assertSpokenOnly, linesToVoice, type VoiceProvider } from "./acting";
-import { ttsText } from "./phonetic";
+import { ttsText, type PronunciationOverride } from "./phonetic";
 
 export const EDGE_VOICE = "id-ID-ArdiNeural";
 /** In every Edge TTS take's ai_prompt (also kept on RVC conversions of one), so the renderer can tell them apart. */
@@ -81,11 +81,11 @@ export type EdgeJob = { lineIndex: number; speaker: "uco" | "ocu"; text: string;
  * The worker's Edge TTS jobs: every line WITHOUT a take (cached audio is never voiced again), with the phonetic text
  * the voice reads ("&" → "dan", "@uco.ocu" → "Uco Ocu"; the stored script and subtitles stay as written) and its prosody.
  */
-export function edgeJobs(lines: (ProsodyLine & { index: number; text: string })[], hasTake: (index: number) => boolean): EdgeJob[] {
+export function edgeJobs(lines: (ProsodyLine & { index: number; text: string })[], hasTake: (index: number) => boolean, overrides: readonly PronunciationOverride[] = []): EdgeJob[] {
   return linesToVoice(lines, hasTake, "missing")
     .filter((l) => (l.speaker === "uco" || l.speaker === "ocu") && l.text.trim())
     .map((l) => {
       const p = edgeProsody(l);
-      return { lineIndex: l.index, speaker: l.speaker, text: assertSpokenOnly(ttsText(l.text, "edge")), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
+      return { lineIndex: l.index, speaker: l.speaker, text: assertSpokenOnly(ttsText(l.text, "edge", overrides)), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
     });
 }

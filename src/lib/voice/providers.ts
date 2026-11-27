@@ -37,7 +37,10 @@ export async function voiceTake(p: {
   if (route.engine === "gemini") {
     // Own Voice: this is Stage A, the acted base take; the render worker converts it to the user's voice (Stage B)
     // the dialogue only (verbatim) as text, the acting cue as speechMetadata.style
-    const { text, style } = geminiSpeech(p.line, p.preset, p.extra);
+    // the owner's Pronunciation Dictionary (spoken text only) and the Live Studio Tunables' voice expressiveness
+    const { getOverrides, getTunables } = await import("../insights/server");
+    const [overrides, tunables] = await Promise.all([getOverrides().catch(() => []), getTunables().catch(() => null)]);
+    const { text, style } = geminiSpeech(p.line, p.preset, p.extra, { overrides, expressiveness: tunables?.voice_expressiveness });
     const { wav, originalMs, keptMs, payload, tail } = await speakGeminiTake(text, style, p.line.speaker);
     const mark = route.rvc ? RVC_BASE_MARK : "[gemini_tts]";
     const prompt = `style: ${style} | text: ${text}`;

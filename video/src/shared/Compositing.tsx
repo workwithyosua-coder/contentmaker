@@ -55,12 +55,27 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
  * Background music bed (sfx/bgm.mp3, or bgm-urgent.mp3 for urgent episodes; looped) when the direction turns it on,
  * at bgmLevel with ≈ 150 ms fades. Silent without the file.
  */
-export function BackgroundMusic({ volume, thoughtDuck, urgent = false, beats, lines }: { volume: number; thoughtDuck: number; urgent?: boolean; beats: Beat[]; lines: EpisodeLine[] }) {
+export function BackgroundMusic({
+  volume,
+  thoughtDuck,
+  urgent = false,
+  beats,
+  lines,
+  underDialogue,
+}: {
+  volume: number;
+  thoughtDuck: number;
+  urgent?: boolean;
+  beats: Beat[];
+  lines: EpisodeLine[];
+  /** the music level under speech (Live Studio Tunables), else BGM_UNDER_DIALOGUE */
+  underDialogue?: number;
+}) {
   // urgent episodes ("BGM: urgent", or an angry line) use the urgent track when there is one: uploaded, then repo,
   // then the regular bed
   const file = assetSrc(bgmFile(urgent || beats.some((b) => b.angry)));
   if (!file) return null;
-  const target = (f: number) => bgmLevel(beats, lines, volume, thoughtDuck, f);
+  const target = (f: number) => bgmLevel(beats, lines, volume, thoughtDuck, f, underDialogue);
   // a 5-frame (≈ 150 ms) moving average: dips into and out of thoughts (and under speech) fade instead of clicking
   const level = (f: number) => [0, 1, 2, 3, 4].reduce((s, k) => s + target(Math.max(0, f - k)), 0) / 5;
   return <Audio src={file} loop volume={level} onError={() => undefined} />;

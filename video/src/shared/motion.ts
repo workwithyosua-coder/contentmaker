@@ -76,13 +76,25 @@ const BREATH = { px: 1.5, swell: 0.005, period: 22 };
  * (scaleY up to 1.045, scaleX down to 0.975) and a swaying tilt (±2.8° Uco, ±1.2° Ocu), over a breathing idle so a
  * figure is never frozen. Inner thoughts only breathe.
  */
-export function bodyMotion(who: "uco" | "ocu", level: number, globalFrame: number, thought: boolean): { dy: number; sx: number; sy: number; tilt: number } {
+let MOTION_ENERGY = 1;
+/**
+ * The episode's motion energy (Live Studio Tunables, 0.8-1.4; 1 = as designed). The composition sets it from its
+ * direction at the top of each render, before any puppet renders, so every frame in every render tab reads the same value.
+ */
+export function setMotionEnergy(x: number | null | undefined) {
+  MOTION_ENERGY = x == null || !Number.isFinite(x) ? 1 : Math.min(1.4, Math.max(0.8, x));
+}
+export const motionEnergy = () => MOTION_ENERGY;
+
+export function bodyMotion(who: "uco" | "ocu", level: number, globalFrame: number, thought: boolean, energy: number = motionEnergy()): { dy: number; sx: number; sy: number; tilt: number } {
   const b = Math.sin((2 * Math.PI * globalFrame) / (BREATH.period * 4));
   const idle = { dy: -BREATH.px * b, sy: 1 + BREATH.swell * b };
   if (thought) return { dy: idle.dy, sx: 1, sy: idle.sy, tilt: 0 };
   const l = Math.min(1, Math.max(0, level));
   const e = BODY_ENERGY[who];
-  return { dy: idle.dy - e.bob * l, sx: 1 - e.squash * l, sy: idle.sy * (1 + e.stretch * l), tilt: e.tilt * l * Math.sin(globalFrame / e.sway) };
+  // Live Studio Tunables: motion energy scales the bounce, squash-stretch and tilt (0.8-1.4; the idle breath stays)
+  const k = Math.min(1.4, Math.max(0.8, Number.isFinite(energy) ? energy : 1));
+  return { dy: idle.dy - e.bob * l * k, sx: 1 - e.squash * l * k, sy: idle.sy * (1 + e.stretch * l * k), tilt: e.tilt * l * k * Math.sin(globalFrame / e.sway) };
 }
 
 /** Frames of a speaker's entrance after a cut. */

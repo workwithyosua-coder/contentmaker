@@ -8,7 +8,7 @@ import { useSpriteFrames } from "../cast/useSpriteFrames";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, WhipStreaks, type DirectorSkin } from "../shared/Director";
 import { BeatSubtitle, SubtitleScrim } from "../shared/MovieSubtitle";
-import { cameraAt, cutDirection, holdFrames, whipOffset } from "../shared/motion";
+import { cameraAt, cutDirection, holdFrames, setMotionEnergy, whipOffset } from "../shared/motion";
 import { sfxCuesFor } from "../shared/sfxCues";
 import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
@@ -44,6 +44,8 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
   // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
   registerRemoteAssets(assetUrls);
   registerLineAssets(lines);
+  // Live Studio Tunables: the puppets' motion energy, set before any puppet renders
+  setMotionEnergy(direction?.motionEnergy);
   // uploaded sprites are measured once so they're framed like the calibrated ones (spriteFrame.ts)
   useSpriteFrames(Object.values(assetUrls?.cast ?? {}));
   const beats = koranPoses(buildBeats(lines, direction), lines);
@@ -65,7 +67,7 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="paper" />
       <SfxCues cues={sfxCuesFor(beats)} />
-      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} />}
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} underDialogue={direction.speechBgm} />}
     </AbsoluteFill>
   );
 }

@@ -19,6 +19,9 @@ import { requiredAssets } from "../../../../video/src/beats";
 import { usesImportantMessages } from "../../../../video/src/styles/registry";
 import { shotPrompts } from "@/lib/shot-prompts";
 import { PublishPanel } from "@/components/publish-panel";
+import { DirectorsReview } from "@/components/directors-review";
+import { latestReview } from "@/lib/insights/server";
+import { saveReviewAction } from "@/app/insights/actions";
 import { VideoUpload } from "@/components/video-upload";
 import { ScriptEditor, ScriptLine } from "@/components/script-editor";
 import { SetupNotice } from "@/components/setup-notice";
@@ -459,6 +462,20 @@ async function Episode({
         </Card>
       )}
 
+      {video && (
+        <Card title="Director's Review">
+          <Suspense
+            fallback={
+              <p className="text-sm text-muted" role="status" aria-busy="true" data-review-loading>
+                Loading the last review...
+              </p>
+            }
+          >
+            <ReviewCard projectId={project.id} />
+          </Suspense>
+        </Card>
+      )}
+
       {latestScript && (
         <Card title={video ? "Replace the video" : "Episode video"}>
           <VideoUpload start={startVideoUploadAction.bind(null, project.id)} finish={finishVideoUploadAction.bind(null, project.id)} />
@@ -662,4 +679,25 @@ function ScriptView({
 /** Anthropic's "credit balance is too low" / billing errors, told apart from other failures. */
 function aiCreditError(err: string | null): boolean {
   return Boolean(err && /credit balance|billing|insufficient (credit|funds|balance)|purchase credits/i.test(err));
+}
+
+/** The Director's Review card's body: the last review (Empty when none), or an Error state when it can't be loaded. */
+async function ReviewCard({ projectId }: { projectId: string }) {
+  let last;
+  try {
+    last = await latestReview(projectId);
+  } catch (e) {
+    console.error("[review] failed to load the last review:", e);
+    return (
+      <p role="alert" className="text-sm" style={{ color: "var(--bad)" }} data-review-load-error>
+        The Director&apos;s Review couldn&apos;t load: {e instanceof Error ? e.message : String(e)}. Reload the page to try again.
+      </p>
+    );
+  }
+  return (
+    <DirectorsReview
+      last={last ? { rating: last.rating, issue_tags: last.issue_tags, created_at: last.created_at.toISOString() } : null}
+      save={saveReviewAction.bind(null, projectId)}
+    />
+  );
 }
