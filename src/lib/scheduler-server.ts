@@ -547,7 +547,7 @@ export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; 
     await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
     return { voiced: 0, remaining: 0, total, rvc, engine: schedulerVoiceEngine(v.provider), note: null };
   }
-  // any other provider (not offered by the scheduler) goes straight to the worker's Edge TTS
+  // Own Voice (Edge TTS base takes, then RVC) and any provider the scheduler doesn't offer: the worker's Edge TTS
   if (schedulerVoiceEngine(v.provider) === "edge") {
     return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Edge TTS makes the ${todo.length} take(s) in the worker.` };
   }

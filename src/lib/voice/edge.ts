@@ -1,10 +1,11 @@
-// Free Microsoft Edge TTS (edge-tts, voice id-ID-ArdiNeural), run inside the GitHub Actions worker as the fallback
-// when Gemini TTS is out of quota. This module is the app's half: which lines need a voice, the text
+// Free Microsoft Edge TTS (edge-tts, voice id-ID-ArdiNeural), run inside the GitHub Actions worker: the base voice of
+// scheduled Own Voice episodes, and the fallback when Gemini TTS is out of quota. This module is the app's half: which lines need a voice, the text
 // the voice reads, and each line's prosody (rate / pitch from the character and the pose). Pure code: no network, no AI.
 //
 // Routing in the scheduler (Gemini API key on Paid Tier 1):
-//   gemini_tts_rvc (Own Voice): gemini-3.8-flash-tts first (the acted base takes), then RVC converts them; on a 429 /
-//                               quota error Edge TTS makes the remaining base takes in the worker (also converted)
+//   gemini_tts_rvc (Own Voice): Edge TTS makes every base take in the worker, then RVC converts them. Never Gemini TTS:
+//                               its takes ended with a "tsk" click, and a 429 mid-episode switched voices halfway
+//                               through (Gemini lines, then Edge lines)
 //   gemini_tts:                  gemini-3.8-flash-tts first; on 429 / quota, Edge TTS takes over the remaining lines
 import { RVC_BASE_MARK } from "../renderWorker";
 import { actingPose, assertSpokenOnly, linesToVoice, type VoiceProvider } from "./acting";
@@ -61,11 +62,12 @@ export function takeSource(source: string, aiPrompt: string | null | undefined):
 }
 
 /**
- * Which engine the scheduler's worker voices with first: Gemini TTS for both Gemini providers (Own Voice keeps the
- * full acted Indonesian delivery before RVC). Edge TTS only takes over after a 429 / quota error (isQuotaError).
+ * Which engine a scheduled episode is voiced with. Own Voice (gemini_tts_rvc): Edge TTS for every line, then RVC, so
+ * one clean voice from the first line to the last. Gemini TTS: Gemini first, Edge TTS only after a 429 / quota error
+ * (isQuotaError). Anything else: Edge TTS (never ElevenLabs unattended).
  */
 export function schedulerVoiceEngine(provider: VoiceProvider): "edge" | "gemini" {
-  return provider === "gemini_tts" || provider === "gemini_tts_rvc" ? "gemini" : "edge";
+  return provider === "gemini_tts" ? "gemini" : "edge";
 }
 
 /** A TTS failure that means "out of quota / rate limited": the cue to hand the rest of the slot to Edge TTS. */
