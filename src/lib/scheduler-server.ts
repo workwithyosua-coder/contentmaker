@@ -570,8 +570,12 @@ export async function voiceSlot(id: string, max = 4): Promise<{ voiced: number; 
       throw new Error(`Voicing line ${l.index + 1} failed: ${message}`);
     }
     voiced++;
-    const t = (r as { trim?: { originalMs: number; keptMs: number } }).trim;
-    if (t) trims.push(`line ${l.index + 1}: ${t.originalMs} → ${t.keptMs} ms (tail cut ${t.originalMs - t.keptMs} ms)`);
+    const t = (r as { trim?: { originalMs: number; keptMs: number; summary: string; payload: string } }).trim;
+    if (t) {
+      trims.push(`line ${l.index + 1}: ${t.originalMs} → ${t.keptMs} ms (tail cut ${t.originalMs - t.keptMs} ms)`);
+      // the first 3 lines: what Gemini sent and what the classifier saw in the last 500 ms
+      if (l.index < 3) trims.push(`line ${l.index + 1} detail: payload ${t.payload}; tail ${t.summary}`);
+    }
   }
   const remaining = todo.length - voiced;
   if (!remaining) await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;

@@ -1,7 +1,8 @@
 // Voice providers and the acting direction they get. Pure code (no network, no server-only imports): the pickers,
 // the server and the unit tests share it. The script text itself is never changed: a provider gets the line exactly
 // as written, plus a separate acting direction derived from the line's pose and the episode's delivery preset.
-import { FADE_OUT_S, speechEndSeconds } from "../../../video/src/audioChain";
+import { FADE_OUT_S, speechTail } from "../../../video/src/audioChain";
+import type { TailReport } from "../../../video/src/voicedTail";
 import { ttsText } from "./phonetic";
 
 export const VOICE_PROVIDERS = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"] as const;
@@ -210,15 +211,60 @@ export function cleanPcmTail(pcm: Uint8Array, sampleRate = 24000): Uint8Array {
   return cleanPcmTailStats(pcm, sampleRate).pcm;
 }
 
-/** cleanPcmTail, with the take's length before and after (for the worker log: "4120 → 3870 ms"). */
-export function cleanPcmTailStats(pcm: Uint8Array, sampleRate = 24000): { pcm: Uint8Array; originalMs: number; keptMs: number } {
+/** cleanPcmTail, with the take's length before and after and the tail diagnostics (for the worker log). */
+export function cleanPcmTailStats(pcm: Uint8Array, sampleRate = 24000): { pcm: Uint8Array; originalMs: number; keptMs: number; tail: TailReport } {
   const even = pcm.subarray(0, pcm.length - (pcm.length % 2));
   const samples = new Int16Array(even.buffer.slice(even.byteOffset, even.byteOffset + even.length));
-  const keep = Math.min(samples.length, Math.round(speechEndSeconds(samples, sampleRate) * sampleRate));
+  const tail = speechTail(samples, sampleRate);
+  const keep = Math.min(samples.length, Math.round((tail.endMs / 1000) * sampleRate));
   const out = samples.slice(0, keep);
   const fade = Math.min(keep, Math.round(FADE_OUT_S * sampleRate));
   for (let i = 0; i < fade; i++) out[keep - fade + i] = Math.round(out[keep - fade + i] * (1 - (i + 1) / fade));
-  return { pcm: new Uint8Array(out.buffer), originalMs: Math.round((samples.length / sampleRate) * 1000), keptMs: Math.round((keep / sampleRate) * 1000) };
+  return { pcm: new Uint8Array(out.buffer), originalMs: Math.round((samples.length / sampleRate) * 1000), keptMs: Math.round((keep / sampleRate) * 1000), tail };
+}
+
+export type PcmPayload = { pcm: Uint8Array; rate: number; container: "raw" | "wav"; mime: string; bytes: number; strippedBytes: number };
+const ascii = (b: Uint8Array, at: number, n = 4) => String.fromCharCode(...b.subarray(at, at + n));
+/** Chunk ids that never belong inside raw PCM (a WAV / RIFF trailer, ID3 tags). */
+const TRAILER_IDS = ["LIST", "INFO", "RIFF", "id3 ", "ID3 ", "JUNK", "bext"];
+
+/**
+ * Gemini's `inlineData` as plain 16-bit mono PCM, checked rather than wrapped blindly. Raw `audio/L16` (the normal
+ * case) is kept as is, minus a stray odd byte and any RIFF / ID3 trailer chunk found in its last 4 KB (which would
+ * play as a burst of noise at the end). A WAV container is parsed: only its `data` chunk is kept (LIST / INFO chunks
+ * dropped) at the rate its `fmt ` chunk states. MP3 / OGG / FLAC is refused with a clear error instead of being read
+ * as PCM noise.
+ */
+export function geminiPcm(data: Uint8Array, mimeType: string | null | undefined): PcmPayload {
+  const mime = mimeType ?? "";
+  const bytes = data.length;
+  if (bytes >= 12 && ascii(data, 0) === "RIFF" && ascii(data, 8) === "WAVE") {
+    const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    let rate = pcmRate(mime);
+    let at = 12;
+    while (at + 8 <= bytes) {
+      const id = ascii(data, at);
+      const size = v.getUint32(at + 4, true);
+      if (id === "fmt ") rate = v.getUint32(at + 12, true) || rate;
+      if (id === "data") {
+        const pcm = data.subarray(at + 8, Math.min(bytes, at + 8 + size));
+        const even = pcm.subarray(0, pcm.length - (pcm.length % 2));
+        return { pcm: even, rate, container: "wav", mime, bytes, strippedBytes: bytes - even.length };
+      }
+      at += 8 + size + (size % 2);
+    }
+    throw new Error(`Gemini TTS returned a WAV without a data chunk (${mime}, ${bytes} bytes).`);
+  }
+  const kind = ascii(data, 0, 3) === "ID3" || (data[0] === 0xff && (data[1] & 0xe0) === 0xe0) ? "MP3" : ascii(data, 0) === "OggS" ? "OGG" : ascii(data, 0) === "fLaC" ? "FLAC" : null;
+  if (kind) throw new Error(`Gemini TTS returned ${kind} audio, not raw PCM (${mime || "no mime type"}, ${bytes} bytes).`);
+  let end = bytes - (bytes % 2);
+  for (let at = Math.max(0, end - 4096); at + 4 <= end; at += 2) {
+    if (TRAILER_IDS.includes(ascii(data, at))) {
+      end = at;
+      break;
+    }
+  }
+  return { pcm: data.subarray(0, end), rate: pcmRate(mime), container: "raw", mime, bytes, strippedBytes: bytes - end };
 }
 
 /** Length of a 16-bit WAV made by pcmToWav, in ms. */
