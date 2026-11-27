@@ -1,18 +1,28 @@
 import { revalidatePath } from "next/cache";
 import { notFound, renderAuthorized } from "@/lib/render";
+import { parseJobReport, serverError } from "@/lib/render-manifest";
 import { updateRenderJob } from "@/lib/render-jobs";
 
-// POST /api/render/:id/job { jobId, status: running|done|failed, error?, runUrl?, progress?, stage? } — progress from the render workflow.
+// POST /api/render/:id/job { jobId, status: running|converting_voice|rendering|done|failed, error?, runUrl?, progress?, stage? }
+// — progress from the render workflow. 400 only for a report that can't be used (missing job id, unknown status) or an
+// unknown job; a server or database failure is a retryable 503 with the reason, so a worker's failure report retries
+// instead of being lost.
 export async function POST(request: Request, ctx: RouteContext<"/api/render/[id]/job">) {
   if (!renderAuthorized(request)) return notFound();
   const { id } = await ctx.params;
-  const b = (await request.json().catch(() => ({}))) as { jobId?: string; status?: string; error?: string; runUrl?: string; progress?: number; stage?: string };
-  if (!b.jobId || !/^[0-9a-f-]{36}$/.test(b.jobId) || !b.status) return Response.json({ error: "jobId and status are required." }, { status: 400 });
+  const parsed = parseJobReport(await request.json().catch(() => null));
+  if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+  const r = parsed.report;
   try {
-    await updateRenderJob(id, b.jobId, b.status, b.error?.slice(0, 500), b.runUrl, b.progress, b.stage?.slice(0, 80));
+    await updateRenderJob(id, r.jobId, r.status, r.error, r.runUrl, r.progress, r.stage);
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+    if (err instanceof Error && /^(Unknown render job|Bad status)/.test(err.message)) return Response.json({ error: err.message }, { status: 400 });
+    return serverError(`render job ${r.jobId}`, err, 503);
   }
-  revalidatePath(`/create/${id}`);
+  try {
+    revalidatePath(`/create/${id}`);
+  } catch (err) {
+    console.error(`[render job ${r.jobId}] revalidate failed (the status was saved):`, err);
+  }
   return Response.json({ ok: true });
 }
