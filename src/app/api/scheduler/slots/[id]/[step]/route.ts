@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { notFound, renderAuthorized } from "@/lib/render";
+import { isDbPoolError } from "@/lib/db";
 import { normalizeProgress } from "@/lib/slotProgress";
 import { SlotStateError, setProgress, edgeFinish, propFinish, propGenerate, propPlan, propUpload, edgePlan, edgeUpload, failSlot, finishSlot, scriptSlot, startSlotRender, voiceSlot } from "@/lib/scheduler-server";
 
@@ -7,6 +8,7 @@ export const maxDuration = 300;
 
 // POST /api/scheduler/slots/:id/:step (RENDER_TOKEN), called by the autonomous-scheduler workflow for one slot:
 //   script → Gemini writes the script, the episode is created          (scripting → voicing)
+//   (any step: a busy database pool, EMAXCONNSESSION and the like, answers 503 and leaves the slot untouched)
 //   voice  → voices up to 6 lines; call again until remaining is 0. engine "edge": the worker's Edge TTS takes over
 //            (always for Own Voice, and for Gemini TTS slots after a 429 / quota error)
 //   prop-plan     → the episode's fresh props still to make (name, prompt)
@@ -32,7 +34,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/scheduler/s
     try {
       return Response.json({ ...(await setProgress(id, v.value)), ...v.value });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: isDbPoolError(e) ? 503 : 500 });
     }
   }
   const b = raw as { error?: string; runUrl?: string; lineIndex?: number; path?: string; durationMs?: number; name?: string; ok?: boolean };
@@ -56,9 +58,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/scheduler/s
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[scheduler] slot ${id} ${step} failed: ${message}`);
-    // a call for a slot in another state (late / duplicate worker) changes nothing; any other failure fails the slot
-    // right away, with the reason the Schedule page shows
+    // a call for a slot in another state (late / duplicate worker) changes nothing; a busy database pool
+    // (EMAXCONNSESSION…) is a retryable 503 that leaves the slot as it is (the worker retries with a short backoff);
+    // any other failure fails the slot right away, with the reason the Schedule page shows
     if (e instanceof SlotStateError) return Response.json({ error: message }, { status: 409 });
+    if (isDbPoolError(e)) return Response.json({ error: `The database is busy, retry: ${message}` }, { status: 503, headers: { "Retry-After": "3" } });
     if (step !== "fail") await failSlot(id, message, b.runUrl ?? null).catch(() => {});
     revalidatePath("/schedule");
     return Response.json({ error: message }, { status: 422 });

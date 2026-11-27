@@ -41,7 +41,8 @@ function draft(n: number, extra: (i: number) => Partial<DraftLine> = () => ({}))
     return {
       beat: i === 0 ? "hook" : last ? "button" : i === 7 ? "insight" : "escalation",
       speaker: last ? "ocu" : uco ? "uco" : "ocu",
-      text: last ? "Follow @uco.ocu biar nggak ketipu lagi!" : `Baris ${i + 1}, gue bilang skincare mahal itu perlu banget.`,
+      // three rapid-fire interjections (3-7 words) between the 8-word lines
+      text: last ? "Follow @uco.ocu biar nggak ketipu lagi!" : [2, 5, 12].includes(i) ? "Hah, serius lo?!" : `Baris ${i + 1}, gue bilang skincare mahal itu perlu banget.`,
       subtitle: `Line ${i + 1}`,
       pose: last ? "cta" : i === 9 ? "thought" : uco ? "triumphant" : "deadpan",
       shot: uco ? "solo-uco" : "solo-ocu",
@@ -98,7 +99,7 @@ test("visual direction is populated on every line: pose, shot, callouts, SFX, st
   assert.ok(lines.every((l) => l.emotion && l.camera_shot), "no blank pose or shot");
   assert.equal(lines[2].emotion, "triumphant");
   assert.equal(lines[9].thought_bubble, true, "pose thought → an inner-monologue line");
-  assert.equal(lines[9].kinetic_text, null);
+  assert.equal(lines[9].kinetic_text, "SERUM MAHAL", "a thought with no callout: its headline as the 2-5 word caption, never blank");
   assert.deepEqual([lines[5].layout, lines[5].stat, lines[5].sfx], ["takeover", "900 RIBU | SEBULAN", ["stamp"]]);
   assert.equal(lines[7].overlay, "brain-badge");
   assert.equal(lines[0].kinetic_text, "SERUM 900 RIBU");

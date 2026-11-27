@@ -53,7 +53,7 @@ test("Gemini gets the line exactly as written (no script rewriting) as its text,
   const text = 'Uco & Ocu: "Ujung Kulon ke Alas Purwo?!" (serius)';
   const g = geminiSpeech(L({ text, emotion: "angry" }), "angry", "lebih keras di akhir");
   assert.equal(g.text, 'Ucho dan Ochu: "Ujung Kulon ke Alas Purwo?!" (serius)', "the line only (phonetic fixes), nothing added");
-  assert.match(g.style, /Outraged Jakartan Indonesian rant.*urgent, pressing; lebih keras di akhir$/);
+  assert.match(g.style, /Genuinely panicked and furious, high-pitched.*urgent, pressing; lebih keras di akhir$/);
   assert.doesNotMatch(g.text, /Bacakan|Ucapkan persis|lebih keras/);
   assert.notEqual(GEMINI_VOICES.uco, GEMINI_VOICES.ocu, "Uco and Ocu sound different");
   assert.deepEqual(GEMINI_VOICES, { uco: "Puck", ocu: "Charon" });

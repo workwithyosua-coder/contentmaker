@@ -199,7 +199,7 @@ test("an unattended script never references a missing prop, and its visual field
   assert.equal(lines[0].kinetic_text, "JUS RENDANG VIRAL HARI", "emphasis beat without a callout: its headline, 4 words");
   assert.deepEqual([lines[3].layout, lines[3].stat, lines[3].sfx[0]], ["takeover", "TINGGI | KALORI SEPORSI", "stamp"]);
   assert.equal(lines[4].layout, "standard", "takeover without a stat is a normal line");
-  assert.equal(lines[4].kinetic_text, null, "no callout on an inner thought");
+  assert.equal(lines[4].kinetic_text, "ADA BENARNYA", "an inner thought: its 2-5 word italic caption, not a stamped callout");
   // the render's own asset check (exact scripts: only named props) finds nothing to draw
   const props = requiredAssets(lines as never, { direction: { exact: true } as never }).props;
   assert.deepEqual(props.map((p) => [p.name, p.ready]), [["bubur-kerupuk", true]]);

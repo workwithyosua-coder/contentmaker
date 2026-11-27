@@ -102,7 +102,7 @@ test("generated props: style references must be real PNGs (the live run sent the
 });
 
 // ------------------------------------------------------------------ 2. audio
-test("every clip: gentle onset with a 40-60 ms pad and a 70 ms tail, only dead pauses (> 0.5 s) shortened, 15 / 40 ms fades", () => {
+test("every clip: gentle onset with a 40-60 ms pad and a 70 ms tail, only dead pauses (> 0.5 s) shortened, 15 / 45 ms fades", () => {
   assert.match(TRIM, /silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0\.05,/);
   assert.ok(LEAD_IN_MS >= 40 && LEAD_IN_MS <= 60);
   assert.equal(LEAD_IN, "adelay=50:all=1,");
@@ -110,9 +110,9 @@ test("every clip: gentle onset with a 40-60 ms pad and a 70 ms tail, only dead p
   assert.equal(PAUSES, "silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-42dB:stop_silence=0.3,", "only a dead pause over 0.5 s, down to 0.3 s");
   assert.doesNotMatch(TRIM + PAUSES, /stop_duration=0\.18/, "no 0.18 s mid-line chopping");
   assert.doesNotMatch(THOUGHT_FILTER, /aecho|lowpass=f=4500|highpass=f=250/, "no hollow / walkie-talkie thought filter");
-  assert.equal(fades(2), "afade=t=in:st=0:d=0.015,afade=t=out:st=1.960:d=0.04");
-  assert.equal(fades(0.01), "afade=t=in:st=0:d=0.015,afade=t=out:st=0.000:d=0.04");
-  assert.ok(GAPS.switch >= 0.28 && GAPS.switch <= 0.32 && GAPS.same >= 0.22 && GAPS.same <= 0.26 && GAPS.shift >= 0.4 && GAPS.shift <= 0.45);
+  assert.equal(fades(2), "afade=t=in:st=0:d=0.015,afade=t=out:st=1.955:d=0.045");
+  assert.equal(fades(0.01), "afade=t=in:st=0:d=0.015,afade=t=out:st=0.000:d=0.045");
+  assert.ok(GAPS.rapid >= 0.08 && GAPS.rapid <= 0.12 && GAPS.standard >= 0.2 && GAPS.standard <= 0.24 && GAPS.drop >= 0.35 && GAPS.drop <= 0.4);
   // the renderer, Edge TTS and RVC all use them, the fades last (on the final length)
   const render = read("video/render.mts");
   assert.match(render, /import \{ LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades \} from "\.\/src\/audioChain\.ts";/);

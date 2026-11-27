@@ -523,12 +523,13 @@ export async function scriptSlot(
 
 // ------------------------------------------------------------------ step 2: voices (a few lines per call)
 /**
- * Step 2, voices. Own Voice slots never call Gemini TTS: the answer is engine "edge" and the worker makes every
- * missing base take with Edge TTS (then RVC converts them). Gemini TTS slots voice up to `max` lines with Gemini; on a
- * 429 / quota error the rest goes to the worker's Edge TTS instead of failing the slot. Lines that already have a
- * take are never voiced again.
+ * Step 2, voices. Both Gemini providers voice up to `max` lines per call with gemini-3.8-flash-tts, one at a time,
+ * paced at ≤ 9 requests a minute with a 429 retried 3 times (voice/tts-pacing.ts), so an episode stays on one
+ * expressive engine from line 1 to the last (Own Voice: the acted base takes then go to RVC). Only a 429 that
+ * survives its retries hands the rest to the worker's Edge TTS (the emergency fallback). Lines that already have a
+ * take are never voiced again. `trims`: each new take's tail cut ("line 3: 4120 → 3870 ms"), for the worker log.
  */
-export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null }> {
+export async function voiceSlot(id: string, max = 4): Promise<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null; trims: string[] }> {
   const s = await slot(id);
   if (s.status !== "voicing" || !s.episode_id) throw new SlotStateError(`The slot is ${s.status}, not voicing.`);
   const { getBooth } = await import("./recordings");
@@ -545,35 +546,36 @@ export async function voiceSlot(id: string, max = 6): Promise<{ voiced: number; 
   await db()`UPDATE episode_queue SET updated_at = now() WHERE id = ${id}`;
   if (!todo.length) {
     await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
-    return { voiced: 0, remaining: 0, total, rvc, engine: schedulerVoiceEngine(v.provider), note: null };
+    return { voiced: 0, remaining: 0, total, rvc, engine: schedulerVoiceEngine(v.provider), note: null, trims: [] };
   }
-  // Own Voice (Edge TTS base takes, then RVC) and any provider the scheduler doesn't offer: the worker's Edge TTS
+  // a provider the scheduler doesn't offer: the worker's Edge TTS
   if (schedulerVoiceEngine(v.provider) === "edge") {
-    return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Edge TTS makes the ${todo.length} take(s) in the worker.` };
+    return { voiced: 0, remaining: todo.length, total, rvc, engine: "edge", note: `Edge TTS makes the ${todo.length} take(s) in the worker.`, trims: [] };
   }
   const { voiceTake } = await import("./voice/providers");
   let voiced = 0;
-  for (let i = 0; i < Math.min(max, todo.length); i += 3) {
-    const batch = todo.slice(i, Math.min(i + 3, max));
-    const results = await Promise.all(
-      batch.map((l) =>
-        voiceTake({ userId: s.user_id, projectId: s.episode_id!, scriptId: booth.script!.id, lineIndex: l.index, line: l, provider: v.provider, preset: v.preset }).catch(
-          (e: Error) => ({ ok: false as const, message: e.message }),
-        ),
-      ),
+  const trims: string[] = [];
+  // one line at a time: the requests are paced (≤ 9 a minute), so parallel calls would only queue
+  for (const l of todo.slice(0, max)) {
+    const r = await voiceTake({ userId: s.user_id, projectId: s.episode_id!, scriptId: booth.script!.id, lineIndex: l.index, line: l, provider: v.provider, preset: v.preset }).catch(
+      (e: Error) => ({ ok: false as const, message: e.message }),
     );
-    voiced += results.filter((r) => r.ok).length;
-    const bad = results.find((r) => !r.ok) as { message: string } | undefined;
-    if (bad && isQuotaError(bad.message)) {
-      const note = `Gemini TTS quota hit (${bad.message.slice(0, 200)}). Edge TTS fallback used for the remaining ${todo.length - voiced} line(s).`;
-      console.warn(`[scheduler] slot ${id}: ${note}`);
-      return { voiced, remaining: todo.length - voiced, total, rvc, engine: "edge", note };
+    if (!r.ok) {
+      const message = (r as { message: string }).message;
+      if (isQuotaError(message)) {
+        const note = `Gemini TTS quota hit after paced retries (${message.slice(0, 200)}). Edge TTS fallback used for the remaining ${todo.length - voiced} line(s).`;
+        console.warn(`[scheduler] slot ${id}: ${note}`);
+        return { voiced, remaining: todo.length - voiced, total, rvc, engine: "edge", note, trims };
+      }
+      throw new Error(`Voicing line ${l.index + 1} failed: ${message}`);
     }
-    if (bad) throw new Error(`Voicing line failed: ${bad.message}`);
+    voiced++;
+    const t = (r as { trim?: { originalMs: number; keptMs: number } }).trim;
+    if (t) trims.push(`line ${l.index + 1}: ${t.originalMs} → ${t.keptMs} ms (tail cut ${t.originalMs - t.keptMs} ms)`);
   }
   const remaining = todo.length - voiced;
   if (!remaining) await db()`UPDATE content_projects SET status = 'recorded', updated_at = now() WHERE id = ${s.episode_id}`;
-  return { voiced, remaining, total, rvc, engine: "gemini", note: null };
+  return { voiced, remaining, total, rvc, engine: "gemini", note: null, trims };
 }
 
 // ------------------------------------------------------------------ step 2b: Edge TTS in the worker
