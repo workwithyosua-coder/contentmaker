@@ -21,7 +21,7 @@ test("Gemini TTS gets the verbatim line in parts[0].text and the acting cue only
   const { text, style } = geminiSpeech(line, "standard");
   assert.equal(text, "Ucho dan Ochu bilang: follow Ucho Ochu!", "the line only, phonetic fixes applied (Gemini says Ucho, not Uko)");
   assert.doesNotMatch(text, BANNED);
-  assert.equal(style, 'Energetic Jakartan Indonesian comedy banter, confident and challenging; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; say the names "Uco Ocu" the Indonesian way, "OO-cho OH-chu" (c as in "ch", never "k"), both names distinct', "natural speed, the handle gets clear diction");
+  assert.equal(style, 'Cocky, hyped, loud and animated Jakartan guy, grinning through every word, showing off; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; say the names "Uco Ocu" the Indonesian way, "OO-cho OH-chu" (c as in "ch", never "k"), both names distinct', "natural speed, the handle gets clear diction");
   const body = ttsRequestBody(text, style, "uco");
   assert.deepEqual(body.contents, [{ role: "user", parts: [{ text, speechMetadata: { style } }] }]);
   assert.equal(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Puck");
@@ -29,9 +29,9 @@ test("Gemini TTS gets the verbatim line in parts[0].text and the acting cue only
   // poses, presets and booth notes only ever change the style
   const ocu = geminiSpeech({ speaker: "ocu", text: "Satu tsunami, habis semua.", emotion: "deadpan" }, "angry", "lebih keras di akhir");
   assert.equal(ocu.text, "Satu tsunami, habis semua.");
-  assert.equal(ocu.style, "Deadpan sarcastic Jakartan Indonesian, dry flat delivery; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; crisp and steady, clear enunciation, no drawn-out pauses or stretched syllables; urgent, pressing; lebih keras di akhir");
-  assert.match(geminiSpeech({ speaker: "uco", text: "Hmm.", thought_bubble: true }, "angry").style, /^Quiet dry mutter[^;]*$/, "a thought stays muttered, not urgent");
-  assert.match(geminiSpeech({ speaker: "uco", text: "Gila!", emotion: "angry" }).style, /Outraged/);
+  assert.equal(ocu.style, "Razor-sharp deadpan sarcasm, a dry eye-roll in the voice, flat and unimpressed best friend; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; crisp and steady, clear enunciation, no drawn-out pauses or stretched syllables; urgent, pressing; lebih keras di akhir");
+  assert.match(geminiSpeech({ speaker: "uco", text: "Hmm.", thought_bubble: true }, "angry").style, /^Sheepish, quiet mutter[^;]*$/, "Uco's thought stays a sheepish mutter, not urgent");
+  assert.match(geminiSpeech({ speaker: "uco", text: "Gila!", emotion: "angry" }).style, /Genuinely panicked and furious, high-pitched/);
   assert.equal(ttsRequestBody("Halo", "x", "ocu").generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");
   assert.throws(() => ttsRequestBody("Halo", "  ", "uco"), /needs a delivery style/);
 });
@@ -57,7 +57,7 @@ test("runtime guard: instruction text is never sent to Gemini TTS or Edge TTS", 
   const acting = read("src/lib/voice/acting.ts");
   assert.doesNotMatch(acting, /Bacakan dalam|Ucapkan persis kalimat/, "no instruction template left to prepend");
   assert.doesNotMatch(read("src/lib/voice/providers.ts"), /geminiPrompt/);
-  assert.match(read("src/lib/voice/providers.ts"), /const \{ text, style \} = geminiSpeech\(p\.line, p\.preset, p\.extra\);\s*const wav = await speakGemini\(text, style, p\.line\.speaker\);/);
+  assert.match(read("src/lib/voice/providers.ts"), /const \{ text, style \} = geminiSpeech\(p\.line, p\.preset, p\.extra\);\s*const \{ wav, originalMs, keptMs \} = await speakGeminiTake\(text, style, p\.line\.speaker\);/);
   const tts = read("src/lib/voice/gemini.ts");
   assert.match(tts, /"https:\/\/generativelanguage\.googleapis\.com\/v1beta"/);
   assert.match(tts, /const body = JSON\.stringify\(ttsRequestBody\(text, style, speaker\)\);/);

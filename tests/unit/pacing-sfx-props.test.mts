@@ -21,31 +21,30 @@ type L = Partial<EpisodeLine> & { speaker: "uco" | "ocu"; layout?: string; emoti
 const line = (o: L, i: number) => ({ index: i, beat: "escalation", text: "x", subtitle: "", expression: "calm", thought_bubble: false, hasAudio: true, audio: null, frames: 60, envelope: [], start_s: null, ...o }) as EpisodeLine;
 
 // ------------------------------------------------------------------ 1. pacing
-test("natural comedic gaps: 0.30 s on a speaker switch, 0.24 s same speaker, 0.42 s into a takeover / thought / punchline / outro", () => {
-  assert.deepEqual(GAPS, { switch: 0.3, same: 0.24, shift: 0.42 });
+test("ping-pong comedy gaps: 0.10 s rapid-fire / snap reactions, 0.22 s standard, 0.38 s drop before a takeover / punchline / outro", () => {
+  assert.deepEqual(GAPS, { rapid: 0.1, standard: 0.22, drop: 0.38 });
+  const long = "Ini kalimat biasa yang cukup panjang untuk banter standar kita";
   const lines = [
-    line({ speaker: "uco" }, 0),
-    line({ speaker: "ocu" }, 1), // switch
-    line({ speaker: "ocu" }, 2), // same speaker
-    line({ speaker: "uco", layout: "takeover" }, 3), // into a takeover
-    line({ speaker: "ocu", layout: "takeover" }, 4), // takeover to takeover: a plain switch
-    line({ speaker: "uco", thought_bubble: true }, 5), // into a thought
-    line({ speaker: "ocu" }, 6), // out of a thought
-    line({ speaker: "uco" }, 7), // the final punchline (before the CTA)
-    line({ speaker: "ocu", emotion: "cta" }, 8), // the outro
+    line({ speaker: "uco", text: long }, 0),
+    line({ speaker: "ocu", text: long }, 1), // standard cut
+    line({ speaker: "uco", text: "Hah, serius lo?!" }, 2), // rapid-fire interjection (3 words)
+    line({ speaker: "ocu", text: long, emotion: "shocked" }, 3), // a snap reaction
+    line({ speaker: "uco", text: long, layout: "takeover" }, 4), // beat drop into a takeover
+    line({ speaker: "ocu", text: long, layout: "takeover" }, 5), // takeover to takeover: a standard cut
+    line({ speaker: "uco", text: long, thought_bubble: true }, 6), // a thought: standard
+    line({ speaker: "ocu", text: long }, 7), // the final punchline (before the CTA): drop
+    line({ speaker: "ocu", text: "Follow @uco.ocu biar nggak ketipu!", emotion: "cta" }, 8), // the outro: drop
   ];
   const gaps = lines.slice(1).map((_, k) => naturalGap(lines, k + 1) / FPS);
-  assert.deepEqual(gaps.map((g) => Math.round(g * 100) / 100), [0.3, 0.23, 0.43, 0.3, 0.43, 0.43, 0.43, 0.43]);
-  for (const g of gaps) assert.ok(g >= 0.22 && g <= 0.45, `${g}`);
+  assert.deepEqual(gaps.map((g) => Math.round(g * 100) / 100), [0.23, 0.1, 0.1, 0.37, 0.23, 0.23, 0.37, 0.37]);
   // the timeline uses them only with "Pacing: natural" (scheduled episodes); other scripts keep their timing
   const d = parseDirection(showDirection());
   assert.equal(d.naturalPacing, true);
   const { starts } = timeline(lines, d);
-  assert.equal(starts[1] - (starts[0] + 60), 9);
-  assert.equal(starts[2] - (starts[1] + 60), 7);
-  assert.equal(starts[3] - (starts[2] + 60), 13);
+  assert.equal(starts[1] - (starts[0] + 60), 7);
+  assert.equal(starts[2] - (starts[1] + 60), 3);
+  assert.equal(starts[4] - (starts[3] + 60), 11);
   assert.notDeepEqual(timeline(lines, parseDirection("")).starts, starts);
-  assert.doesNotMatch(showDirection(), /Pause: 0\.1/, "no flat 0.10 s gap any more");
 });
 
 test("natural speaking speed: energy in the tone, never in speed; shorter lines instead of faster audio", () => {
@@ -60,7 +59,7 @@ test("natural speaking speed: energy in the tone, never in speed; shorter lines 
   assert.match(read("video/render.mts"), /source === "ai" \? \(AI_SPEED\[speaker\] \?\? 1\)/);
   assert.match(read("src/lib/voice/edge.ts"), /return "ai_gemini";/);
   const prompt = showBiblePrompt({ format: "koran_kinetik", label: "Koran Kinetik", brief: "b", seed: "Begadang", bankProps: "" });
-  assert.match(prompt, /Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat/);
+  assert.match(prompt, /Baris biasa 8-13 kata, padat dan nendang; interjeksi kilat 3-7 kata/);
   assert.match(prompt, /"nge-hang", "eror"/);
   assert.match(prompt, /Minimal 75% baris punya sesuatu di layar/);
   assert.match(prompt, /termasuk baris inspecting/);

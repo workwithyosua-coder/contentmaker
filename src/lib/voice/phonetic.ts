@@ -1,6 +1,7 @@
 // Phonetic clean-up for the TTS request only. The script, the subtitles and everything shown on screen keep the
 // original text; only what the voice model reads changes. Pure and deterministic (no AI), so it's unit-tested.
 //   "Uco & Ocu"  → "U-co dan Ocu"   ("&" read as Indonesian "dan"; "Uco" split so it isn't slurred into "Ucu")
+//   "POD", "QRIS", "BPJS" → "pod", "kris", "be-pe-je-es"   (acronyms as words / Indonesian letter names)
 
 /** Every way the handle gets written: "@uco.ocu", "uco . ocu", "uco titik ocu", "uco dot ocu" (and "akun …" before it). */
 export const HANDLE_SPELLINGS = /(?:\b(?:akun|account)\s+)?@?\buco\s*(?:\.|\s(?:titik|dot)\s)\s*ocu\b/gi;
@@ -16,6 +17,23 @@ const RULES: [RegExp, string][] = [
 ];
 
 /**
+ * Acronyms read as words, or spelled the Indonesian way, instead of letter by letter in English ("P-O-D"). Written
+ * in capitals in a script; the subtitles keep them as written. Whole words only (a trailing "-nya" stays).
+ */
+export const ACRONYMS: Record<string, string> = {
+  POD: "pod",
+  VAPE: "vape",
+  EVALI: "evali",
+  NEET: "nit",
+  FOMO: "fomo",
+  YOLO: "yolo",
+  QRIS: "kris",
+  BPJS: "be-pe-je-es",
+  UMKM: "u-em-ka-em",
+};
+const ACRONYM_RX = new RegExp(`\\b(${Object.keys(ACRONYMS).join("|")})\\b`, "g");
+
+/**
  * The text the voice model should read for a script line (never shown to anyone), per engine:
  *   gemini      "Ucho" / "Ochu": Gemini reads "Uco" / "U-co" the Spanish / English way ("Uko")
  *   edge        "Uco" / "Ocu" as plain Indonesian words (c = /tʃ/). The hyphenated "U-co" made Edge's Indonesian
@@ -25,7 +43,7 @@ const RULES: [RegExp, string][] = [
  * Every occurrence is a whole word ("kayak Uco" too, not "Ucok").
  */
 export function ttsText(text: string, voice: "gemini" | "edge" | "elevenlabs" = "elevenlabs"): string {
-  let out = text;
+  let out = text.replace(ACRONYM_RX, (m) => ACRONYMS[m]);
   for (const [re, to] of RULES) out = out.replace(re, to);
   if (voice === "gemini") out = out.replace(/\bU-co\b/g, "Ucho").replace(/\bOcu\b/gi, "Ochu");
   if (voice === "edge") out = out.replace(/\bU-co\b/g, "Uco");

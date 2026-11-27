@@ -342,6 +342,15 @@ export function cleanCalloutText(s: string | null | undefined): string | null {
   return w.length ? w.slice(0, 4).join(" ").toUpperCase() : null;
 }
 
+/** A thought bubble's caption: 2-5 words from the callout, else the headline, else the line itself. */
+export function thoughtCaptionText(callout: string | null | undefined, headline: string | null | undefined, text: string): string {
+  for (const s of [callout, headline, text]) {
+    const w = words(noEmDash(String(s ?? "")).replace(/["“”]/g, ""));
+    if (w.length >= 2) return w.slice(0, 5).join(" ").toUpperCase();
+  }
+  return words(text).slice(0, 3).join(" ").toUpperCase() || "HMM";
+}
+
 /** "Co" as a nickname for Uco is pronounced like "cok": always the full name. (Only the standalone word.) */
 export const noUcoShortening = (s: string) => s.replace(/(^|[^\p{L}\p{N}-])Co(?=$|[^\p{L}\p{N}-])/gu, "$1Uco");
 
@@ -395,7 +404,9 @@ export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; ban
     );
     const layout = (d.layout === "takeover" || Boolean(d.statCard)) && statText ? "takeover" : "standard";
     const emphasis = beat === "hook" || beat === "insight" || beat === "button" || layout === "takeover";
-    const callout = thought ? null : (cleanCalloutText(d.callout) ?? (emphasis ? cleanCalloutText(message.headline) : null));
+    // a thought is a silent inner confession: its bubble shows a 2-5 word italic caption (the callout, else the
+    // headline, else the line's first words), never a stamped callout
+    const callout = thought ? thoughtCaptionText(d.callout, message.headline, text) : (cleanCalloutText(d.callout) ?? (emphasis ? cleanCalloutText(message.headline) : null));
     let sfx = [...new Set((Array.isArray(d.sfx) ? d.sfx : []).map((x) => String(x).trim().toLowerCase()).filter((x) => (SFX_NAMES as readonly string[]).includes(x)))].slice(0, 3);
     if (!sfx.length && lines.length === 0) sfx = ["whoosh"];
     if (!sfx.length && layout === "takeover") sfx = ["stamp"];

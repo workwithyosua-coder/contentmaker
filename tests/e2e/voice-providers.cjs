@@ -75,7 +75,7 @@ const mock = http
   check('booth: 2 Gemini requests, the cached line skipped', requests.length === 2, `${requests.length}`);
   check('booth: Uco → Puck, Ocu → Charon', requests[0]?.voice === 'Puck' && requests[1]?.voice === 'Charon', requests.map((r) => r.voice).join(','));
   check('booth: parts[0].text is the script line only (no acting instruction read aloud)', requests[0]?.text === 'Badak Jawa mau dipindah ke Alas Purwo?!' && requests[1]?.text === 'Satu tsunami, habis semua.' && requests.every((r) => !/Bacakan|Ucapkan persis|tanpa menambah|style:/i.test(r.text)), JSON.stringify(requests.map((r) => r.text)));
-  check('booth: pose + preset acting cue only in speechMetadata.style, on /v1beta', /Outraged/.test(requests[0]?.style) && /urgent/.test(requests[0]?.style) && /probing/.test(requests[1]?.style) && requests.every((r) => /^\/models\/[^/]+:generateContent$/.test(r.url)), JSON.stringify(requests.map((r) => r.style)));
+  check('booth: pose + preset acting cue only in speechMetadata.style, on /v1beta', /Genuinely panicked/.test(requests[0]?.style) && /urgent/.test(requests[0]?.style) && /investigative-journalist cadence/.test(requests[1]?.style) && requests.every((r) => /^\/models\/[^/]+:generateContent$/.test(r.url)), JSON.stringify(requests.map((r) => r.style)));
   const takes = await sql`SELECT line_index, mime_type, source, duration_ms FROM recordings WHERE script_id = ${s.id} AND is_selected ORDER BY line_index`;
   check('booth: takes stored as WAV AI takes, 1 s long', takes.length === 3 && takes.filter((t) => t.source === 'ai').every((t) => t.mime_type === 'audio/wav' && t.duration_ms === 1000), JSON.stringify(takes));
   // again: nothing left to voice

@@ -30,18 +30,19 @@ export function fades(seconds: number): string {
 }
 
 /** The fade-out on every clip's last edge, after RVC and after Stage A when there's no RVC. */
-export const FADE_OUT_S = 0.04;
+export const FADE_OUT_S = 0.045;
 
 /**
  * The tail gate: where a take's real speech ends. Gemini TTS takes end with a short "tsk" (a click / lip smack, about
  * 10-40 ms) roughly 0.1 s after the last word. It is above the −50 dB tail trim, so the trim stopped at it, and the
  * compressor + loudnorm then lifted it into a loud burst. Edge TTS takes end cleanly, which is why only Gemini lines
- * had it. This finds the last run of real speech (≥ 80 ms of sound within 35 dB of the take's loudest moment, with
- * dips under 90 ms bridged) and drops any short, isolated burst after it. Indonesian final stops (-t, -k, -p) are
- * unreleased, so a word's last consonant is never a separate burst. Returns the end in seconds: the speech end plus
- * a 50 ms pad, never past the take.
+ * had it. This works on 10 ms frames: sound within 35 dB of the take's loudest frame (and above −50 dB) is voiced,
+ * dips under 70 ms between syllables are bridged, a trailing transient under 140 ms that comes 70 ms or more after
+ * the last word is dropped, and the take ends on its last sustained voiced region (≥ 60 ms). Indonesian final stops
+ * (-t, -k, -p) are unreleased, so a word's last consonant is never a separate burst. Returns the end in seconds: the
+ * speech end plus a 55 ms natural-decay pad, never past the take (then a 45 ms fade-out).
  */
-export const TAIL_GATE = { windowMs: 10, floorDb: -50, belowPeakDb: 35, bridgeMs: 90, minSpeechMs: 80, padMs: 50 } as const;
+export const TAIL_GATE = { windowMs: 10, floorDb: -50, belowPeakDb: 35, bridgeMs: 70, minSpeechMs: 60, transientMs: 140, padMs: 55 } as const;
 
 export function speechEndSeconds(samples: ArrayLike<number>, sampleRate: number, fullScale = 32768): number {
   const g = TAIL_GATE;
@@ -65,14 +66,20 @@ export function speechEndSeconds(samples: ArrayLike<number>, sampleRate: number,
     else runs.push([w, w]);
   });
   // drop short, isolated bursts at the end (the click), but never the take's only sound
-  while (runs.length > 1 && (runs.at(-1)![1] - runs.at(-1)![0] + 1) * g.windowMs < g.minSpeechMs) runs.pop();
+  // a trailing transient (a click, a lip smack: under 140 ms, 70 ms or more after the last word) is dropped, and the
+  // take ends on its last sustained voiced region (at least 60 ms), never its only sound
+  const len = (r: [number, number]) => (r[1] - r[0] + 1) * g.windowMs;
+  while (runs.length > 1 && len(runs.at(-1)!) < g.transientMs) runs.pop();
+  while (runs.length > 1 && len(runs.at(-1)!) < g.minSpeechMs) runs.pop();
   if (!runs.length) return total;
   return Math.min(total, ((runs.at(-1)![1] + 1) * g.windowMs + g.padMs) / 1000);
 }
 
 /**
- * Natural comedic timing between lines (direction "Pacing: natural", scheduled episodes), in seconds:
- * a speaker switch lets the line land before the comeback; the same speaker carries on a little sooner; a visual
- * shift (a takeover stat card, a thought, the final punchline, the outro) gets room to breathe.
+ * Ping-pong comedy timing between lines (direction "Pacing: natural", scheduled episodes), in seconds: a rapid-fire
+ * interjection or a snap reaction (≤ 7 words, or a shocked / defensive line) comes in almost on top (0.10 s); a
+ * standard banter cut 0.22 s; a beat drop before a takeover stat card, the final punchline or the outro 0.38 s.
  */
-export const GAPS = { switch: 0.3, same: 0.24, shift: 0.42 } as const;
+export const GAPS = { rapid: 0.1, standard: 0.22, drop: 0.38 } as const;
+/** A line this short (words) is a rapid-fire interjection ("Hah, serius lo?!"). */
+export const INTERJECTION_WORDS = 7;

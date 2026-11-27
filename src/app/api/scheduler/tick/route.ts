@@ -1,3 +1,4 @@
+import { isDbPoolError } from "@/lib/db";
 import { notFound, renderAuthorized } from "@/lib/render";
 import { tick } from "@/lib/scheduler-server";
 
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error(`[scheduler] tick failed: ${message}`);
+    // a busy database pool (EMAXCONNSESSION…) is retryable: 503, and the worker tries again
+    if (isDbPoolError(e)) return Response.json({ error: `The database is busy, retry: ${message}` }, { status: 503, headers: { "Retry-After": "3" } });
     return Response.json({ error: message }, { status: 409 });
   }
 }

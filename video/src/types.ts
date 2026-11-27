@@ -1,5 +1,5 @@
 import type { RenderDirection } from "./direction";
-import { GAPS } from "./audioChain";
+import { GAPS, INTERJECTION_WORDS } from "./audioChain";
 export const FPS = 30;
 export const WIDTH = 1080;
 export const HEIGHT = 1920;
@@ -93,18 +93,20 @@ export const COLORS = {
 type TimedLine = Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubble" | "text" | "start_s"> & { layout?: string | null; emotion?: string | null };
 
 /**
- * Natural comedic timing ("Pacing: natural"): the gap before line `i`, in frames. A visual shift breathes (0.42 s):
- * entering a takeover stat card, a thought (in or out), the final punchline (the line before the CTA) or the CTA
- * itself; a speaker switch lets the line land (0.30 s); the same speaker carries on (0.24 s).
+ * Ping-pong comedy timing ("Pacing: natural"): the gap before line `i`, in frames. A beat drop (0.38 s) before a
+ * takeover stat card, the final punchline (the line before the CTA) and the CTA itself; a rapid-fire interjection or
+ * snap reaction (≤ 7 words, or shocked / defensive) lands almost on top (0.10 s); every other cut 0.22 s. No
+ * metronome: the gaps follow the joke.
  */
 export function naturalGap(lines: TimedLine[], i: number): number {
   const l = lines[i];
   const prev = lines[i - 1];
   const ctaAt = lines.findIndex((x) => x.emotion === "cta");
   const punchline = ctaAt > 0 ? ctaAt - 1 : lines.length - 1;
-  const shift = (l.layout === "takeover" && prev.layout !== "takeover") || Boolean(l.thought_bubble) !== Boolean(prev.thought_bubble) || i === punchline || i === ctaAt;
-  const s = shift ? GAPS.shift : l.speaker === prev.speaker ? GAPS.same : GAPS.switch;
-  return Math.round(s * FPS);
+  const drop = (l.layout === "takeover" && prev.layout !== "takeover") || i === punchline || i === ctaAt;
+  const words = (l.text ?? "").split(/\s+/).filter(Boolean).length;
+  const rapid = !l.thought_bubble && (words <= INTERJECTION_WORDS || l.emotion === "shocked" || l.emotion === "defensive");
+  return Math.round((drop ? GAPS.drop : rapid ? GAPS.rapid : GAPS.standard) * FPS);
 }
 
 export function timeline(lines: TimedLine[], direction?: RenderDirection | null) {

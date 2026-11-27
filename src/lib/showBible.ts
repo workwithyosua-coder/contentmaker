@@ -96,7 +96,7 @@ export const SHOW_SCHEMA = {
         properties: {
           beat: { type: "STRING", enum: ["hook", "counter", "escalation", "insight", "concession", "button"] },
           speaker: { type: "STRING", enum: ["uco", "ocu"] },
-          text: S("Kalimat yang diucapkan, bahasa Jakarta santai (lo/gue), 8-14 kata, 1-2 klausa pendek"),
+          text: S("Kalimat yang diucapkan, bahasa Jakarta santai (lo/gue): 8-13 kata, atau 3-7 kata untuk interjeksi kilat"),
           subtitle: S("Natural English subtitle of the line"),
           pose: { type: "STRING", enum: [...POSES_ALL] },
           shot: { type: "STRING", enum: ["solo-uco", "solo-ocu", "closeup-punch", "two-shot"] },
@@ -134,13 +134,16 @@ STRUKTUR (wajib)
 - ${f.structure}
 - Baris terakhir: outro CTA penuh dari Ocu dengan pose cta, mengajak follow ${CTA_HANDLE} (mis. "Follow @uco.ocu biar nggak ketipu lagi!"). Tulis handle PERSIS "@uco.ocu" di text dan subtitle (subtitle: "Follow @uco.ocu ..."). DILARANG mengeja titiknya ("uco titik ocu", "uco dot ocu", "akun uco titik ocu"): suaranya otomatis membaca "Uco Ocu".
 - Sebelum CTA: tutup dengan twist kemunafikan yang lucu atau punchline keras kepala (mis. Uco tetap beli sambil ngeles). DILARANG penutup moral ala karangan sekolah / PSA, DILARANG Uco tiba-tiba sadar dan setuju jadi baik.
-- thought: pakai pose "thought" untuk monolog batin (${f.thoughts[0]}-${f.thoughts[1]} baris).
+- thought: pakai pose "thought" untuk monolog batin (${f.thoughts[0]}-${f.thoughts[1]} baris): pengakuan dalam hati yang DIAM, tidak terdengar tokoh lain, jadi baris berikutnya TIDAK menjawabnya. Callout-nya 2-5 kata (teks italic di gelembung).
+- RITME PING-PONG: Uco dan Ocu bergantian. DILARANG 3 baris berturut-turut dari pembicara yang sama; 2 berturut-turut hanya kalau baris kedua adalah takeover stat card.
+- Minimal ${MIN_INTERJECTIONS} interjeksi kilat (3-7 kata, sekitar 1-2 detik), mis. "Hah, serius lo?!", "Uap pala lo peyang!", "Bentar, bentar dulu!", diselipkan di antara baris 8-13 kata.
 - layout "takeover" + statCard "ANGKA | PENJELASAN" untuk angka kunci: ${f.takeovers[0]}-${f.takeovers[1]} baris. PENJELASAN maksimal ${STAT_SUBLINE_MAX} karakter, padat (mis. "9,9 JUTA | GEN Z NEET DI INDONESIA", bukan kalimat panjang).${f.explainer ? `\n- Minimal ${f.explainer} baris sains / psikologi dengan explainerCard.` : ""}
 - explainerCard: "brain-badge" HANYA kalau baris itu menyebut konsep psikologi ber-NAMA (bias konfirmasi, dopamin, sunk cost, efek Dunning-Kruger), "wave-graph" HANYA untuk data yang memang berupa grafik / tren. Poin umum tanpa konsep ber-nama: explainerCard "none".
 
 SUARA
 - Panggil Uco selalu "Uco", JANGAN PERNAH disingkat "Co" (terdengar seperti "cok").
-- Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat. Episode tetap muat ${f.seconds} detik dengan tempo bicara natural.
+- Baris biasa 8-13 kata, padat dan nendang; interjeksi kilat 3-7 kata. Episode tetap muat ${f.seconds} detik dengan tempo bicara natural.
+- Banter Jakarta lo/gue yang tajam. DILARANG bahasa buku pelajaran / iklan layanan masyarakat ("dalam satu dekade terakhir", "zat kimiawi", "aerosol logam berat", "perlu diketahui", "oleh karena itu") kecuali sedang diejek.
 - Kata serapan bahasa Inggris tulis sesuai ucapan Indonesia: "nge-hang", "eror", "nge-lag", "skrinsut", "apdet", "kepo" (bukan "hang", "error", "lag", "screenshot", "update").
 - Bahasa Jakarta yang natural dan nendang: lo/gue, cepat, lucu, tajam. DILARANG bahasa baku buku pelajaran ("wajib demi investasi masa depan wajah" = salah).
 - Setiap baris punya subtitle bahasa Inggris yang natural (bukan terjemahan kaku).
@@ -173,10 +176,42 @@ export function showBibleProblems(lines: ManualLine[], format: EpisodeFormat): s
   if (thoughts < f.thoughts[0]) out.push(`${thoughts} thought line(s) (needs ${f.thoughts[0]}-${f.thoughts[1]})`);
   const explainers = lines.filter((l) => l.overlay === "brain-badge" || l.overlay === "wave-graph").length;
   if (explainers < f.explainer) out.push(`no explainerCard on a science / psychology line`);
-  const callouts = lines.filter((l) => l.kinetic_text).length;
+  out.push(...rhythmProblems(lines));
+  const callouts = lines.filter((l) => l.kinetic_text && !l.thought_bubble).length;
   if (callouts < 5) out.push(`only ${callouts} callout(s) (needs at least 5)`);
   const last = lines.at(-1);
   if (!last || !isCtaLine(last)) out.push(`no outro CTA (FOLLOW ${CTA_HANDLE}) as the last line`);
+  return out;
+}
+
+/** Rapid-fire interjections an episode needs ("Hah, serius lo?!": 3-7 words). */
+export const MIN_INTERJECTIONS = 3;
+/** Textbook / PSA phrasing that kills the banter. */
+export const STIFF_PHRASES = /dalam (satu|sepuluh) dekade terakhir|zat kimiawi|aerosol logam berat|perlu diketahui|oleh karena itu|berdasarkan penelitian|sangat berbahaya bagi kesehatan/i;
+const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
+/**
+ * The ping-pong comedy rhythm a script must have (problems; empty = fine): never 3 spoken lines in a row by one
+ * speaker, and 2 in a row only when the second is a takeover stat card (a silent thought is its character's beat;
+ * the outro CTA doesn't count); at least 3 rapid-fire interjections of 3-7 words; no textbook / PSA phrasing.
+ */
+export function rhythmProblems(lines: Pick<ManualLine, "speaker" | "text" | "layout" | "thought_bubble" | "emotion">[]): string[] {
+  const out: string[] = [];
+  // every beat is a turn, a silent thought included (it's that character's beat); only the outro CTA, which withCta
+  // appends, doesn't count
+  const turns = lines.map((l, i) => ({ l, i })).filter(({ l }) => !isCtaLine(l as ManualLine));
+  for (let k = 1; k < turns.length; k++) {
+    const a = turns[k - 1].l;
+    const b = turns[k].l;
+    if (a.speaker !== b.speaker) continue;
+    const run3 = k >= 2 && turns[k - 2].l.speaker === b.speaker;
+    if (run3) out.push(`3 lines in a row by ${b.speaker} (lines ${turns[k - 2].i + 1}-${turns[k].i + 1}): alternate Uco and Ocu`);
+    else if (b.layout !== "takeover") out.push(`2 lines in a row by ${b.speaker} (lines ${turns[k - 1].i + 1}-${turns[k].i + 1}) without a takeover stat card`);
+  }
+  const quick = turns.filter(({ l }) => !l.thought_bubble && wordCount(l.text) >= 3 && wordCount(l.text) <= 7).length;
+  if (quick < MIN_INTERJECTIONS) out.push(`${quick} rapid-fire interjection(s) of 3-7 words (needs at least ${MIN_INTERJECTIONS})`);
+  const stiff = lines.find((l) => STIFF_PHRASES.test(l.text));
+  if (stiff) out.push(`textbook phrasing: "${STIFF_PHRASES.exec(stiff.text)![0]}"`);
   return out;
 }
 

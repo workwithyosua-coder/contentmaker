@@ -39,7 +39,7 @@ export const POSE_DIRECTION: Record<string, string> = {
   phone: "heboh sambil lihat HP: energi tinggi ala banter komedi",
 };
 
-type ActingLine = { speaker: "uco" | "ocu"; emotion?: string | null; expression?: string | null; thought_bubble?: boolean | null };
+type ActingLine = { speaker: "uco" | "ocu"; emotion?: string | null; expression?: string | null; thought_bubble?: boolean | null; layout?: string | null };
 
 /** The pose that drives the acting: a thought first, then the line's pose, then its expression, then the character's usual. */
 export function actingPose(l: ActingLine): string {
@@ -84,6 +84,49 @@ export const POSE_STYLE: Record<string, string> = {
 };
 
 /**
+ * High-contrast acting per character for gemini-3.8-flash-tts (speechMetadata.style only, never spoken):
+ *   Uco (Puck):   an animated, loud, expressive Jakartan guy: cocky and hyped when triumphant, flustered and fast when
+ *                 defensive, genuinely panicked and high-pitched when shocked or angry, a sheepish quiet mutter in a
+ *                 thought
+ *   Ocu (Charon): the razor-sharp, deadpan sarcastic best friend: a dry eye-roll when deadpan, an intense urgent
+ *                 journalist cadence on a takeover stat card or when inspecting, smugly calm on the call to action
+ */
+export const CHARACTER_STYLE: Record<"uco" | "ocu", Record<string, string>> = {
+  uco: {
+    triumphant: "Cocky, hyped, loud and animated Jakartan guy, grinning through every word, showing off",
+    defensive: "Flustered and fast, a Jakartan guy scrambling to justify himself, voice rising, tripping over his words",
+    shocked: "Genuinely panicked, high-pitched and loud, a Jakartan guy freaking out in disbelief",
+    angry: "Genuinely panicked and furious, high-pitched, loud Jakartan rant, every word punched",
+    thought: "Sheepish, quiet mutter to himself, almost a whisper, embarrassed inner confession",
+    phone: "Hyped and loud, a Jakartan guy reading his phone out with big excitement",
+    explaining: "Animated, overexcited Jakartan guy convinced he's a genius, big energy",
+    deadpan: "Sulky, deflated Jakartan guy, flat and grumbling",
+    inspecting: "Nosy, animated Jakartan guy squinting at something, curious and loud",
+    cta: "Cocky, hyped Jakartan guy hyping the audience up",
+  },
+  ocu: {
+    deadpan: "Razor-sharp deadpan sarcasm, a dry eye-roll in the voice, flat and unimpressed best friend",
+    explaining: "Razor-sharp, matter-of-fact sarcastic best friend, dry and precise, landing each point",
+    inspecting: "Intense, urgent investigative-journalist cadence, punching each fact and number",
+    takeover: "Intense, urgent breaking-news journalist cadence, punching the number, every word deliberate",
+    angry: "Cold, cutting and clipped, sarcastic fury held under a flat voice",
+    shocked: "Dry disbelief, sarcastic and flat, one eyebrow up",
+    defensive: "Dry and unbothered, sarcastically patient",
+    thought: "Quiet dry mutter to himself, deadpan inner aside",
+    cta: "Smugly calm, unhurried and confident, a knowing little smile in the voice",
+    triumphant: "Smug, dry and quietly victorious",
+    phone: "Dry and unimpressed, reading a phone out flatly",
+  },
+};
+
+/** A line's style: the character's take on the pose (Ocu on a takeover stat card: the journalist cadence). */
+export function characterStyle(l: ActingLine): string {
+  const pose = actingPose(l);
+  if (l.speaker === "ocu" && l.layout === "takeover" && pose !== "thought") return CHARACTER_STYLE.ocu.takeover;
+  return CHARACTER_STYLE[l.speaker]?.[pose] ?? POSE_STYLE[pose] ?? POSE_STYLE.triumphant;
+}
+
+/**
  * The speed every spoken line asks for, both characters: natural conversational speed. Energy comes from the tone,
  * never from speed (the first natural-pacing review found the episode rushed).
  */
@@ -111,9 +154,10 @@ export function assertSpokenOnly(text: string): string {
 export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): { text: string; style: string } {
   const pose = actingPose(l);
   const text = assertSpokenOnly(ttsText(l.text, "gemini"));
-  const parts = [POSE_STYLE[pose] ?? POSE_STYLE.triumphant];
-  // natural speed for both (energy is in the tone); Ocu also crisp and steady, never dragging
-  if (pose !== "thought") parts.push(NATURAL_PACE);
+  const parts = [characterStyle(l)];
+  // natural speed (energy is in the tone), except Uco scrambling or panicking, where the speed is the acting;
+  // Ocu also crisp and steady, never dragging
+  if (pose !== "thought" && !(l.speaker === "uco" && (pose === "defensive" || pose === "shocked"))) parts.push(NATURAL_PACE);
   if (l.speaker === "ocu" && pose !== "thought") parts.push(OCU_PACE);
   if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
   // the outro handle: every syllable of "Ucho Ochu" said clearly
@@ -163,13 +207,18 @@ export function pcmToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uin
  * speechEndSeconds), and a 40 ms fade to zero on the new last edge.
  */
 export function cleanPcmTail(pcm: Uint8Array, sampleRate = 24000): Uint8Array {
+  return cleanPcmTailStats(pcm, sampleRate).pcm;
+}
+
+/** cleanPcmTail, with the take's length before and after (for the worker log: "4120 → 3870 ms"). */
+export function cleanPcmTailStats(pcm: Uint8Array, sampleRate = 24000): { pcm: Uint8Array; originalMs: number; keptMs: number } {
   const even = pcm.subarray(0, pcm.length - (pcm.length % 2));
   const samples = new Int16Array(even.buffer.slice(even.byteOffset, even.byteOffset + even.length));
   const keep = Math.min(samples.length, Math.round(speechEndSeconds(samples, sampleRate) * sampleRate));
   const out = samples.slice(0, keep);
   const fade = Math.min(keep, Math.round(FADE_OUT_S * sampleRate));
   for (let i = 0; i < fade; i++) out[keep - fade + i] = Math.round(out[keep - fade + i] * (1 - (i + 1) / fade));
-  return new Uint8Array(out.buffer);
+  return { pcm: new Uint8Array(out.buffer), originalMs: Math.round((samples.length / sampleRate) * 1000), keptMs: Math.round((keep / sampleRate) * 1000) };
 }
 
 /** Length of a 16-bit WAV made by pcmToWav, in ms. */

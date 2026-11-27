@@ -26,6 +26,10 @@ const output = (key: string, value: string) => {
   log(`${key}=${value}`);
 };
 
+/** Retries of a step answered 503 (a busy database pool), and the short backoff between them: 3, 6, 9, 12, 15 s. */
+export const POOL_RETRIES = 5;
+export const retryWait503 = (attempt: number) => Number(process.env.POOL_RETRY_BASE_MS ?? 3000) * attempt;
+
 async function post<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch(`${base}/api/scheduler/${path}`, {
@@ -36,10 +40,12 @@ async function post<T>(path: string, body: Record<string, unknown> = {}): Promis
     }).catch((e: Error) => ({ ok: false, status: 0, text: async () => e.message, json: async () => ({}) }) as unknown as Response);
     if (res.ok) return (await res.json()) as T;
     const text = (await res.text()).slice(0, 500);
-    // network errors and 5xx (a cold or busy function) are retried; 4xx means the step itself failed
-    if ((res.status === 0 || res.status >= 500) && attempt < 3) {
-      log(`${path} → ${res.status}, retrying`);
-      await new Promise((r) => setTimeout(r, attempt * 10_000));
+    // a 503 (the database pool is busy: EMAXCONNSESSION and the like) is retried with a short backoff, up to 5 times;
+    // other network errors and 5xx (a cold or busy function) up to 2; a 4xx means the step itself failed
+    if ((res.status === 503 && attempt <= POOL_RETRIES) || ((res.status === 0 || res.status >= 500) && attempt < 3)) {
+      const wait = res.status === 503 ? retryWait503(attempt) : attempt * 10_000;
+      log(`${path} → ${res.status}, retrying in ${Math.round(wait / 1000)} s`);
+      await new Promise((r) => setTimeout(r, wait));
       continue;
     }
     let msg = text;
@@ -80,10 +86,14 @@ try {
       onStep: (i, n, phase) => report("props", progressAt("props", i - (phase === "generating" ? 1 : 0.5), n), `${phase === "generating" ? "Generating" : "Cutting out"} prop ${i} of ${n}`, { force: i === n && phase === "cutting" }),
     });
     if (props.done.length || props.dropped.length) log(`props: ${props.done.length} ready${props.dropped.length ? `, ${props.dropped.length} dropped to none` : ""}`);
-    // Own Voice → Edge TTS in this worker (then RVC); Gemini TTS → Gemini, with Edge TTS taking over on a 429
+    // both Gemini providers → gemini-3.8-flash-tts (paced, 429s retried; Own Voice then RVC); Edge TTS in this worker
+    // only when a 429 survives its retries
     for (let round = 0; round < 10; round++) {
-      const v = await post<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null }>(`slots/${slotId}/voice`);
+      // keep the TTS requests ≤ 9 a minute across calls too (each call voices up to 4 lines, paced inside)
+      if (round > 0) await new Promise((r) => setTimeout(r, Number(process.env.TTS_ROUND_GAP_MS ?? 7000)));
+      const v = await post<{ voiced: number; remaining: number; total: number; rvc: boolean; engine: "gemini" | "edge"; note: string | null; trims?: string[] }>(`slots/${slotId}/voice`);
       log(`voice: ${v.voiced} new Gemini TTS take(s), ${v.remaining} line(s) without a take`);
+      for (const t of v.trims ?? []) log(`voice: ${t}`);
       const voicedSoFar = v.total - v.remaining;
       await report("voicing", progressAt("voicing", voicedSoFar, v.total, v.rvc), `Voicing line ${Math.min(v.total, voicedSoFar + (v.remaining ? 1 : 0))} of ${v.total}`, { force: round === 0 });
       if (v.note) log(v.note);
