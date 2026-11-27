@@ -72,7 +72,7 @@ test("a broken or empty stored script never crashes the manifest", () => {
 test("the manifest route answers every failure with a readable JSON error (logged with its stack), never an empty 500", () => {
   const route = read("src/app/api/render/[id]/route.ts");
   assert.match(route, /try \{\s*src = await renderSource\(id\);\s*\} catch \(err\) \{[\s\S]*?serverError\(`render manifest \$\{id\}: loading the episode`, err, 503\)/);
-  assert.match(route, /return Response\.json\(renderManifest\(src, assetUrls\)\);\s*\} catch \(err\) \{\s*return serverError\(`render manifest \$\{id\}`, err\);/);
+  assert.match(route, /return Response\.json\(renderManifest\(src, assetUrls, tunables\)\);\s*\} catch \(err\) \{\s*return serverError\(`render manifest \$\{id\}`, err\);/);
   const helper = read("src/lib/render-manifest.ts");
   assert.match(helper, /console\.error\(`\[\$\{where\}\]`, err instanceof Error \? err\.stack \?\? message : message\);/);
   assert.match(helper, /return Response\.json\(\{ error: `\$\{where\}: \$\{message\}` \}, \{ status \}\);/);

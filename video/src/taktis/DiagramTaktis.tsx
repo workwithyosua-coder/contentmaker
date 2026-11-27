@@ -7,7 +7,7 @@ import { useSpriteFrames } from "../cast/useSpriteFrames";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
 import { DirectorStage, WhipStreaks, type DirectorSkin, type HeadOnScreen } from "../shared/Director";
 import { BeatSubtitle, SubtitleScrim } from "../shared/MovieSubtitle";
-import { cameraAt, cutDirection, holdFrames, whipOffset } from "../shared/motion";
+import { cameraAt, cutDirection, holdFrames, setMotionEnergy, whipOffset } from "../shared/motion";
 import { sfxCuesFor } from "../shared/sfxCues";
 import type { CueProps } from "../koran/KoranKinetik";
 import { TACTICAL_VECTOR_HUD_STYLE } from "../styles/registry";
@@ -48,6 +48,8 @@ export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = fal
   // uploaded props / SFX load from their public HTTPS URLs (saved on the beats, and passed by the renderer)
   registerRemoteAssets(assetUrls);
   registerLineAssets(lines);
+  // Live Studio Tunables: the puppets' motion energy, set before any puppet renders
+  setMotionEnergy(direction?.motionEnergy);
   // uploaded sprites are measured once so they're framed like the calibrated ones (spriteFrame.ts)
   useSpriteFrames(Object.values(assetUrls?.cast ?? {}));
   const beats = buildBeats(lines, direction);
@@ -68,7 +70,7 @@ export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = fal
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="dark" />
       <SfxCues cues={sfxCuesFor(beats)} />
-      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} />}
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} underDialogue={direction.speechBgm} />}
     </AbsoluteFill>
   );
 }

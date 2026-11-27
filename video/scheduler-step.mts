@@ -73,8 +73,10 @@ try {
     // the card's progress bar (real counts only; a failed report never stops the episode)
     const report = progressReporter({ base, token, slotId, log: (m) => log(`warning: ${m}`) });
     await report("scripting", 5, "Writing Show Bible script...", { force: true });
-    const s = await post<{ episodeId: string; title: string; reused: boolean; lines: number }>(`slots/${slotId}/script`);
+    const s = await post<{ episodeId: string; title: string; reused: boolean; lines: number; qa?: string[] }>(`slots/${slotId}/script`);
     log(`${s.reused ? "kept the script of" : "wrote"} "${s.title}" (episode ${s.episodeId})`);
+    // the pre-render QA gate: the failed pass and the repaired pass, both in the run log
+    for (const q of s.qa ?? []) log(q);
     await report("scripting", 15, `Script ready (${s.lines} lines)`, { force: true });
     // the episode's fresh props (Gemini image model in the app → cut-out here → upload); a failed one drops to none
     // (a reused script only makes the props still pending)

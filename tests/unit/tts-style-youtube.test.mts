@@ -57,7 +57,7 @@ test("runtime guard: instruction text is never sent to Gemini TTS or Edge TTS", 
   const acting = read("src/lib/voice/acting.ts");
   assert.doesNotMatch(acting, /Bacakan dalam|Ucapkan persis kalimat/, "no instruction template left to prepend");
   assert.doesNotMatch(read("src/lib/voice/providers.ts"), /geminiPrompt/);
-  assert.match(read("src/lib/voice/providers.ts"), /const \{ text, style \} = geminiSpeech\(p\.line, p\.preset, p\.extra\);\s*const \{ wav, originalMs, keptMs, payload, tail \} = await speakGeminiTake\(text, style, p\.line\.speaker\);/);
+  assert.match(read("src/lib/voice/providers.ts"), /const \{ text, style \} = geminiSpeech\(p\.line, p\.preset, p\.extra, \{ overrides, expressiveness: tunables\?\.voice_expressiveness \}\);\s*const \{ wav, originalMs, keptMs, payload, tail \} = await speakGeminiTake\(text, style, p\.line\.speaker\);/);
   const tts = read("src/lib/voice/gemini.ts");
   assert.match(tts, /"https:\/\/generativelanguage\.googleapis\.com\/v1beta"/);
   assert.match(tts, /const body = JSON\.stringify\(ttsRequestBody\(text, style, speaker\)\);/);

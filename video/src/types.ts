@@ -98,7 +98,7 @@ type TimedLine = Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubb
  * snap reaction (≤ 7 words, or shocked / defensive) lands almost on top (0.10 s); every other cut 0.22 s. No
  * metronome: the gaps follow the joke.
  */
-export function naturalGap(lines: TimedLine[], i: number): number {
+export function naturalGap(lines: TimedLine[], i: number, gaps: { rapid: number; standard: number; drop: number } = GAPS): number {
   const l = lines[i];
   const prev = lines[i - 1];
   const ctaAt = lines.findIndex((x) => x.emotion === "cta");
@@ -106,7 +106,7 @@ export function naturalGap(lines: TimedLine[], i: number): number {
   const drop = (l.layout === "takeover" && prev.layout !== "takeover") || i === punchline || i === ctaAt;
   const words = (l.text ?? "").split(/\s+/).filter(Boolean).length;
   const rapid = !l.thought_bubble && (words <= INTERJECTION_WORDS || l.emotion === "shocked" || l.emotion === "defensive");
-  return Math.round((drop ? GAPS.drop : rapid ? GAPS.rapid : GAPS.standard) * FPS);
+  return Math.round((drop ? gaps.drop : rapid ? gaps.rapid : gaps.standard) * FPS);
 }
 
 export function timeline(lines: TimedLine[], direction?: RenderDirection | null) {
@@ -118,7 +118,7 @@ export function timeline(lines: TimedLine[], direction?: RenderDirection | null)
     if (i > 0) {
       const prev = lines[i - 1];
       let gap = 4;
-      if (direction?.naturalPacing) gap = naturalGap(lines, i);
+      if (direction?.naturalPacing) gap = naturalGap(lines, i, direction.gaps ?? GAPS);
       else if (l.thought_bubble || prev.thought_bubble) gap = thoughtPause ?? Math.max(8, pause ?? 0);
       else if (pause !== null) gap = pause; // the direction's pause replaces the comedic defaults (no cut-ins)
       else if (l.speaker === "uco" && prev.speaker === "ocu") gap = -3;

@@ -3,7 +3,8 @@
 // as written, plus a separate acting direction derived from the line's pose and the episode's delivery preset.
 import { FADE_OUT_S, speechTail } from "../../../video/src/audioChain";
 import type { TailReport } from "../../../video/src/voicedTail";
-import { ttsText } from "./phonetic";
+import { ttsText, type PronunciationOverride } from "./phonetic";
+import { expressivenessCue } from "../insights/tunables";
 
 export const VOICE_PROVIDERS = ["gemini_tts", "elevenlabs", "gemini_tts_rvc"] as const;
 export type VoiceProvider = (typeof VOICE_PROVIDERS)[number];
@@ -152,15 +153,23 @@ export function assertSpokenOnly(text: string): string {
  * Urgent preset (inner thoughts stay muttered), plus an optional booth note. `style` goes in speechMetadata, never in
  * the text.
  */
-export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryPreset = "standard", extra?: string | null): { text: string; style: string } {
+export function geminiSpeech(
+  l: ActingLine & { text: string },
+  preset: DeliveryPreset = "standard",
+  extra?: string | null,
+  studio: { overrides?: readonly PronunciationOverride[]; expressiveness?: number | null } = {},
+): { text: string; style: string } {
   const pose = actingPose(l);
-  const text = assertSpokenOnly(ttsText(l.text, "gemini"));
+  const text = assertSpokenOnly(ttsText(l.text, "gemini", studio.overrides));
   const parts = [characterStyle(l)];
   // natural speed (energy is in the tone), except Uco scrambling or panicking, where the speed is the acting;
   // Ocu also crisp and steady, never dragging
   if (pose !== "thought" && !(l.speaker === "uco" && (pose === "defensive" || pose === "shocked"))) parts.push(NATURAL_PACE);
   if (l.speaker === "ocu" && pose !== "thought") parts.push(OCU_PACE);
   if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
+  // Live Studio Tunables: the voice expressiveness (none at the neutral 1.0); a muttered thought stays muttered
+  const cue = pose === "thought" ? null : expressivenessCue(studio.expressiveness);
+  if (cue) parts.push(cue);
   // the outro handle: every syllable of "Ucho Ochu" said clearly
   if (/Ucho Ochu/.test(text)) parts.push(HANDLE_DICTION);
   const note = (extra ?? "").replace(/\s+/g, " ").trim().slice(0, 160);

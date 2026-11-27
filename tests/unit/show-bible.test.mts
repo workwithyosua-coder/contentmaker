@@ -127,7 +127,7 @@ test("a short script is retried once with the problems spelled out; the better a
   // the server: two attempts at most, under 12 lines after both fails the slot, the problems go to the retry
   const src = fs.readFileSync(path.join(ROOT, "src/lib/scheduler-server.ts"), "utf8");
   assert.match(src, /for \(const strict of \[false, true\]\) \{\s*if \(strict && best && !best\.problems\.length\) break;/);
-  assert.match(src, /strict: strict \? \(best\?\.problems \?\? \[/);
+  assert.match(src, /await write\(strict \? \(prev\?\.problems \?\? \[/);
   assert.match(src, /if \(best\.lines\.length < MIN_LINES\) throw new Error\(`Gemini wrote only/);
   assert.match(src, /\$\{showDirection\(r\.visual_style\)\}, true, now\(\)\)/, "every scheduled script carries the FOLLOW @UCO.OCU outro (and BGM, pacing)");
 });

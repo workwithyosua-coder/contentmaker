@@ -118,9 +118,24 @@ export const SHOW_SCHEMA = {
   required: ["title", "propSpecs", "lines"],
 };
 
-/** The Show Bible prompt. `strict` carries the problems of the first attempt (the one retry). */
-export function showBiblePrompt(p: { format: EpisodeFormat; label: string; brief: string; seed: string; bankProps: string; strict?: string[] }): string {
-  const f = FORMAT_SPEC[p.format];
+/**
+ * The accepted line range: the format's 13-15, widened to include the Live Studio Tunables' target line count
+ * (12-16) so a target of 16 isn't rejected as too long. Never below MIN_LINES.
+ */
+export function lineRange(format: EpisodeFormat, target?: number | null): [number, number] {
+  const [lo, hi] = FORMAT_SPEC[format].lines;
+  if (target == null || !Number.isFinite(target)) return [lo, hi];
+  const t = Math.round(Math.min(16, Math.max(MIN_LINES, target)));
+  return [Math.max(MIN_LINES, Math.min(lo, t - 1)), Math.max(hi, t + 1)];
+}
+
+/**
+ * The Show Bible prompt. `strict` carries the problems of the first attempt (the one retry); `playbook` is the
+ * Showrunner Playbook block (insights/playbook.ts) and `targetLines` the tunable target line count.
+ */
+export function showBiblePrompt(p: { format: EpisodeFormat; label: string; brief: string; seed: string; bankProps: string; strict?: string[]; playbook?: string; targetLines?: number | null }): string {
+  const range = lineRange(p.format, p.targetLines);
+  const f = { ...FORMAT_SPEC[p.format], lines: range };
   return `Kamu head writer "Uco & Ocu", serial komedi video vertikal berbahasa Indonesia. Tulis SATU episode format ${p.label} (${f.seconds} detik).
 ${p.brief}
 Topik: ${p.seed}
@@ -160,12 +175,12 @@ ${p.bankProps ? `- Prop lama yang boleh dipakai HANYA jika objeknya persis sama:
 PERCOBAAN SEBELUMNYA DITOLAK karena: ${p.strict.join("; ")}.
 Perbaiki semuanya. Tulis tepat ${f.lines[0]}-${f.lines[1]} baris lengkap. Jangan memotong naskah.`
       : ""
-  }`;
+  }${p.playbook ?? ""}`;
 }
 
 /** What a sanitized script still lacks against the Show Bible (empty = accepted). */
-export function showBibleProblems(lines: ManualLine[], format: EpisodeFormat): string[] {
-  const f = FORMAT_SPEC[format];
+export function showBibleProblems(lines: ManualLine[], format: EpisodeFormat, targetLines?: number | null): string[] {
+  const f = { ...FORMAT_SPEC[format], lines: lineRange(format, targetLines) };
   const out: string[] = [];
   if (lines.length < f.lines[0]) out.push(`only ${lines.length} lines (needs ${f.lines[0]}-${f.lines[1]})`);
   // scheduled episodes stay 55-68 s: 13-15 tight lines, the outro included (an 82 s, 17-line draft is too long)

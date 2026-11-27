@@ -38,6 +38,13 @@ export type RenderDirection = {
   /** the notes as written */
   notes: string;
   /**
+   * Live Studio Tunables (the app's studio_tunables row, sent in the render manifest): the natural-pacing gaps in
+   * seconds, the music level under speech, and the body-motion multiplier. Absent: the built-in defaults.
+   */
+  gaps?: { rapid: number; standard: number; drop: number };
+  speechBgm?: number;
+  motionEnergy?: number;
+  /**
    * Exact (Manual / Exact Import) scripts: show only what the script asks for: no keyword-guessed props, cards or
    * prop labels. Set by the app / renderer from the script, not from the notes.
    */
