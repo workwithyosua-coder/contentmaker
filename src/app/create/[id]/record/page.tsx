@@ -5,16 +5,17 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { FullVoiceover } from "@/components/full-voiceover";
 import { RecordingBooth } from "@/components/recording-booth";
-import { AiVoicePanel } from "@/components/voice-ui";
+import { AiVoicesCard } from "@/components/ai-voices-card";
+import { BoothBusyProvider } from "@/components/booth-busy";
+import { voicedLineIndexes } from "@/lib/voice/redo-all";
 import { elevenLabsConfigured } from "@/lib/voice/elevenlabs";
 import { getVoiceProfiles } from "@/lib/voice/profiles";
 import { routeVoice } from "@/lib/voice/acting";
 import { geminiConfigured } from "@/lib/voice/gemini";
 import { getEpisodeVoice } from "@/lib/voice/settings";
 import { rvcModelStatus } from "@/lib/studio-assets";
-import { VoiceProviderPicker } from "@/components/voice-provider";
 import { setEpisodeVoiceAction } from "../../voice-actions";
-import { generateAiTakesAction } from "./ai-actions";
+import { generateAiTakesAction, redoLineAction } from "./ai-actions";
 import { SetupNotice } from "@/components/setup-notice";
 import { Card, EmptyState } from "@/components/ui";
 import { getOwner } from "@/lib/queries";
@@ -81,13 +82,20 @@ async function Booth({
               This script isn&apos;t approved yet. You can record already, but changes to the script after approval may need new takes.
             </p>
           )}
+          <BoothBusyProvider>
           <Card title="AI voices">
             <div className="space-y-4">
-              <VoiceProviderPicker provider={voice.provider} preset={voice.preset} onSave={setEpisodeVoiceAction.bind(null, project.id)} note={route.ok ? null : route.message} noteHref={route.ok ? null : (route.href ?? null)} />
-              <AiVoicePanel
-                action={generateAiTakesAction.bind(null, project.id)}
+              <AiVoicesCard
+                provider={voice.provider}
+                preset={voice.preset}
+                onSave={setEpisodeVoiceAction.bind(null, project.id)}
+                note={route.ok ? null : route.message}
+                noteHref={route.ok ? null : (route.href ?? null)}
+                missingAction={generateAiTakesAction.bind(null, project.id)}
+                redoLine={redoLineAction.bind(null, project.id)}
                 lines={lines.map((l) => ({ index: l.index, speaker: l.speaker, text: l.text }))}
                 missing={missing}
+                voiced={voicedLineIndexes(lines, recorded)}
               />
               {voice.provider === "elevenlabs" && voices && Object.keys(voices).length < 2 && (
                 <p className="text-sm text-muted">
@@ -100,6 +108,7 @@ async function Booth({
           <Card title="Full voice-over">
             <FullVoiceover projectId={project.id} scriptId={script.id} lines={lines} />
           </Card>
+          </BoothBusyProvider>
           <RecordingBooth
             // remount when takes change on the server (e.g. AI takes), so the list shows them
             key={Object.entries(recorded).map(([i, r]) => `${i}:${r.take}`).join(",")}

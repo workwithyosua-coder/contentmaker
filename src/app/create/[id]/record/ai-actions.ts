@@ -49,3 +49,24 @@ export async function generateAiTakesAction(projectId: string, _prev: AiResult, 
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * One line voiced again with the given provider and delivery: the same single-line path as "Redo one line with AI"
+ * (voiceTake: #63's acronym map, paced 429 retries, #64's tail trimmer), driven line by line from the booth's
+ * "Redo all". The new take is added to the line's takes and made its selected take; an Own Voice take is stored as a
+ * Gemini base take, so the next render converts it with RVC again. Never called by "missing" voicing or the render.
+ */
+export async function redoLineAction(projectId: string, lineIndex: number, provider: string, preset: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const owner = await getOwner();
+    if (!owner) return { ok: false, message: "No user found." };
+    const booth = await getBooth(owner.id, projectId);
+    if (!booth?.script) return { ok: false, message: "No script to voice yet." };
+    const [line] = linesToVoice(booth.lines, () => true, "line", Number(lineIndex));
+    if (!line) return { ok: false, message: `Line ${Number(lineIndex) + 1} isn't in the script.` };
+    const r = await voiceTake({ userId: owner.id, projectId, scriptId: booth.script.id, lineIndex: line.index, line, provider: asProvider(provider), preset: asPreset(preset) });
+    return r.ok ? { ok: true, message: `Line ${line.index + 1} voiced again.` } : { ok: false, message: r.message };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
