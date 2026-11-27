@@ -83,7 +83,7 @@ test("Show Bible content checks: thought twist, explainer card, callouts, SFX, t
   const flatLines = clean(flat);
   assert.doesNotMatch(problems, /callout/);
   for (let i = 1; i < flatLines.length; i++) assert.ok(flatLines[i - 1].kinetic_text || flatLines[i].kinetic_text || flatLines[i].layout === "takeover" || flatLines[i - 1].layout === "takeover", `lines ${i}-${i + 1}`);
-  assert.match(problems, /SFX on only 1 line\(s\)/, "the hook's default SFX is the only one");
+  assert.doesNotMatch(problems, /SFX/, "SFX are automatic now (takeover stamp, new-prop pop): a draft needs none");
   // no CTA at the end: the outro line is appended (spoken), and the direction gives the animated FOLLOW @UCO.OCU
   const noCta = draft(14).slice(0, 13);
   const withOutro = clean(noCta);

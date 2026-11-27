@@ -1,5 +1,5 @@
 import { propFile, sfxFile } from "./assets";
-import { KINETIC_SLAM, scriptSfxFrame, sfxCuesFor } from "./shared/sfxCues";
+import { sfxCuesFor } from "./shared/sfxCues";
 import { PNG_PROPS, isPropName, pngPropByName } from "./props/library";
 import { PROP_LEAD, propEntryFrame, speechBounds } from "./shared/motion";
 import type { RenderDirection } from "./direction";
@@ -300,7 +300,7 @@ export type AssetCheck = { name: string; file: string; ready: boolean; lines: nu
  * What an episode needs from public/props and public/sfx (for the pre-render checklist): the PNG props its lines
  * call for and the sound effects the cue styles cue. `lines` are 1-based line numbers that need the prop.
  */
-export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { stamp?: boolean; direction?: RenderDirection | null } = {}) {
+export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" | "index"> & Partial<Pick<ManifestLine, "index">>)[], opts: { /** unused since only takeover stamps play (kept for callers) */ stamp?: boolean; direction?: RenderDirection | null } = {}) {
   const props = new Map<string, AssetCheck>();
   const exact = Boolean(opts.direction?.exact);
   lines.forEach((l, i) => {
@@ -315,11 +315,11 @@ export function requiredAssets(lines: (PropLine & Omit<ManifestLine, "hasAudio" 
   });
   const beats = buildBeats(lines.map((l, i) => ({ ...l, index: l.index ?? i, hasAudio: false, audio: null, frames: 90, envelope: [] }) as EpisodeLine), opts.direction);
   const sfx = new Map<string, AssetCheck>();
-  const cues = sfxCuesFor(beats, { stampAt: opts.stamp ? KINETIC_SLAM : undefined });
+  const cues = sfxCuesFor(beats);
   for (const cue of cues) {
     const file = sfxFile(cue.name);
     const c = sfx.get(cue.name) ?? { name: cue.name, file: file ?? `sfx/${cue.name}.mp3`, ready: Boolean(file), lines: [] };
-    // which lines ask for it (by name in the script); automatic cues (whoosh on cuts…) list none
+    // which lines ask for it (by name in the script); automatic cues list none
     const b = beats.find((x) => x.startFrame <= cue.frame && cue.frame < x.startFrame + x.durationInFrames);
     if (b && b.line !== null && b.sfx.includes(cue.name) && !c.lines.includes(b.line + 1)) c.lines.push(b.line + 1);
     sfx.set(cue.name, c);
@@ -454,8 +454,11 @@ function fallbackCue(l: Pick<EpisodeLine, "beat" | "text" | "on_screen_text" | "
 }
 
 /** English subtitle for a line: the [EN] translation, never the Indonesian text (blank or identical → null). */
+/** The handle as written on screen: "uco dot ocu" / "uco titik ocu" in a subtitle reads "@uco.ocu". */
+export const subtitleHandle = (s: string) => s.replace(/(?:\b(?:akun|account)\s+)?@?\buco\s*(?:\.|\s(?:titik|dot)\s)\s*ocu\b/gi, "@uco.ocu");
+
 function englishOf(l: Pick<EpisodeLine, "subtitle" | "text">) {
-  const en = l.subtitle?.replace(/\s+/g, " ").trim();
+  const en = l.subtitle == null ? undefined : subtitleHandle(l.subtitle.replace(/\s+/g, " ").trim());
   if (!en) return null;
   if (en.toLowerCase() === l.text?.replace(/\s+/g, " ").trim().toLowerCase()) return null;
   return en;
@@ -536,16 +539,21 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
   }));
   beats.forEach((b, i) => {
     const l = lines[i];
+    // an inner thought shows only a prop of its own: the same prop as the line before is a carry-over (Ocu's coffee in
+    // Uco's thought), so the bubble shows its 2-4 word caption instead
+    if (b.thought && i > 0 && (b.propImage || b.propTag !== "none") && (lines[i - 1].prop_tag ?? "").trim() === (l.prop_tag ?? "").trim()) {
+      Object.assign(b, { propImage: null, propTag: "none", callouts: [] });
+    }
     const env = l.envelope ?? [];
     const speech = speechBounds(env, b.durationInFrames);
     b.speechStart = speech.start;
     b.speechEnd = speech.end;
     b.subtitleChunks = timeSubtitle(englishOf(l), env, b.durationInFrames, speech);
     b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, env, b.durationInFrames, { ...speech, hook: i === 0 });
-    // urgent: an angry / furious delivery shakes as the voice starts; a stamp SFX shakes when it lands
+    // urgent: an angry / furious delivery shakes as the voice starts
     b.angry = (/^(angry|furious)$/.test(String(l.expression ?? "")) || b.emotion === "angry") && !b.thought;
-    const stamp = b.sfx.indexOf("stamp");
-    b.impactFrame = stamp >= 0 ? scriptSfxFrame(speech.start, stamp) : b.angry ? speech.start : null;
+    // (script-named effects no longer play, so a script "stamp" doesn't shake the camera on a silent frame)
+    b.impactFrame = b.angry ? speech.start : null;
     b.urgent = b.impactFrame !== null;
   });
   const outro = outroMode(lines, direction);

@@ -19,9 +19,9 @@ const BANNED = /Bacakan|Ucapkan persis|tanpa menambah|style:/i;
 test("Gemini TTS gets the verbatim line in parts[0].text and the acting cue only in parts[0].speechMetadata.style", () => {
   const line = { speaker: "uco" as const, text: "Uco & Ocu bilang: follow @uco.ocu!", emotion: "triumphant", thought_bubble: false };
   const { text, style } = geminiSpeech(line, "standard");
-  assert.equal(text, "U-co dan Ocu bilang: follow U-co Ocu!", "the line only, phonetic fixes applied");
+  assert.equal(text, "Ucho dan Ochu bilang: follow Ucho Ochu!", "the line only, phonetic fixes applied (Gemini says Ucho, not Uko)");
   assert.doesNotMatch(text, BANNED);
-  assert.equal(style, 'Energetic Jakartan Indonesian comedy banter, confident and challenging; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; enunciate the name "Uco Ocu" clearly, both names distinct', "natural speed, the handle gets clear diction");
+  assert.equal(style, 'Energetic Jakartan Indonesian comedy banter, confident and challenging; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; say the names "Uco Ocu" the Indonesian way, "OO-cho OH-chu" (c as in "ch", never "k"), both names distinct', "natural speed, the handle gets clear diction");
   const body = ttsRequestBody(text, style, "uco");
   assert.deepEqual(body.contents, [{ role: "user", parts: [{ text, speechMetadata: { style } }] }]);
   assert.equal(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Puck");

@@ -2,12 +2,13 @@
 // (edge-stage.mts, rvc-stage.mts). Pure strings, shared by the worker and the unit tests.
 
 /**
- * Trim only the dead silence at both ends, gently: a −50 dB threshold (soft consonants like the "G" of "Gue" count as
- * speech) keeping a 0.05 s pre-speech pad, so the first syllable is never clipped, and a 0.07 s tail pad.
+ * Trim only what's before the first word and after the last, gently. The start uses −42 dB, above a TTS take's
+ * leading breath (≈ −45 dB) but under any consonant burst, and keeps the 0.05 s before the voice crosses it, so a soft
+ * "G" of "Gue" is never clipped. The end uses −50 dB with a 0.07 s tail pad.
  */
 export const TRIM =
   "highpass=f=70," +
-  "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05," +
+  "silenceremove=start_periods=1:start_threshold=-42dB:start_silence=0.05," +
   "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.07,areverse";
 
 /**

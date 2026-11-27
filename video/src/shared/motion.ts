@@ -384,3 +384,89 @@ export function badgeBounds(r: BadgeRect, frame: number, at: number, tilted = tr
 export function inverseCamera(cam: { scale: number; rotate: number; x: number; y: number }): string {
   return `rotate(${-cam.rotate}deg) scale(${1 / cam.scale}) translate(${-cam.x}px, ${-cam.y}px)`;
 }
+
+// ------------------------------------------------------------------ stage column (kinetic stamp, card, prop)
+/** Height a kinetic block needs for `text` in a box `w` wide. */
+export const kineticHeight = (text: string, w: number) => {
+  const { size, lines } = badgeFit(text, w);
+  return Math.ceil(lines.length * size * 1.05) + 44;
+};
+
+/** The paper stamp's drop shadow (VisualStage KineticText: 9 px down). */
+const BADGE_SHADOW = 9;
+/** Clear air between the callout stamp and an explainer card under it, at the stamp's biggest (mid-slam) frame. */
+export const STAMP_CARD_GAP = 24;
+/** Worst-case camera on a card beat: the 1.06 explanation push × the 1.07 micro punch × the 1.12 shock punch. The
+ *  card zooms with the camera; the stamp doesn't (it's un-cameraed so it never zooms off-screen). */
+const CAMERA_MAX = 1.06 * MICRO_PUNCH * SHOCK_PUNCH;
+/** The beat's transform origin ("50% 40%" of 1080 × 1920) */
+const CAMERA_ORIGIN_Y = 768;
+
+/** The lowest canvas y the kinetic stamp ever covers (its 1.7× slam, 4° tilt, idle float and shadow included). */
+export function stampFloor(text: string, box: { x: number; y: number; w: number }, align: "left" | "center" | "right", tilted = true): number {
+  const r = badgeRect(text, box, align, tilted);
+  const k = badgeMaxScale(r, tilted);
+  const { hh } = halfExtent(r.w, r.h, tilted ? BADGE_TILT : 0, k);
+  return Math.ceil(r.y + r.h / 2 + hh + BADGE_BOB + (tilted ? BADGE_SHADOW : 0));
+}
+
+/** The highest canvas y a card placed at `y` (camera space) reaches under the worst-case camera (2° roll, shake). */
+export function cardCeiling(y: number, x: number, w: number): number {
+  const lift = Math.max(0, (CAMERA_MAX - 1) * (CAMERA_ORIGIN_Y - y));
+  const roll = Math.max(Math.abs(x - 540), Math.abs(x + w - 540)) * Math.sin((2 * Math.PI) / 180);
+  return Math.floor(y - lift - roll - SHAKE_PX);
+}
+
+export type StageBox = { x: number; y: number; w: number; h: number };
+export type StageColumn = { kineticBox: StageBox | null; cardBox: StageBox | null; propBox: StageBox | null; bubbleBox: StageBox | null };
+
+/**
+ * One stage column, top-down: the kinetic stamp, then the explainer card, then the prop (a thought line puts its prop in
+ * a bubble instead). Space goes to the prop first, then the stamp, then the card. A card always sits STAMP_CARD_GAP
+ * under the stamp's biggest frame, camera move included, so the red stamp never covers the card's title; when both
+ * can't fit, the card (the explanation) stays and the stamp gives way.
+ */
+export function stackColumn(
+  o: { kinetic: string | null; align: "left" | "center" | "right"; tilted: boolean; thought: boolean; overlay: boolean; hasProp: boolean },
+  col: { x: number; w: number },
+  top: number,
+  bottom: number,
+  propMinH = 300,
+): StageColumn {
+  const out: StageColumn = { kineticBox: null, cardBox: null, propBox: null, bubbleBox: null };
+  const kh = o.kinetic ? kineticHeight(o.kinetic, col.w) + 8 : 0;
+  let showKinetic = Boolean(o.kinetic) && (o.thought || !o.hasProp || bottom - top - kh >= propMinH);
+  if (o.thought) {
+    let y = top;
+    if (showKinetic) {
+      out.kineticBox = { x: col.x, y, w: col.w, h: kh - 8 };
+      y += kh;
+    }
+    out.bubbleBox = { x: col.x, y, w: col.w, h: Math.min(bottom - y, col.w * 0.95) };
+    return out;
+  }
+  const cardAt = (y: number) => {
+    const free = bottom - y - (o.hasProp ? propMinH : 0);
+    const h = o.hasProp ? Math.min(300, free - 22) : Math.min(col.w * 1.15, bottom - y);
+    return h >= 200 ? { x: col.x, y, w: col.w, h } : null;
+  };
+  let card: StageBox | null = null;
+  if (o.overlay && showKinetic && o.kinetic) {
+    // the lowest card top whose highest camera-moved point still clears the stamp's floor by the gap
+    const floor = stampFloor(o.kinetic, { x: col.x, y: top, w: col.w }, o.align, o.tilted) + STAMP_CARD_GAP;
+    let cy = floor;
+    while (cardCeiling(cy, col.x, col.w) < floor) cy += 2;
+    card = cardAt(cy);
+    // no room for both: the explainer card takes the slot and the redundant stamp gives way
+    const alone = card ? null : cardAt(top);
+    if (alone) {
+      card = alone;
+      showKinetic = false;
+    }
+  } else if (o.overlay) card = cardAt(top);
+  if (showKinetic) out.kineticBox = { x: col.x, y: top, w: col.w, h: kh - 8 };
+  out.cardBox = card;
+  const y = card ? card.y + card.h + 22 : showKinetic ? top + kh : top;
+  if (o.hasProp) out.propBox = { x: col.x, y, w: col.w, h: Math.max(propMinH, bottom - y) };
+  return out;
+}
