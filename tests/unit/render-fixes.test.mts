@@ -55,14 +55,19 @@ test("without timestamps, lines follow each other (unchanged comedic timing)", (
   assert.deepEqual(timeline(lines).starts, [0, 104, 201]);
 });
 
-test("a line's own sound effect on a cut that already whooshes plays once (fewer overlapping audio tags)", async () => {
+test("a plain dialogue cut never whooshes (not even a script's whoosh); a major shift whooshes once", async () => {
   const { sfxCuesFor } = await import("../../video/src/shared/sfxCues.ts");
   const lines = [
     line({ speaker: "uco", text: "a", frames: 120 }, 0),
     line({ speaker: "ocu", text: "b", frames: 120, sfx: ["whoosh", "pop"] }, 1),
   ];
   const cues = sfxCuesFor(buildBeats(lines), { stampAt: 10 });
-  const at = (name: string) => cues.filter((c) => c.name === name && c.frame >= 124 && c.frame < 140);
-  assert.equal(at("whoosh").length, 1, "cut whoosh + line whoosh → one");
+  const atCut = (cs: { name: string; frame: number }[]) => cs.filter((c) => c.name === "whoosh" && c.frame >= 120 && c.frame < 140);
+  assert.equal(atCut(cues).length, 0, "uco → ocu back-and-forth: no whoosh");
+  assert.ok(cues.some((c) => c.name === "pop"), "the line's other effect still plays");
+  // into a two-shot: one whoosh, even with the line's own whoosh on top
+  const shifted = sfxCuesFor(buildBeats([line({ speaker: "uco", text: "a", frames: 120 }, 0), line({ speaker: "ocu", text: "b", frames: 120, camera_shot: "two-shot", sfx: ["whoosh"] }, 1)]), { stampAt: 10 });
+  assert.equal(atCut(shifted).length, 1, "one whoosh into the two-shot");
+  assert.ok(shifted.some((c) => c.name === "whoosh" && c.frame >= 240), "and one into the outro");
   assert.ok(cues.every((c, i) => !cues.some((d, j) => j !== i && d.name === c.name && Math.abs(d.frame - c.frame) < 15)));
 });

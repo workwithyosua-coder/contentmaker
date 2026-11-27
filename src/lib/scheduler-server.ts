@@ -76,7 +76,16 @@ export type Handoff = {
   notConnected: string[];
   /** the episode's freshly generated props (set when the script is written, kept through the finish) */
   props?: FreshProp[];
+  /** why some of them failed, in short (the card shows it; the render still finishes) */
+  propWarning?: string | null;
 };
+/** "2 of 3 props failed: Gemini 400 (gemini-nano-banana-2.1): …" (null when none failed). */
+export function propWarningFor(props: FreshProp[]): string | null {
+  const failed = props.filter((p) => p.status === "failed");
+  if (!failed.length) return null;
+  return `${failed.length} of ${props.length} prop${props.length > 1 ? "s" : ""} failed: ${(failed[0].error ?? "unknown error").slice(0, 200)}`;
+}
+
 export type FreshProp = { slug: string; name: string; prompt: string; status: "pending" | "done" | "failed"; error?: string };
 
 /** A step called on a slot in another state (a late or duplicate worker call): refused, the slot is left alone. */
@@ -644,7 +653,9 @@ async function propContext(id: string) {
 async function setProp(id: string, name: string, patch: Partial<FreshProp>) {
   const s = await slot(id);
   const props = ((s.handoff?.props ?? []) as FreshProp[]).map((p) => (p.name === name ? { ...p, ...patch } : p));
-  await db()`UPDATE episode_queue SET handoff = ${db().json({ ...(s.handoff ?? {}), props } as never)}, updated_at = now() WHERE id = ${id}`;
+  // never silent: a failed prop leaves a short warning on the slot (shown on its card), the render still finishes
+  const propWarning = propWarningFor(props);
+  await db()`UPDATE episode_queue SET handoff = ${db().json({ ...(s.handoff ?? {}), props, propWarning } as never)}, updated_at = now() WHERE id = ${id}`;
 }
 
 /**
@@ -671,7 +682,7 @@ export async function propPlan(id: string) {
  * repo's own props as style references, and returns a short-lived URL to the raw image for the worker's cut-out.
  * A failure doesn't fail the slot: the prop is dropped (its beats show none) and the reason is returned.
  */
-export async function propGenerate(id: string, name: string, origin: string): Promise<{ ok: true; url: string; mime: string; model: string } | { ok: false; error: string }> {
+export async function propGenerate(id: string, name: string, origin: string): Promise<{ ok: true; data: string; mime: string; model: string } | { ok: false; error: string }> {
   const { episodeId, props } = await propContext(id);
   const prop = props.find((p) => p.name === name && p.status === "pending");
   if (!prop) return { ok: false, error: "Unknown or finished prop." };
@@ -695,10 +706,11 @@ export async function propGenerate(id: string, name: string, origin: string): Pr
       console.warn(`[scheduler] prop ${name}: ${e instanceof Error ? e.message : e}; retrying without style references`);
       img = await geminiImage(`${prop.prompt}. ${PROP_STYLE}`, []);
     }
-    const { putObject, signedUrl } = await import("./storage");
-    const raw = `${episodeId}/props-raw/${name}.${img.mime.includes("jpeg") ? "jpg" : "png"}`;
-    await putObject(raw, new Uint8Array(img.data).buffer, img.mime);
-    return { ok: true, url: await signedUrl(raw, 3600), mime: img.mime, model: img.model };
+    // straight back to the worker (base64), no storage step: the first live run lost every prop when the private
+    // bucket refused Gemini's JPEG ("mime type image/jpeg is not supported"); the worker's cut-out makes the PNG
+    if (img.data.byteLength > 3_000_000) throw new Error(`the generated image is ${(img.data.byteLength / 1e6).toFixed(1)} MB, too big to hand over`);
+    console.log(`[scheduler] slot ${id} prop ${name}: ${img.model} returned ${img.mime}, ${(img.data.byteLength / 1024).toFixed(0)} KB, ${refs.length} style reference(s)`);
+    return { ok: true, data: img.data.toString("base64"), mime: img.mime, model: img.model };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error(`[scheduler] slot ${id} prop ${name} failed: ${error}`);
@@ -752,8 +764,9 @@ export async function startSlotRender(
   const [rule] = await db()<ScheduleRow[]>`SELECT * FROM content_schedules WHERE id = ${s.schedule_id}`;
   const style = normalizeRule(rule ?? DEFAULT_RULE).visual_style;
   await db()`UPDATE content_projects SET video_style = ${style}, updated_at = now() WHERE id = ${s.episode_id}`;
-  // drafts scripted before the BGM / pacing direction existed get it too (only the scheduler's own outro-only one)
-  await db()`UPDATE scripts SET direction = ${showDirection(style)} WHERE project_id = ${s.episode_id} AND custom AND (direction IS NULL OR direction = ${LEGACY_SHOW_DIRECTION})`;
+  // drafts scripted with an earlier scheduler direction get the current one (BGM, natural pacing); only the
+  // scheduler's own direction (it starts with the outro line), never one a person wrote
+  await db()`UPDATE scripts SET direction = ${showDirection(style)} WHERE project_id = ${s.episode_id} AND custom AND (direction IS NULL OR direction LIKE ${LEGACY_SHOW_DIRECTION + "%"})`;
   const [job] = await db()<
     { id: string }[]
   >`INSERT INTO render_jobs (project_id) VALUES (${s.episode_id}) RETURNING id`;
@@ -823,7 +836,7 @@ export async function finishSlot(
     queued,
     postAt: postAt.toISOString(),
     notConnected: wanted.filter((t) => !have.has(t)),
-    ...(s.handoff?.props ? { props: s.handoff.props } : {}),
+    ...(s.handoff?.props ? { props: s.handoff.props, propWarning: s.handoff.propWarning ?? null } : {}),
   };
   await sql`UPDATE episode_queue SET handoff = ${sql.json(handoff as never)}, updated_at = now() WHERE id = ${id}`;
   const next = statusAfterPublishing({

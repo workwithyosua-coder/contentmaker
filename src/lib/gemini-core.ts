@@ -116,3 +116,26 @@ export function parseSeeds(text: string, max: number): string[] {
     .filter((s) => s.length >= 3 && !/^[[\]{}]+$/.test(s))
     .slice(0, max);
 }
+
+/**
+ * The image model's generateContent body: the style reference images first (inline base64), then the prompt;
+ * IMAGE output, 1K, square.
+ */
+export function imageRequestBody(prompt: string, refs: { mime: string; data: Uint8Array }[] = []) {
+  return {
+    contents: [{ role: "user", parts: [...refs.map((r) => ({ inlineData: { mimeType: r.mime, data: Buffer.from(r.data).toString("base64") } })), { text: prompt }] }],
+    generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "1K" } },
+  };
+}
+
+type ImageAnswer = { candidates?: { content?: { parts?: { text?: string; inlineData?: { data?: string; mimeType?: string } }[] }; finishReason?: string }[]; promptFeedback?: { blockReason?: string } };
+
+/** The generated image from the model's answer (the first inline image part, whatever comes before it), or why not. */
+export function extractImage(j: ImageAnswer): { data: Buffer; mime: string } | { error: string } {
+  const parts = j.candidates?.[0]?.content?.parts ?? [];
+  const img = parts.find((p) => p.inlineData?.data && (p.inlineData.mimeType ?? "image/").startsWith("image/"))?.inlineData;
+  if (img?.data) return { data: Buffer.from(img.data, "base64"), mime: img.mimeType ?? "image/png" };
+  const why = j.promptFeedback?.blockReason ?? j.candidates?.[0]?.finishReason ?? "no candidates";
+  const said = parts.map((p) => p.text ?? "").join(" ").trim().slice(0, 120);
+  return { error: `no image came back (${why})${said ? `: "${said}"` : ""}` };
+}

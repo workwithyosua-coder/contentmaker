@@ -5,6 +5,7 @@
 //   pause: 0.4s | jeda 0.4 detik | breath 300ms      gap between lines (default: the tight comedic timing)
 //   thought pause: 0.6s                             extra breath around (thought) lines
 //   bgm: on | music on | pakai musik                background music bed (needs sfx/bgm.mp3)
+//   pacing: natural                                 dialogue-aware gaps between lines (see naturalGap)
 //   bgm: urgent                                     the urgent track (sfx/bgm-urgent.mp3, else the regular bed)
 //   bgm volume: 15%                                 bed level (default 8%)
 //   duck bgm on thought | bgm off on thought        music under inner thoughts: −12 dB (the default) or silent
@@ -16,6 +17,11 @@ export type RenderDirection = {
   pauseS: number | null;
   /** gap before and after (thought) lines in seconds; null = default */
   thoughtPauseS: number | null;
+  /**
+   * "Pacing: natural": gaps between lines follow the dialogue (0.30 s on a speaker switch, 0.24 s for the same speaker,
+   * 0.42 s into a takeover, a thought, the final punchline or the outro) instead of one flat pause
+   */
+  naturalPacing?: boolean;
   bgm: boolean;
   /** "BGM: urgent": the urgent track (bgm-urgent) whatever the lines' poses, falling back to the regular bed */
   urgentBgm?: boolean;
@@ -79,6 +85,8 @@ export function parseDirection(text: string | null | undefined): RenderDirection
     const low = line.toLowerCase();
     if (/\b(thought|batin|dalam hati)\b/.test(low) && /\b(pause|jeda|breath|napas|gap)\b/.test(low)) {
       d.thoughtPauseS = seconds(line) ?? d.thoughtPauseS;
+    } else if (/\bpacing\b/.test(low) && /\b(natural|alami|natural timing)\b/.test(low)) {
+      d.naturalPacing = true;
     } else if (/\b(pause|jeda|breath|napas|gap)\b/.test(low)) {
       d.pauseS = seconds(line) ?? d.pauseS;
     }

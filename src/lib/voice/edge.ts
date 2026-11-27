@@ -19,20 +19,21 @@ export type Prosody = { rate: string; pitch: string };
 type ProsodyLine = { speaker: "uco" | "ocu"; emotion?: string | null; expression?: string | null; thought_bubble?: boolean | null };
 
 /**
- * The character's pace and pitch for a line, from its pose:
- *   Uco (faster, higher):   base +10% / +4Hz · angry, shocked, defensive +16% / +8Hz · thought −4% / −2Hz
- *   Ocu (steadier, deeper): base +5% / −4Hz  · deadpan, thought −2% / −6Hz · explaining, inspecting, cta +8% / −2Hz
+ * The character's pace and pitch for a line, from its pose, at natural speaking speed (energy from pitch and the
+ * voice, not from rushing):
+ *   Uco (a touch quicker, higher): base +2% / +4Hz · angry, shocked, defensive +4% / +8Hz · thought −4% / −2Hz
+ *   Ocu (steady, deeper):          base +0% / −4Hz · deadpan, thought −2% / −6Hz · explaining, inspecting, cta +3% / −2Hz
  */
 export function edgeProsody(l: ProsodyLine): Prosody & { pose: string } {
   const pose = actingPose(l);
   if (l.speaker === "uco") {
-    if (pose === "angry" || pose === "shocked" || pose === "defensive") return { pose, rate: "+16%", pitch: "+8Hz" };
+    if (pose === "angry" || pose === "shocked" || pose === "defensive") return { pose, rate: "+4%", pitch: "+8Hz" };
     if (pose === "thought") return { pose, rate: "-4%", pitch: "-2Hz" };
-    return { pose, rate: "+10%", pitch: "+4Hz" };
+    return { pose, rate: "+2%", pitch: "+4Hz" };
   }
   if (pose === "deadpan" || pose === "thought") return { pose, rate: "-2%", pitch: "-6Hz" };
-  if (pose === "explaining" || pose === "inspecting" || pose === "cta") return { pose, rate: "+8%", pitch: "-2Hz" };
-  return { pose, rate: "+5%", pitch: "-4Hz" };
+  if (pose === "explaining" || pose === "inspecting" || pose === "cta") return { pose, rate: "+3%", pitch: "-2Hz" };
+  return { pose, rate: "+0%", pitch: "-4Hz" };
 }
 
 /**
@@ -47,11 +48,16 @@ export function edgeMark(provider: VoiceProvider, p: Prosody & { pose?: string }
 export const isEdgeTake = (aiPrompt: string | null | undefined) => Boolean(aiPrompt?.includes(EDGE_TAG));
 
 /**
- * The take's source as the renderer sees it: "ai_edge" for Edge TTS takes (and their RVC conversions), which already
- * have their pace from the prosody, so the renderer doesn't speed them up again like other AI takes.
+ * The take's source as the renderer sees it: "ai_edge" for Edge TTS takes (and their RVC conversions) and "ai_gemini"
+ * for Gemini TTS takes (and theirs), which speak at a natural pace already, so the renderer doesn't speed them up
+ * like ElevenLabs takes ("ai").
  */
 export function takeSource(source: string, aiPrompt: string | null | undefined): string {
-  return source === "ai" && isEdgeTake(aiPrompt) ? "ai_edge" : source;
+  if (source !== "ai") return source;
+  if (isEdgeTake(aiPrompt)) return "ai_edge";
+  // Gemini TTS takes (and their RVC conversions) already speak at a natural pace: never sped up again
+  if (/^\[(gemini_tts|rvc)\b|^\[gemini_tts_rvc:base\]/.test(aiPrompt ?? "")) return "ai_gemini";
+  return "ai";
 }
 
 /**

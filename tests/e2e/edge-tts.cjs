@@ -126,7 +126,7 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   check('A: on the retry Gemini TTS is asked again (still 429), Edge TTS makes the takes', /Gemini TTS quota hit/.test(prepA), `${tts.length} Gemini TTS requests`);
   const takesA = await sql`SELECT line_index, ai_prompt, mime_type, duration_ms FROM recordings WHERE project_id = ${fa.episode_id} AND is_selected ORDER BY line_index`;
   check('A: 14 Edge TTS base takes (RVC base mark, WAV)', takesA.length === N && takesA.every((t) => t.ai_prompt.startsWith('[gemini_tts_rvc:base] edge-tts id-ID-ArdiNeural') && t.mime_type === 'audio/wav' && t.duration_ms > 500), JSON.stringify(takesA.map((t) => t.ai_prompt.slice(22))));
-  check('A: per-pose prosody (Uco shocked thought, Ocu cta)', /rate=-4% pitch=-2Hz pose=thought/.test(takesA[4].ai_prompt) && /rate=\+8% pitch=-2Hz pose=cta/.test(takesA[13].ai_prompt) && /rate=\+16% pitch=\+8Hz pose=defensive/.test(takesA[2].ai_prompt));
+  check('A: per-pose prosody (Uco shocked thought, Ocu cta)', /rate=-4% pitch=-2Hz pose=thought/.test(takesA[4].ai_prompt) && /rate=\+3% pitch=-2Hz pose=cta/.test(takesA[13].ai_prompt) && /rate=\+4% pitch=\+8Hz pose=defensive/.test(takesA[2].ai_prompt));
   check('A: speech frames logged per line', (prepA.match(/speech frames \d+–\d+/g) ?? []).length === N);
   check('A: render job with voice=rvc', outA.voice === 'rvc' && outA.episode_id === fa.episode_id, JSON.stringify(outA));
   await run('npx', ['tsx', 'rvc-stage.mts', fa.episode_id, '--base', base], { cwd: path.join(ROOT, 'video'), env: env({ RVC_FAKE: '1', JOB_ID: outA.job_id, SLOT_ID: a.id }) });
