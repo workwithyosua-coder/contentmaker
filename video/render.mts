@@ -20,7 +20,8 @@ import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts"
 import { parseDirection } from "./src/direction.ts";
 import { LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades } from "./src/audioChain.ts";
 import { BED_CHAIN, BGM_UNDER_DIALOGUE } from "./src/shared/bgm.ts";
-import { cutAt, speechEnd } from "./audio-tail.mts";
+import { cutAt, speechTailOf } from "./audio-tail.mts";
+import { tailSummary } from "./src/voicedTail.ts";
 import { renderProgress } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 
@@ -189,7 +190,10 @@ for (const line of manifest.lines) {
   const leveled = path.join(work, `line-${n}.level.wav`);
   // the tail gate before the level step: a click after the last word (Gemini takes) never reaches the compressor
   // and loudnorm, which used to lift it into a loud "tsk"
-  const end = speechEnd(trimmed);
+  const tail = speechTailOf(trimmed);
+  const end = tail.endMs / 1000;
+  // the first 3 lines: what the classifier saw at the end of the take (verifiable in the run log)
+  if (line.index < 3) log(`line ${n} tail: ${tailSummary(tail)}`);
   ffmpeg("-i", trimmed, "-af", cutAt(end) + tighten + (line.thought_bubble ? THOUGHT : "") + LEVEL + (line.index === 0 ? `,${LEAD_IN.slice(0, -1)}` : ""), "-ar", "48000", "-ac", "1", leveled);
   // the clean edges last, on the final length (after trimming, tightening, speed and the lead-in)
   const secs = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", leveled]).toString().trim()) || 0;

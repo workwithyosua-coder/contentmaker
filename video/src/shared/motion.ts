@@ -629,12 +629,17 @@ export function countUp(headline: string, frame: number, at: number): { text: st
  * overlapping its lower edge so he's visibly examining it, kept inside the safe columns (x 60..940) and under the
  * stage top.
  */
-export function lensPropBox(lens: { x: number; y: number; r: number }, size: number, top: number): { x: number; y: number; w: number; h: number } {
+export function lensPropBox(lens: { x: number; y: number; r: number }, size: number, top: number, offset: { dx: number; dy: number } = { dx: 0, dy: 0 }): { x: number; y: number; w: number; h: number } {
   const w = size;
-  const x = Math.min(940 - w, Math.max(60, lens.x - w * 0.6));
-  const y = Math.max(top, lens.y - lens.r * 0.35 - w);
+  const x = Math.min(940 - w, Math.max(60, lens.x - w * 0.6 + offset.dx));
+  const y = Math.max(top, lens.y - lens.r * 0.35 - w + offset.dy);
   return { x, y, w, h: w };
 }
+
+/** Solo inspecting: a smaller (240 px) prop nudged right and up so it floats above the lens beside Ocu's face, its
+ *  left edge past his right pupil and its bottom 40 px higher, instead of across his glasses and nose; the right-hand
+ *  icon rail still clear (x ≤ 940). */
+export const SOLO_LENS_PROP = { size: 240, dx: 70, dy: -40 } as const;
 
 /** The prop's hover on an inspecting beat: a slow 6 px float and a gentle 1.00-1.04 zoom pulse. */
 export function lensHover(frame: number): { dy: number; scale: number } {

@@ -1,3 +1,4 @@
+import { voicedTail, type TailReport } from "./voicedTail";
 // The ffmpeg filter chain every voice clip goes through before the render (render.mts) and after Edge TTS / RVC
 // (edge-stage.mts, rvc-stage.mts). Pure strings, shared by the worker and the unit tests.
 
@@ -45,6 +46,20 @@ export const FADE_OUT_S = 0.045;
 export const TAIL_GATE = { windowMs: 10, floorDb: -50, belowPeakDb: 35, bridgeMs: 70, minSpeechMs: 60, transientMs: 140, padMs: 55 } as const;
 
 export function speechEndSeconds(samples: ArrayLike<number>, sampleRate: number, fullScale = 32768): number {
+  return speechTail(samples, sampleRate, fullScale).endMs / 1000;
+}
+
+/**
+ * The take's tail, decided by its spectrum (voicedTail.ts: the last voiced frame + 45 ms, any unvoiced trailing burst
+ * up to 450 ms cut), falling back to the loudness gate below for a take with too little voiced speech (a whisper).
+ * The report carries the diagnostics the worker logs.
+ */
+export function speechTail(samples: ArrayLike<number>, sampleRate: number, fullScale = 32768): TailReport {
+  return voicedTail(samples, sampleRate, energyEndSeconds(samples, sampleRate, fullScale) * 1000, fullScale);
+}
+
+/** The loudness-only gate (#59 / #63): the fallback when a take has too little voiced speech to classify. */
+export function energyEndSeconds(samples: ArrayLike<number>, sampleRate: number, fullScale = 32768): number {
   const g = TAIL_GATE;
   const win = Math.max(1, Math.round((sampleRate * g.windowMs) / 1000));
   const n = Math.floor(samples.length / win);

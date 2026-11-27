@@ -9,7 +9,7 @@ import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
 import type { MouthStage } from "./motion";
 import { CTA_FACE, CTA_H, FRAME_BOTTOM, PAIR_H, SOLO_H, STAGE_BOTTOM, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, INSPECT_FACE_X, INSPECT_PAIR_X, lensOnCanvas, type HeadFrac } from "./castLayout";
-import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, entranceAt, lensHover, lensPropBox, levelAt, mouthStage, stackColumn, takeoverTimeline, TAKEOVER_HERO } from "./motion";
+import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, entranceAt, lensHover, lensPropBox, SOLO_LENS_PROP, levelAt, mouthStage, stackColumn, takeoverTimeline, TAKEOVER_HERO } from "./motion";
 
 /** A listener in a two-shot: brightness 0.82 (and a little desaturated), so the speaker is unmistakable. */
 export const LISTENER_DIM = 0.18;
@@ -183,7 +183,7 @@ export function DirectorStage({
   const lens = !cta && !beat.thought && shot !== "closeup-punch" && beat.emotion === "inspecting" && ocuOn && (beat.propImage || beat.sceneImageUrl) && ocuFig ? lensOnCanvas(ocuFig, O.lens) : null;
   if (lens) {
     const hv = reduced ? { dy: 0, scale: 1 } : lensHover(frame);
-    const b = lensPropBox(lens, placed.length > 1 ? 260 : 330, STAGE_TOP);
+    const b = placed.length > 1 ? lensPropBox(lens, 260, STAGE_TOP) : lensPropBox(lens, SOLO_LENS_PROP.size, STAGE_TOP, SOLO_LENS_PROP);
     propBox = { x: b.x + (b.w * (1 - hv.scale)) / 2, y: b.y + hv.dy + (b.h * (1 - hv.scale)) / 2, w: b.w * hv.scale, h: b.h * hv.scale };
     labelMode = "below-left";
   }

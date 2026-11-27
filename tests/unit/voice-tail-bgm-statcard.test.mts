@@ -43,41 +43,41 @@ const geminiTake = () => join(tone(1.6, 0.35), silence(0.1), click(0.05), silenc
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 
 // ------------------------------------------------------------------ 1. the "tsk" after the last word
-test("the tail gate ends a take at its last word: a trailing transient (< 140 ms, ≥ 70 ms after) is dropped, syllable gaps and a real last word kept", () => {
-  assert.ok(Math.abs(speechEndSeconds(geminiTake(), SR) - 1.655) < 0.02, "1.6 s of speech + the 55 ms pad, the click gone");
+test("the tail gate ends a take at its last voiced word (+45 ms): a trailing click is cut, syllable gaps and short voiced last words kept", () => {
+  assert.ok(Math.abs(speechEndSeconds(geminiTake(), SR) - 1.645) < 0.02, "1.6 s of speech + the 45 ms pad, the click gone");
   // no click: just the pad after the speech
-  assert.ok(Math.abs(speechEndSeconds(join(tone(1.6, 0.35), silence(0.4)), SR) - 1.655) < 0.02);
-  // a dip under 70 ms between syllables is bridged; a real last word (≥ 140 ms) after a pause stays
+  assert.ok(Math.abs(speechEndSeconds(join(tone(1.6, 0.35), silence(0.4)), SR) - 1.645) < 0.02);
+  // a dip between syllables, a pause, a real last word: all voiced, all kept
   const words = join(tone(0.6, 0.35), silence(0.05), tone(0.5, 0.35), silence(0.2), tone(0.2, 0.3), silence(0.3));
-  assert.ok(Math.abs(speechEndSeconds(words, SR) - (0.6 + 0.05 + 0.5 + 0.2 + 0.2 + 0.055)) < 0.02);
-  // a short sound under 140 ms, 70 ms or more after the last word, is a transient: cut
-  const transient = join(tone(1.0, 0.35), silence(0.08), tone(0.12, 0.3), silence(0.3));
-  assert.ok(Math.abs(speechEndSeconds(transient, SR) - 1.055) < 0.02);
-  // a take that is only one short sound keeps it
+  assert.ok(Math.abs(speechEndSeconds(words, SR) - (0.6 + 0.05 + 0.5 + 0.2 + 0.2 + 0.045)) < 0.02);
+  // a short VOICED last word ("lho", 120 ms) after a pause is speech, not an artifact: kept (#63's loudness rule cut it)
+  const lho = join(tone(1.0, 0.35), silence(0.08), tone(0.12, 0.3), silence(0.3));
+  assert.ok(Math.abs(speechEndSeconds(lho, SR) - (1.0 + 0.08 + 0.12 + 0.045)) < 0.02);
+  // a take that is only one short sound keeps it (too little voiced speech: the loudness gate decides)
   assert.ok(speechEndSeconds(join(silence(0.1), click(0.3), silence(0.1)), SR) > 0.1);
 });
 
-test("Stage A: Gemini's PCM is cut at the last word with a 40 ms fade to zero (and whole samples only) before it's stored", () => {
+test("Stage A: Gemini's PCM is cut at the last word with a 45 ms fade to zero (and whole samples only) before it's stored", () => {
   const take = geminiTake();
   const bytes = new Uint8Array(take.buffer.byteLength + 1); // + a stray odd byte
   bytes.set(new Uint8Array(take.buffer));
   const clean = cleanPcmTail(bytes, SR);
   assert.equal(clean.length % 2, 0);
   const out = new Int16Array(clean.buffer, clean.byteOffset, clean.length / 2);
-  assert.ok(Math.abs(out.length / SR - 1.655) < 0.02, `${out.length / SR} s`);
+  assert.ok(Math.abs(out.length / SR - 1.645) < 0.02, `${out.length / SR} s`);
   assert.equal(out.at(-1), 0, "ends at zero");
   const fade = Math.round(FADE_OUT_S * SR);
   assert.ok(Math.abs(out[out.length - fade / 2]) <= Math.abs(take[out.length - fade / 2]) * 0.55 + 1, "half way down the 40 ms fade");
   assert.equal(FADE_OUT_S, 0.045);
-  assert.match(read("src/lib/voice/gemini.ts"), /const clean = cleanPcmTailStats\(new Uint8Array\(Buffer\.from\(part\.data, "base64"\)\), rate\);\s*return \{ wav: pcmToWav\(clean\.pcm, rate\)/);
+  assert.match(read("src/lib/voice/gemini.ts"), /const \{ pcm, \.\.\.payload \} = geminiPcm\(new Uint8Array\(Buffer\.from\(part\.data, "base64"\)\), part\.mimeType\);\s*const clean = cleanPcmTailStats\(pcm, payload\.rate\);\s*return \{ wav: pcmToWav\(clean\.pcm, payload\.rate\)/);
 });
 
-test("Stage B and the render gate the tail: before RVC, after RVC (40 ms fade), after Edge, and on every cached take before loudnorm", () => {
+test("Stage B and the render gate the tail: before RVC, after RVC (45 ms fade), after Edge, and on every cached take before loudnorm", () => {
   const rvc = read("video/rvc-stage.mts");
   assert.match(rvc, /const end = speechEnd\(raw\);\s*execFileSync\("ffmpeg", \[[^\]]*"-af", cutAt\(end\)\.slice\(0, -1\), "-ac", "1", "-ar", "44100", input\]\);/, "RVC never gets the click or the noise floor after the last word");
   assert.match(rvc, /const seconds = speechEnd\(j\.output\);[\s\S]*?`\$\{cutAt\(seconds\)\}highpass=f=20,\$\{fades\(seconds\)\}`/, "and whatever RVC adds after it is cut, then faded");
   assert.match(read("video/edge-stage.mts"), /cutAt\(speechEnd\(trimmed\)\) \+ LEVEL/);
-  assert.match(read("video/render.mts"), /const end = speechEnd\(trimmed\);\s*ffmpeg\("-i", trimmed, "-af", cutAt\(end\) \+ tighten/, "the gate runs before the compressor / loudnorm");
+  assert.match(read("video/render.mts"), /const tail = speechTailOf\(trimmed\);\s*const end = tail\.endMs \/ 1000;[\s\S]{0,200}?ffmpeg\("-i", trimmed, "-af", cutAt\(end\) \+ tighten/, "the gate runs before the compressor / loudnorm");
   assert.match(fades(2), /afade=t=out:st=1\.955:d=0\.045$/);
 });
 

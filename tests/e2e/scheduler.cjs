@@ -247,6 +247,8 @@ const step = async (...args) =>
     console.log(r.stdout.split('\n').filter((l) => !/frame/i.test(l)).slice(-8).join('\n'));
     fs.writeFileSync(path.join(OUT, 'render.log'), r.stdout);
     const bgmLine = r.stdout.split('\n').find((l) => /\] bgm: /.test(l)) ?? '';
+    const tails = r.stdout.split('\n').filter((l) => /\] line 0[123] tail: \d+ → \d+ ms \((voiced|energy)/.test(l));
+    check('render: the first 3 lines log their tail diagnostics (voiced-speech classifier)', tails.length === 3, tails[0] ?? 'none');
     check('render: the Koran Kinetik slot has a music bed (urgent track), 12 % under dialogue', /bgm: \S+bgm(-urgent)?\.mp3/.test(bgmLine) && !/NONE/.test(bgmLine) && /12% under dialogue/.test(bgmLine), bgmLine);
   } else {
     // stand-in for render.mts's upload: a stored MP4 row

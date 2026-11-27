@@ -1,5 +1,6 @@
 import "server-only";
-import { cleanPcmTailStats, pcmRate, pcmToWav, ttsRequestBody } from "./acting";
+import { cleanPcmTailStats, geminiPcm, pcmToWav, ttsRequestBody, type PcmPayload } from "./acting";
+import type { TailReport } from "../../../video/src/voicedTail";
 import { TTS_MAX_429_RETRIES, TtsPacer, pacedRequest, realClock } from "./tts-pacing";
 import { GEMINI_KEY_MISSING, geminiApiKey, geminiErrorDetail, geminiTtsModels, isModelError } from "../gemini-core";
 
@@ -27,7 +28,7 @@ export async function speakGemini(text: string, style: string, speaker: "uco" | 
 const pacer = new TtsPacer();
 
 /** speakGemini, with how much of the take's tail was cut (for the worker log). */
-export async function speakGeminiTake(text: string, style: string, speaker: "uco" | "ocu"): Promise<{ wav: Uint8Array; originalMs: number; keptMs: number; model: string }> {
+export async function speakGeminiTake(text: string, style: string, speaker: "uco" | "ocu"): Promise<{ wav: Uint8Array; originalMs: number; keptMs: number; model: string; payload: Omit<PcmPayload, "pcm">; tail: TailReport }> {
   const key = geminiApiKey()?.key;
   if (!key) throw new Error(GEMINI_KEY_MISSING);
   const body = JSON.stringify(ttsRequestBody(text, style, speaker));
@@ -59,9 +60,11 @@ export async function speakGeminiTake(text: string, style: string, speaker: "uco
     if (!part?.data) throw new Error(`Gemini TTS (${model}): no audio came back. Try the line again.`);
     // the take ends at its last word: Gemini's trailing click is cut here (frame-level speech-end detection), before
     // it's stored or converted by RVC
-    const rate = pcmRate(part.mimeType);
-    const clean = cleanPcmTailStats(new Uint8Array(Buffer.from(part.data, "base64")), rate);
-    return { wav: pcmToWav(clean.pcm, rate), originalMs: clean.originalMs, keptMs: clean.keptMs, model };
+    // the payload checked (raw L16 PCM; a WAV container or a trailer chunk would be stripped, MP3 / OGG refused),
+    // then the tail classified by its spectrum and cut after the last voiced frame
+    const { pcm, ...payload } = geminiPcm(new Uint8Array(Buffer.from(part.data, "base64")), part.mimeType);
+    const clean = cleanPcmTailStats(pcm, payload.rate);
+    return { wav: pcmToWav(clean.pcm, payload.rate), originalMs: clean.originalMs, keptMs: clean.keptMs, model, payload, tail: clean.tail };
   }
   throw new Error("Gemini TTS: no model to call.");
 }
