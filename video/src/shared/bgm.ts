@@ -1,5 +1,5 @@
 import type { Beat } from "../beats";
-import type { EpisodeLine } from "../types";
+import { FPS, type EpisodeLine } from "../types";
 
 /** The music bed's level while someone talks (≈ −18 dB): heard under the dialogue, never fighting it. */
 export const BGM_UNDER_DIALOGUE = 0.12;
@@ -10,12 +10,29 @@ export const BGM_UNDER_DIALOGUE = 0.12;
  * bed dropped to a third of 20 % (0.07, ≈ −23 dB) under every word, which under −14 LUFS dialogue read as silence.
  */
 export function bgmLevel(beats: Beat[], lines: EpisodeLine[], volume: number, thoughtDuck: number, f: number): number {
+  const drop = bgmDropOut(beats);
+  if (drop && f >= drop.from && f < drop.to) return 0;
   const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);
   if (!b || b.line === null) return volume; // end card: full bed
   const l = lines[b.line];
   const talking = (l.envelope?.[f - b.startFrame] ?? 0) > 0.08;
   const bed = talking ? Math.min(volume, BGM_UNDER_DIALOGUE) : volume;
   return bed * (b.thought ? thoughtDuck : 1);
+}
+
+/** The music's comic drop-out before the punchline (0.25 s). */
+export const DROP_OUT_FRAMES = Math.round(0.25 * FPS);
+
+/**
+ * The punchline's drop-out: the music cuts for 0.25 s right before the final punchline's voice lands (the last line
+ * before the outro), then comes back with it, so the joke hits in silence. Null without a punchline or an outro.
+ */
+export function bgmDropOut(beats: Beat[]): { from: number; to: number } | null {
+  const outro = beats.findIndex((b) => b.cameraShot === "cta-stinger");
+  const punch = outro > 0 ? beats[outro - 1] : null;
+  if (!punch || punch.line === null || punch.thought) return null;
+  const to = punch.startFrame + punch.speechStart;
+  return { from: Math.max(0, to - DROP_OUT_FRAMES), to };
 }
 
 /**

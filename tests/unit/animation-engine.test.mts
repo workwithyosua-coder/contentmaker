@@ -25,6 +25,9 @@ import {
   blinkAt,
   blinkStarts,
   bodyMotion,
+  entranceAt,
+  framingOf,
+  midAccentFrame,
   cameraAt,
   ctaTapFrame,
   cutDirection,
@@ -67,33 +70,57 @@ test("blinks: deterministic, 4 frames long, every 2.5–4.5 s, seeded per beat a
   assert.equal(blinkAt("b1-uco", s + BLINK_FRAMES, 900), 0);
 });
 
-test("audio-reactive body: Uco bounces more than Ocu; inner thoughts stay still", () => {
+test("audio-reactive body: a clear bounce on vocal peaks (Uco 6-12 px, Ocu 3-6), squash-stretch, tilt; thoughts only breathe", () => {
+  const idle = (who: "uco" | "ocu", f: number) => bodyMotion(who, 0, f, false);
+  const bounce = (who: "uco" | "ocu", l: number, f: number) => -(bodyMotion(who, l, f, false).dy - idle(who, f).dy);
+  for (const l of [0.5, 0.75, 1]) {
+    assert.ok(bounce("uco", l, 20) >= 6 - 1e-9 && bounce("uco", l, 20) <= 12 + 1e-9, `uco ${l}`);
+    assert.ok(bounce("ocu", l, 20) >= 3 - 1e-9 && bounce("ocu", l, 20) <= 6 + 1e-9, `ocu ${l}`);
+  }
   const u = bodyMotion("uco", 1, 20, false);
-  const o = bodyMotion("ocu", 1, 20, false);
-  assert.equal(u.dy, -4);
-  assert.ok(Math.abs(o.dy) >= 2 && Math.abs(o.dy) < Math.abs(u.dy));
-  assert.ok(u.scale <= 1.025 && u.scale > o.scale && o.scale > 1);
-  for (let f = 0; f < 200; f++) assert.ok(Math.abs(bodyMotion("uco", 1, f, false).tilt) <= 1.5);
-  assert.deepEqual(bodyMotion("uco", 1, 20, true), { dy: 0, scale: 1, tilt: 0 });
-  assert.deepEqual(bodyMotion("ocu", 0, 20, false).dy, -0);
+  assert.ok(u.sy / idle("uco", 20).sy <= 1.045 + 1e-9 && u.sy / idle("uco", 20).sy >= 1.04, `stretch ${u.sy}`);
+  assert.ok(Math.abs(u.sx - 0.975) < 1e-9, "squash");
+  let uMax = 0;
+  let oMax = 0;
+  for (let f = 0; f < 300; f++) {
+    uMax = Math.max(uMax, Math.abs(bodyMotion("uco", 1, f, false).tilt));
+    oMax = Math.max(oMax, Math.abs(bodyMotion("ocu", 1, f, false).tilt));
+  }
+  assert.ok(uMax <= 2.8 && uMax > 2.6 && oMax <= 1.2 && oMax > 1.1, `${uMax} ${oMax}`);
+  // never frozen: idle breathing moves every few frames, thoughts included (but no bounce or tilt)
+  assert.notEqual(idle("uco", 0).dy, idle("uco", 22).dy);
+  const t = bodyMotion("uco", 1, 20, true);
+  assert.equal(t.tilt, 0);
+  assert.equal(t.sx, 1);
+  assert.ok(Math.abs(t.dy) <= 1.5);
 });
 
-test("camera: Ken Burns on explanations, a 1.12× tilted punch on shocks, a micro punch-in on long beats, still outro", () => {
-  const explain = beat({ beatType: "insight", emotion: "explaining", durationInFrames: 120 });
+test("camera: a creep on explanations, a 1.22-1.30× Dutch-tilted punch close-up on shocks, a mid-beat punch-in, still outro", () => {
+  const explain = beat({ beatType: "insight", emotion: "explaining", durationInFrames: 80 });
+  assert.equal(framingOf(explain), "creep");
   assert.equal(cameraAt(explain, 0).scale, 1);
-  assert.ok(Math.abs(cameraAt(explain, 120).scale - 1.06) < 1e-9);
+  assert.ok(Math.abs(cameraAt(explain, 80).scale - 1.1) < 1e-9, "creeps 1.00 → 1.10");
   const shock = beat({ emotion: "shocked", durationInFrames: 60 });
+  assert.equal(framingOf(shock), "punch-closeup");
   assert.ok(cameraAt(shock, 0).scale < 1.05, "starts wide");
-  const held = cameraAt(shock, 30);
-  assert.ok(Math.abs(held.scale / (1 + 0.04 * 0.5) - 1.12) < 0.01, `punch ${held.scale}`);
-  assert.equal(held.rotate, -2);
+  for (let f = 5; f < 60; f++) {
+    const c = cameraAt(shock, f);
+    assert.ok(c.scale >= 1.22 && c.scale <= 1.3 + 1e-9, `${f}: ${c.scale}`);
+  }
+  assert.equal(Math.abs(cameraAt(shock, 30).rotate), 2.5);
+  assert.equal(framingOf(beat({ emotion: "deadpan", beatType: "button" })), "punch-closeup", "a deadpan punchline");
+  assert.equal(framingOf(beat({ emotion: "shocked", overlay: { kind: "brain-badge", title: "BIAS", graphic: true } })), "creep", "never on a card");
+  // any beat over 2.8 s gets a +8 % punch-in at 45-55 % through
   const long = beat({ durationInFrames: LONG_BEAT + 30 });
-  const mid = Math.round(long.durationInFrames / 2);
-  const before = cameraAt(long, mid - 1).scale;
-  const after = cameraAt(long, mid + 10).scale;
-  assert.ok(after / before > 1.06, "punches in 1.07× halfway");
-  assert.ok(cameraAt(beat({ durationInFrames: LONG_BEAT - 1 }), 100).scale < 1.05, "short beats don't");
+  const mid = midAccentFrame(long)!;
+  assert.ok(mid >= long.durationInFrames * 0.45 && mid <= long.durationInFrames * 0.55);
+  assert.ok(cameraAt(long, mid + 8).scale / cameraAt(long, mid - 1).scale > 1.075, "punches in 8 %");
+  assert.equal(LONG_BEAT, 84);
+  assert.equal(midAccentFrame(beat({ durationInFrames: LONG_BEAT })), null, "short beats don't");
   assert.deepEqual(cameraAt(beat({ cameraShot: "cta-stinger" }), 40), { scale: 1, rotate: 0, x: 0, y: 0 });
+  // cuts land with a 6-frame spring: 0.92 → 1.03 → 1.00, sliding in from the speaker's side
+  assert.deepEqual([0, 3, 6].map((f) => Math.round(entranceAt("uco", f).scale * 100) / 100), [0.92, 1.03, 1]);
+  assert.ok(entranceAt("uco", 0).dx < 0 && entranceAt("ocu", 0).dx > 0 && entranceAt("ocu", 6).dx === 0);
 });
 
 test("cuts: a 4-frame directional whip toward the new speaker's side, none when the shot continues", () => {
@@ -214,7 +241,7 @@ test("subtitles stay hidden until the voice starts (and during the whip in), and
   assert.equal(nb.subtitleChunks[0].startFrame, 0);
 });
 
-test("callouts land when the voice starts; script SFX stay silent; only an angry delivery shakes", () => {
+test("callouts land when the voice starts; script SFX stay silent; an angry delivery or a keyword slam shakes", () => {
   const e = env(12, 60, 8);
   const beats = buildBeats(
     [
@@ -223,8 +250,10 @@ test("callouts land when the voice starts; script SFX stay silent; only an angry
     ],
     exact,
   );
-  assert.deepEqual(sfxCuesFor(beats), [], "no callout stamp, no script ding / stamp: plain dialogue is silent");
-  assert.equal(beats[0].impactFrame, null, "a script's (silent) stamp no longer shakes");
+  // the callout line's script ding / stamp never play, and a plain (non-emphasis) callout neither stamps nor shakes;
+  // the angry line is an impact accent: a light pop (no callout) as its voice starts
+  assert.deepEqual(sfxCuesFor(beats).map((c) => [c.name, c.frame, c.volume]), [["pop", beats[1].startFrame + 12, 0.18]]);
+  assert.equal(beats[0].impactFrame, null, "a script's (silent) stamp never shakes; a plain callout doesn't either");
   assert.equal(beats[1].angry, true);
   assert.equal(beats[1].impactFrame, 12);
   assert.deepEqual(impactShake(11, 12), { x: 0, y: 0 });
@@ -243,11 +272,12 @@ test("subtitle pill stays inside y 1540..1630 for every chunk and never touches 
     assert.ok(size >= 28, `${t}: readable size ${size}`);
     for (const who of ["uco", "ocu"] as const) assert.ok(cameoBox(who).y + cameoBox(who).h < pill.y, `${who} cameo above the subtitles`);
   }
-  // the takeover hero: centred, ~70 % of the width, y 340..1160
+  // the takeover hero: centred, ~70 % of the width, y 340..1090, clear of the 22 % larger cameo under it
   assert.equal(TAKEOVER_HERO.x * 2 + TAKEOVER_HERO.w, 1080);
   assert.ok(TAKEOVER_HERO.w / 1080 >= 0.65 && TAKEOVER_HERO.w / 1080 <= 0.75);
-  assert.deepEqual([TAKEOVER_HERO.y, TAKEOVER_HERO.y + TAKEOVER_HERO.h], [340, 1160]);
-  assert.ok(Math.abs(CAMEO.w / 1080 - 0.3) < 0.01);
+  assert.deepEqual([TAKEOVER_HERO.y, TAKEOVER_HERO.y + TAKEOVER_HERO.h], [340, 1090]);
+  assert.ok(CAMEO.w / 324 >= 1.2 && CAMEO.w / 324 <= 1.25, "20-25 % larger cameo");
+  for (const who of ["uco", "ocu"] as const) assert.ok(cameoBox(who).y >= TAKEOVER_HERO.y + TAKEOVER_HERO.h + 16, `${who} cameo under the hero`);
   assert.ok(cameoBox("uco").x < 540 && cameoBox("ocu").x > 540);
   assert.ok(cameoBox("ocu").x + CAMEO.w <= 940, "clear of the right-hand icon rail");
 });

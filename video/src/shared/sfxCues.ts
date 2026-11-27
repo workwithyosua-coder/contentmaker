@@ -1,17 +1,23 @@
 import type { Beat } from "../beats";
+import { sfxFile } from "../assets";
 import type { SfxCue } from "./Compositing";
+import { ctaTapFrame } from "./motion";
 
 /**
- * Sound effects from the beat list. Only two, both tied to something appearing on screen:
- *   - a stamp when a takeover stat card lands (the first beat of a takeover with a stat)
- *   - a pop when a NEW prop springs in (a different prop from the previous beat's)
- * Nothing else: no transition sound on cuts, no stamp per callout, no ding per card, no script-named effects, and
- * never anything on an inner-thought beat or the outro. (Until this, the red callout stamp played stamp.mp3 on every
- * beat with a callout, which the Show Bible's 75 % visual rule puts on nearly every line.)
+ * Editorial sound design from the beat list: every effect is tied to something landing on screen, never to a cut.
+ *   - a takeover stat card: a whoosh into it and a stamp as it slams (the first beat of a takeover run)
+ *   - a NEW prop: a pop on its spring entrance (not the same prop staying on screen)
+ *   - impact accents: at most 3 per episode, at least 2 beats apart, on a shocked / angry line or a punchline with a
+ *     red callout: a stamp under a callout, else a light pop
+ *   - the outro's FOLLOW + → FOLLOWED ✔ flip: a ding (a pop without the file)
+ * Never on a plain dialogue cut or an inner thought, never a script-named effect, and never a stamp per callout
+ * (#58: the callout stamp on every beat was the "chk-tsk" on every line).
  */
 
 /** Mix levels: accents under the dialogue, not jolts. */
-export const SFX_VOLUME: Record<string, number> = { stamp: 0.22, pop: 0.2 };
+export const SFX_VOLUME = { whoosh: 0.16, stamp: 0.26, pop: 0.22, accentStamp: 0.22, accentPop: 0.18, ding: 0.28 } as const;
+/** Impact accents per episode, and the beats between two of them. */
+export const ACCENT_BUDGET = { max: 3, minGap: 3 } as const;
 
 /** Frame (inside a beat) where the kinetic stamp slams in without a recording (kept for the asset checklist). */
 export const KINETIC_SLAM = 10;
@@ -25,16 +31,39 @@ export const scriptSfxFrame = (speechStart: number, k: number) => speechStart + 
 /** The prop a beat shows (illustrated PNG, scene image or coded prop), or null. */
 const propOf = (b: Pick<Beat, "propImage" | "propTag" | "sceneImageUrl">) => b.propImage ?? b.sceneImageUrl ?? (b.propTag !== "none" ? b.propTag : null);
 
-export function sfxCuesFor(beats: Beat[]): SfxCue[] {
+/** A beat worth an impact accent: a shocked or angry line, or the punchline (button) landing with a red callout. */
+const accentWorthy = (b: Beat) => b.emotion === "shocked" || b.angry || (b.beatType === "button" && Boolean(b.kinetic));
+
+export function sfxCuesFor(beats: Beat[], opts: { ding?: boolean } = {}): SfxCue[] {
   const cues: SfxCue[] = [];
+  let accents = 0;
+  let lastAccent = -Infinity;
   beats.forEach((b, i) => {
-    if (b.thought || b.cameraShot === "cta-stinger" || b.line === null) return;
     const prev = beats[i - 1];
-    // the stat card slams in as the voice starts, once per takeover (not again on a following takeover beat)
-    if (b.layout === "takeover" && b.stat && !(prev && prev.layout === "takeover" && prev.stat)) cues.push({ name: "stamp", frame: b.startFrame + kineticAt(b), volume: SFX_VOLUME.stamp });
-    // the pop lands with the prop's spring entrance, only when the prop is new on screen
+    // the outro's button flip
+    if (b.cameraShot === "cta-stinger") {
+      const ding = opts.ding ?? Boolean(sfxFile("ding"));
+      cues.push({ name: ding ? "ding" : "pop", frame: b.startFrame + ctaTapFrame(b.durationInFrames), volume: ding ? SFX_VOLUME.ding : SFX_VOLUME.pop });
+      return;
+    }
+    if (b.thought || b.line === null) return;
+    const lands = b.startFrame + kineticAt(b);
+    // a takeover stat card: whoosh in, stamp on the slam (once per takeover run)
+    const takeover = b.layout === "takeover" && Boolean(b.stat);
+    if (takeover && !(prev && prev.layout === "takeover" && prev.stat)) {
+      cues.push({ name: "whoosh", frame: Math.max(b.startFrame, lands - 4), volume: SFX_VOLUME.whoosh });
+      cues.push({ name: "stamp", frame: lands, volume: SFX_VOLUME.stamp });
+    }
+    // a new prop pops in with its spring entrance
     const prop = propOf(b);
-    if (prop && !(b.layout === "takeover" && b.stat) && (!prev || prev.thought || propOf(prev) !== prop)) cues.push({ name: "pop", frame: b.startFrame + b.propEntry, volume: SFX_VOLUME.pop });
+    const newProp = Boolean(prop) && !takeover && (!prev || prev.thought || propOf(prev) !== prop);
+    if (newProp) cues.push({ name: "pop", frame: b.startFrame + b.propEntry, volume: SFX_VOLUME.pop });
+    // impact accents, rationed and spaced
+    if (!takeover && !newProp && accentWorthy(b) && accents < ACCENT_BUDGET.max && i - lastAccent >= ACCENT_BUDGET.minGap) {
+      cues.push(b.kinetic ? { name: "stamp", frame: lands, volume: SFX_VOLUME.accentStamp } : { name: "pop", frame: lands, volume: SFX_VOLUME.accentPop });
+      accents++;
+      lastAccent = i;
+    }
   });
   return cues.sort((a, b) => a.frame - b.frame);
 }

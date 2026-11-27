@@ -9,6 +9,8 @@ export type HeadBox = {
   faceX: number;
   /** pointing fingertip (px on the 900×1700 sprite), for poses that point at TikTok's + Follow */
   fingertip?: { x: number; y: number };
+  /** the magnifying glass lens (centre and radius, px on the 900×1700 sprite), for the inspecting pose */
+  lens?: { x: number; y: number; r: number };
   /** centre of the comic sweat drop: just outside the temple/cheek silhouette (on the sprite's left), clear of
    *  the glasses and below the hair */
   sweat?: { x: number; y: number };
@@ -55,7 +57,7 @@ const MEASURED: Record<string, HeadBox> = {
   // boxes are measured for an upload, so it blinks not and swaps its two mouth frames
   "uco/angry": { hairTop: 150, chin: 720, faceX: 410, sweat: UCO_SWEAT },
   "ocu/angry": { hairTop: 150, chin: 720, faceX: 493, sweat: OCU_SWEAT },
-  "ocu/inspecting": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 372, y0: 608, x1: 535, y1: 696 } },
+  "ocu/inspecting": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 372, y0: 608, x1: 535, y1: 696 }, lens: { x: 725, y: 720, r: 110 } },
 };
 
 export const headBoxFor = (who: "uco" | "ocu", emotion: string): HeadBox => MEASURED[`${who}/${emotion}`] ?? TARGET_HEAD;

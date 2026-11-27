@@ -52,6 +52,8 @@ export type Beat = {
   thoughtCaption: string | null;
   /** inner thought: dimmed backdrop, comic thought bubble with the prop inside, italic subtitle */
   thought: boolean;
+  /** two-shot only: the pose of the character listening (never a smug triumphant while being roasted); else null */
+  listenerPose: Emotion | null;
   /** 2–4 word floating kinetic text on emphasis beats (hook, insight, button, close-ups) and the CTA; else null */
   kinetic: string | null;
   /** sound effects the script asks for at the start of this beat (public/sfx names) */
@@ -181,6 +183,20 @@ function defaultEmotion(l: EpisodeLine, prev: Emotion | null): Emotion {
   if (question) return "inspecting"; // Ocu's questions are skeptical: he looks closer
   if (exclaim || e === "smug" || e === "calm") return "explaining";
   return prev === "deadpan" ? "explaining" : "deadpan";
+}
+
+/**
+ * The listener's pose in a two-shot. A line's own `listener_pose` wins; otherwise Uco, listening while Ocu explains,
+ * inspects, deadpans or warns, is shocked (a loud line, a number, an angry delivery) or defensive, never triumphant;
+ * Ocu listening to Uco stays deadpan. Null outside two-shots and thoughts.
+ */
+export function listenerPoseFor(l: Pick<EpisodeLine, "speaker" | "text" | "subtitle" | "thought_bubble"> & { listener_pose?: string | null }, d: { emotion: Emotion; cameraShot: CameraShot }): Emotion | null {
+  if (d.cameraShot !== "two-shot" || l.thought_bubble || (l.speaker !== "uco" && l.speaker !== "ocu")) return null;
+  const listener = l.speaker === "ocu" ? "uco" : "ocu";
+  const own = oneOf(EMOTIONS, l.listener_pose);
+  if (own && own !== "cta" && !(listener === "uco" && own === "triumphant" && l.speaker === "ocu" && /explaining|inspecting|deadpan|angry/.test(d.emotion))) return own;
+  if (listener === "ocu") return "deadpan";
+  return /[!?]|\d/.test(`${l.text} ${l.subtitle ?? ""}`) || d.emotion === "angry" ? "shocked" : "defensive";
 }
 
 /** Punchlines and big reactions get an extreme close-up; everything else (inner thoughts too) the speaker's solo. */
@@ -554,6 +570,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     // exact (manual) scripts: a coded prop only when the line names one; no keyword-guessed props
     propTag: oneOf(PROP_TAGS, l.prop_tag) ?? (exact ? "none" : defaultProp(l)),
     ...stageFor(l, directed[i], exact),
+    listenerPose: listenerPoseFor(l as never, directed[i]),
     sceneImageUrl: /^https:\/\//.test(l.scene_image_url ?? "") ? l.scene_image_url! : null,
     propEntry: 0,
     speechStart: 0,
@@ -579,8 +596,10 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     b.propEntry = propEntryFrame(l.text, b.propImage ? (pngPropByName(b.propImage)?.rx ?? null) : null, env, b.durationInFrames, { ...speech, hook: i === 0 });
     // urgent: an angry / furious delivery shakes as the voice starts
     b.angry = (/^(angry|furious)$/.test(String(l.expression ?? "")) || b.emotion === "angry") && !b.thought;
-    // (script-named effects no longer play, so a script "stamp" doesn't shake the camera on a silent frame)
-    b.impactFrame = b.angry ? speech.start : null;
+    // and a keyword slam on an emphasis beat (the hook, the button, a shocked line) shakes as its callout stamps in:
+    // 5 px, decaying over 6 frames. (Script-named effects don't play, so a script "stamp" never shakes on its own.)
+    const slam = Boolean(b.kinetic) && !b.thought && (b.beatType === "hook" || b.beatType === "button" || b.emotion === "shocked");
+    b.impactFrame = b.angry || slam ? speech.start : null;
     b.urgent = b.impactFrame !== null;
   });
   const outro = outroMode(lines, direction);
@@ -613,6 +632,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     overlay: null,
     thoughtCaption: null,
     thought: false,
+    listenerPose: null,
     kinetic: direction?.ctaText || CTA_CUE.stamp || null,
     sfx: [],
     sceneImageUrl: null,

@@ -7,9 +7,10 @@ import type { EpisodeLine } from "../types";
  */
 export function koranPoses(beats: Beat[], lines: EpisodeLine[]): Beat[] {
   for (const b of beats) {
-    if (b.emotion !== "angry") continue;
     const l = b.line === null ? null : lines[b.line];
-    b.emotion = /!/.test(`${l?.text ?? ""} ${l?.subtitle ?? ""}`) ? "shocked" : "defensive";
+    const alias = /!/.test(`${l?.text ?? ""} ${l?.subtitle ?? ""}`) ? "shocked" : "defensive";
+    if (b.emotion === "angry") b.emotion = alias;
+    if (b.listenerPose === "angry") b.listenerPose = "defensive";
   }
   return beats;
 }

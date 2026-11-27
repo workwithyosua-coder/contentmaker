@@ -2,7 +2,7 @@ import "@fontsource/montserrat/800.css";
 import React from "react";
 import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 import type { Beat, SubtitleChunk } from "../beats";
-import { SUBTITLE_BAND, activeWord, subtitleLayout, subtitleVisible } from "./motion";
+import { ACTIVE_WORD, SUBTITLE_BAND, activeWord, subtitleLayout, subtitleVisible } from "./motion";
 
 // Kinetic English subtitles in the true lower safe zone (x 60..940, y 1540..1630): under both characters' hands and
 // folded arms, above the platforms' bottom controls and caption text. One 3–5 word chunk at a time on a compact dark
@@ -62,12 +62,13 @@ export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chun
         pointerEvents: "none",
         opacity,
         fontFamily: "Montserrat, 'Arial Black', sans-serif",
-        fontWeight: 800,
+        fontWeight: 900,
         fontStyle: italic ? "italic" : "normal",
         fontSize: size,
         lineHeight: 1.12,
         color: "#FFFFFF",
         letterSpacing: 0.3,
+        textShadow: "0 2px 0 rgba(0,0,0,0.55)",
         whiteSpace: "nowrap",
       }}
     >
@@ -81,7 +82,16 @@ export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chun
             return (
               <React.Fragment key={i}>
                 {i > 0 && " "}
-                <span style={{ color: on ? mix(k) : "#FFFFFF" }}>{word?.text ?? lines[r].split(" ")[i]}</span>
+                <span
+                  style={{
+                    color: on ? mix(k) : "#FFFFFF",
+                    display: "inline-block",
+                    transform: on ? `scale(${1 + (ACTIVE_WORD.scale - 1) * k})` : undefined,
+                    transformOrigin: "50% 70%",
+                    // the pop grows the word ~6 % to each side: margins of the same size keep the spaces around it open
+                    margin: on ? `0 ${((ACTIVE_WORD.scale - 1) / 2) * k * (word?.text.length ?? 4) * 0.62}em` : undefined,
+                  }}
+                >{word?.text ?? lines[r].split(" ")[i]}</span>
               </React.Fragment>
             );
           })}
@@ -94,6 +104,6 @@ export function MovieSubtitle({ chunks, frame, reduced, italic = false }: { chun
 /** white → highlight yellow, k 0..1 */
 function mix(k: number) {
   const from = [255, 255, 255];
-  const to = [0xff, 0xd4, 0x3b];
+  const to = ACTIVE_WORD.color;
   return `rgb(${from.map((v, i) => Math.round(v + (to[i] - v) * k)).join(",")})`;
 }
