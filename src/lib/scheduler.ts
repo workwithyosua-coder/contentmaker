@@ -428,8 +428,8 @@ export const hasVisual = (l: Pick<ManualLine, "prop_tag" | "kinetic_text" | "lay
   Boolean((l.prop_tag && l.prop_tag !== "none") || l.kinetic_text || l.layout === "takeover" || l.overlay || l.thought_bubble);
 
 /**
- * No dead air: never two lines in a row with nothing on the stage (a 5–7 s blank stretch). The second gets a callout
- * from its own cue headline. And an Ocu "inspecting" line (magnifier in hand) never examines empty air when the
+ * No dead air: never two lines in a row with nothing on the stage (a 5–7 s blank stretch), and at least 75 % of the
+ * lines with something on it. A blank line gets a callout from its own cue headline. And an Ocu "inspecting" line (magnifier in hand) never examines empty air when the
  * episode has a prop of its own: it holds the most recent one (only the episode's fresh props, never a leftover).
  */
 export function fillDeadAir(lines: ManualLine[], fresh: string[] = []): ManualLine[] {
@@ -440,13 +440,22 @@ export function fillDeadAir(lines: ManualLine[], fresh: string[] = []): ManualLi
     let line = l;
     if (l.prop_tag && fresh.includes(l.prop_tag)) lastProp = l.prop_tag;
     const held = lastProp ?? firstFresh;
-    if (l.emotion === "inspecting" && (!l.prop_tag || l.prop_tag === "none") && held) line = { ...line, prop_tag: held };
+    // the magnifier examines, and the thought bubble holds, the episode's own prop rather than empty air
+    if ((l.emotion === "inspecting" || l.thought_bubble) && (!l.prop_tag || l.prop_tag === "none") && held) line = { ...line, prop_tag: held };
     const prev = out.at(-1);
     if (prev && !hasVisual(prev) && !hasVisual(line)) line = { ...line, kinetic_text: cleanCalloutText(line.important_message?.headline ?? line.text) };
     out.push(line);
   }
+  // and at least 75 % of the lines show something besides the speaker: the remaining blank ones get a callout
+  for (let i = 0; i < out.length && visualShare(out) < MIN_VISUAL_SHARE; i++) {
+    if (!hasVisual(out[i])) out[i] = { ...out[i], kinetic_text: cleanCalloutText(out[i].important_message?.headline ?? out[i].text) };
+  }
   return out;
 }
+
+/** The share of lines with a prop, callout, card or takeover on the stage (thoughts count: their bubble). */
+export const visualShare = (lines: Parameters<typeof hasVisual>[0][]) => (lines.length ? lines.filter(hasVisual).length / lines.length : 1);
+export const MIN_VISUAL_SHARE = 0.75;
 
 /** The episode's captions for TikTok / Shopee hand-off: caption text plus the yellow-basket note for affiliate slots. */
 export function handoffCaption(text: string, format: EpisodeFormat): string {

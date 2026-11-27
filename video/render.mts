@@ -18,7 +18,7 @@ import { FPS, cueTotalFrames, type AssetUrls, type EpisodeProps, type ManifestLi
 import { buildBeats } from "./src/beats.ts";
 import { registerLineAssets, registerRemoteAssets } from "./src/assets/index.ts";
 import { parseDirection } from "./src/direction.ts";
-import { LEAD_IN, PAUSES, TRIM, fades } from "./src/audioChain.ts";
+import { LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades } from "./src/audioChain.ts";
 import { renderProgress } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
 
@@ -107,15 +107,14 @@ const ffmpeg = (...a: string[]) => execFileSync("ffmpeg", ["-nostdin", "-hide_ba
 // (gentle onset with a 0.05 s pad, pauses inside a line capped at 0.18 s, 15 / 35 ms fades on every clip).
 // Two passes: running loudnorm in the same chain as areverse can stall ffmpeg on some browser recordings.
 const TIGHTEN = !args.includes("--no-tighten");
-// Pace: ElevenLabs / Gemini (TTS) voices are sped up a little, pitch kept (Uco ×1.12, Ocu ×1.05); recorded voices and
-// Edge TTS play at their own pace (--speed-up applies the same to every take, --no-speed-up to none).
+// Pace: ElevenLabs voices are sped up a little, pitch kept (Uco ×1.12, Ocu ×1.05); recorded voices, Gemini TTS and
+// Edge TTS play at their natural pace (energy, not speed) (--speed-up applies the same to every take, --no-speed-up to none).
 const AI_SPEED: Record<string, number> = { uco: 1.12, ocu: 1.05 };
 const speedFor = (speaker: string, source: string | null | undefined) =>
   args.includes("--no-speed-up") ? 1 : args.includes("--speed-up") || source === "ai" ? (AI_SPEED[speaker] ?? 1) : 1;
 const LEVEL = "highpass=f=80,acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=2,loudnorm=I=-14:TP=-1.5:LRA=7";
-// Inner thoughts: a subtle bandpass plus a light room reverb, so they read as "in his head" (and the music dips
-// under them, see BackgroundMusic).
-const THOUGHT = "highpass=f=250,lowpass=f=4500,aecho=0.8:0.5:40|80:0.2|0.12,";
+// Inner thoughts: a subtle clean dip (src/audioChain.ts), with the music ducked or muted under them (BackgroundMusic).
+const THOUGHT = THOUGHT_FILTER;
 
 const lines: EpisodeProps["lines"] = [];
 progress(2, "Preparing the voices");

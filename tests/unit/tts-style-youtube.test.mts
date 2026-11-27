@@ -21,7 +21,7 @@ test("Gemini TTS gets the verbatim line in parts[0].text and the acting cue only
   const { text, style } = geminiSpeech(line, "standard");
   assert.equal(text, "U-co dan Ocu bilang: follow U-co Ocu!", "the line only, phonetic fixes applied");
   assert.doesNotMatch(text, BANNED);
-  assert.equal(style, 'Energetic Jakartan Indonesian comedy banter, confident and challenging, fast-paced; enunciate the name "Uco Ocu" clearly, both names distinct', "the handle gets clear diction");
+  assert.equal(style, 'Energetic Jakartan Indonesian comedy banter, confident and challenging; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; enunciate the name "Uco Ocu" clearly, both names distinct', "natural speed, the handle gets clear diction");
   const body = ttsRequestBody(text, style, "uco");
   assert.deepEqual(body.contents, [{ role: "user", parts: [{ text, speechMetadata: { style } }] }]);
   assert.equal(body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Puck");
@@ -29,7 +29,7 @@ test("Gemini TTS gets the verbatim line in parts[0].text and the acting cue only
   // poses, presets and booth notes only ever change the style
   const ocu = geminiSpeech({ speaker: "ocu", text: "Satu tsunami, habis semua.", emotion: "deadpan" }, "angry", "lebih keras di akhir");
   assert.equal(ocu.text, "Satu tsunami, habis semua.");
-  assert.equal(ocu.style, "Deadpan sarcastic Jakartan Indonesian, dry flat delivery; brisk, crisp, steady Jakartan pace, no slow pauses or stretched syllables; urgent, pressing; lebih keras di akhir");
+  assert.equal(ocu.style, "Deadpan sarcastic Jakartan Indonesian, dry flat delivery; natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire; crisp and steady, clear enunciation, no drawn-out pauses or stretched syllables; urgent, pressing; lebih keras di akhir");
   assert.match(geminiSpeech({ speaker: "uco", text: "Hmm.", thought_bubble: true }, "angry").style, /^Quiet dry mutter[^;]*$/, "a thought stays muttered, not urgent");
   assert.match(geminiSpeech({ speaker: "uco", text: "Gila!", emotion: "angry" }).style, /Outraged/);
   assert.equal(ttsRequestBody("Halo", "x", "ocu").generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");

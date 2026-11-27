@@ -1,7 +1,6 @@
 // The Uco & Ocu Show Bible for unattended (scheduled) scripts: per-format length and structure, the prompt and JSON
 // schema Gemini writes to, the checks a script must pass (a short or flat script is retried once with stricter
 // instructions), the outro CTA, and the episode's fresh prop specs. Pure code: no database, no network, no AI.
-import { LINE_GAP_S } from "../../video/src/audioChain";
 import type { ManualLine } from "./manualScriptParser";
 import { SFX_NAMES, type EpisodeFormat, cleanCalloutText } from "./scheduler";
 
@@ -12,8 +11,8 @@ export const LEGACY_SHOW_DIRECTION = `CTA: FOLLOW ${CTA_HANDLE}`;
 /**
  * Direction notes for every scheduled episode (parsed by video/src/direction.ts): the FOLLOW @UCO.OCU outro; the
  * background bed, the urgent track for Koran Kinetik (falling back to the regular bed), at 20 % so it sits about
- * −23 dB under dialogue (the player ducks it to 35 % while someone talks) and silent under inner thoughts; and tight
- * 0.11 s gaps between lines.
+ * −23 dB under dialogue (the player ducks it to 35 % while someone talks) and silent under inner thoughts; and natural
+ * comedic timing between lines (0.30 s speaker switch, 0.24 s same speaker, 0.42 s into a visual shift).
  */
 export function showDirection(style: string = "editorial-paper-cutout"): string {
   return [
@@ -21,7 +20,7 @@ export function showDirection(style: string = "editorial-paper-cutout"): string 
     style === "editorial-paper-cutout" ? "BGM: urgent" : "BGM: on",
     "BGM volume: 20%",
     "BGM off on thought",
-    `Pause: ${LINE_GAP_S}s`,
+    "Pacing: natural",
   ].join("\n");
 }
 /** The default (Koran Kinetik) direction. */
@@ -96,7 +95,7 @@ export const SHOW_SCHEMA = {
         properties: {
           beat: { type: "STRING", enum: ["hook", "counter", "escalation", "insight", "concession", "button"] },
           speaker: { type: "STRING", enum: ["uco", "ocu"] },
-          text: S("Kalimat yang diucapkan, bahasa Jakarta santai (lo/gue), 5-14 kata"),
+          text: S("Kalimat yang diucapkan, bahasa Jakarta santai (lo/gue), 8-14 kata, 1-2 klausa pendek"),
           subtitle: S("Natural English subtitle of the line"),
           pose: { type: "STRING", enum: [...POSES_ALL] },
           shot: { type: "STRING", enum: ["solo-uco", "solo-ocu", "closeup-punch", "two-shot"] },
@@ -139,6 +138,8 @@ STRUKTUR (wajib)
 
 SUARA
 - Panggil Uco selalu "Uco", JANGAN PERNAH disingkat "Co" (terdengar seperti "cok").
+- Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat. Episode tetap muat 60-75 detik dengan tempo bicara natural.
+- Kata serapan bahasa Inggris tulis sesuai ucapan Indonesia: "nge-hang", "eror", "nge-lag", "skrinsut", "apdet", "kepo" (bukan "hang", "error", "lag", "screenshot", "update").
 - Bahasa Jakarta yang natural dan nendang: lo/gue, cepat, lucu, tajam. DILARANG bahasa baku buku pelajaran ("wajib demi investasi masa depan wajah" = salah).
 - Setiap baris punya subtitle bahasa Inggris yang natural (bukan terjemahan kaku).
 - Jangan pakai em dash. Jangan mengarang kutipan, studi atau testimoni. Angka harus angka nyata yang masuk akal dan umum diketahui; kalau ragu, pakai hitungan sederhana yang bisa dicek (mis. 25 ribu x 30 hari = 750 ribu).
@@ -146,7 +147,8 @@ SUARA
 ARAHAN VISUAL (jangan ada yang kosong)
 - Setiap baris: pose, shot (solo-uco / solo-ocu untuk pembicara, closeup-punch untuk punchline, two-shot kalau keduanya bereaksi; maksimal 3 baris berurutan dengan shot sama), sfx (pilih dari whoosh, pop, stamp, record-scratch, ding; boleh kosong di baris biasa tapi hook, twist, takeover dan punchline wajib ada).
 - callout 2-4 kata HURUF BESAR di setiap beat penekanan (hook, angka, punchline, CTA), minimal 5 baris.
-- propSpecs: 2-3 objek KHUSUS episode ini (mis. untuk skincare: botol serum mahal, struk belanja). Setiap prompt: satu objek tunggal, bahasa Inggris, tanpa teks kecuali diminta. Pasang slug-nya di field prop pada baris yang membahas objek itu; baris lain prop "none".
+- propSpecs: 2-3 objek KHUSUS episode ini (mis. untuk skincare: botol serum mahal, struk belanja). Setiap prompt: satu objek tunggal, bahasa Inggris, tanpa teks kecuali diminta. Pasang slug-nya di field prop pada baris yang membahas objek itu, termasuk baris inspecting (Ocu memeriksa objeknya) dan baris thought (objeknya muncul di gelembung pikiran).
+- Minimal 75% baris punya sesuatu di layar selain karakter: prop, callout, explainerCard atau statCard. Jangan ada dua baris berturut-turut yang kosong.
 ${p.bankProps ? `- Prop lama yang boleh dipakai HANYA jika objeknya persis sama: ${p.bankProps}. Jangan pernah memakai prop yang tidak berhubungan.\n` : ""}${
     p.strict?.length
       ? `

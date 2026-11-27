@@ -370,6 +370,8 @@ export type SlotView = {
     queued: string[];
     postAt: string;
     notConnected: string[];
+    /** why generated props failed, in short (the episode renders without them) */
+    propWarning?: string | null;
   } | null;
   videoUrl: string | null;
   progressPercent: number | null;
@@ -557,6 +559,11 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
       {showsProgress(s, now) && <SlotProgress slot={s} name={s.episodeTitle ?? s.topic ?? formatWib(new Date(s.scheduledFor))} />}
 
       {s.status === "failed" && s.error && <p className="break-words text-sm text-[var(--bad)]">{s.error}</p>}
+      {s.handoff?.propWarning && (
+        <p className="break-words text-xs text-muted" data-prop-warning>
+          <span className="font-semibold text-[var(--text)]">Props:</span> {s.handoff.propWarning}
+        </p>
+      )}
 
       {s.handoff &&
         (s.status === "ready_to_post" || s.status === "published") && (

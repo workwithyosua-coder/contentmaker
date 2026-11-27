@@ -32,24 +32,25 @@ export async function propStage(p: {
   mkdirSync(work, { recursive: true });
   const drop = async (name: string, error: string) => {
     dropped.push(name);
-    p.log(`prop ${name}: dropped to none (${error})`);
+    p.log(`prop ${name}: FAILED, dropped to none: ${error}`);
     await p.post(`slots/${p.slotId}/prop-finish`, { name, ok: false, error: error.slice(0, 280) }).catch(() => {});
   };
   for (const [k, prop] of plan.props.entries()) {
     try {
       await p.onStep?.(k + 1, plan.props.length, "generating");
       p.log(`prop ${prop.name}: generating "${prop.prompt.slice(0, 80)}"`);
-      const g = await p.post<{ ok: true; url: string; mime: string; model: string } | { ok: false; error: string }>(`slots/${p.slotId}/prop-generate`, { name: prop.name });
+      const g = await p.post<{ ok: true; data: string; mime: string; model: string } | { ok: false; error: string }>(`slots/${p.slotId}/prop-generate`, { name: prop.name });
       if (!g.ok) {
         dropped.push(prop.name);
-        p.log(`prop ${prop.name}: dropped to none (${g.error})`);
+        // the exact reason (model, HTTP status, Gemini's message) in the GitHub Actions log; the slot keeps a short
+        // propWarning for its card
+        p.log(`prop ${prop.name}: FAILED, dropped to none: ${g.error}`);
         continue;
       }
       const raw = path.join(work, `${prop.name}.raw`);
       const png = path.join(work, `${prop.name}.png`);
-      const res = await fetch(new URL(g.url, p.base));
-      if (!res.ok) throw new Error(`download failed (${res.status})`);
-      writeFileSync(raw, Buffer.from(await res.arrayBuffer()));
+      writeFileSync(raw, Buffer.from(g.data, "base64"));
+      p.log(`prop ${prop.name}: ${g.model} → ${g.mime}, ${(Buffer.byteLength(g.data, "base64") / 1024).toFixed(0)} KB`);
       await p.onStep?.(k + 1, plan.props.length, "cutting");
       if (process.env.PROP_FAKE_CUTOUT === "1") copyFileSync(raw, png);
       else {

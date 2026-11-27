@@ -14,23 +14,27 @@ const P = (speaker: "uco" | "ocu", o: Record<string, unknown> = {}) => {
   return [pose, rate, pitch];
 };
 
-test("Uco: faster and higher; hotter when angry / shocked / defensive, softer in thought", () => {
-  assert.deepEqual(P("uco", { emotion: "triumphant" }), ["triumphant", "+10%", "+4Hz"]);
-  assert.deepEqual(P("uco", { emotion: "phone" }), ["phone", "+10%", "+4Hz"]);
-  assert.deepEqual(P("uco"), ["triumphant", "+10%", "+4Hz"], "no pose: Uco's usual");
-  for (const pose of ["angry", "shocked", "defensive"]) assert.deepEqual(P("uco", { emotion: pose }), [pose, "+16%", "+8Hz"], pose);
-  assert.deepEqual(P("uco", { emotion: null, expression: "furious" }), ["angry", "+16%", "+8Hz"], "from the expression");
+test("Uco: a touch quicker and higher, still natural speed; hotter when angry / shocked / defensive, softer in thought", () => {
+  assert.deepEqual(P("uco", { emotion: "triumphant" }), ["triumphant", "+2%", "+4Hz"]);
+  assert.deepEqual(P("uco", { emotion: "phone" }), ["phone", "+2%", "+4Hz"]);
+  assert.deepEqual(P("uco"), ["triumphant", "+2%", "+4Hz"], "no pose: Uco's usual");
+  for (const pose of ["angry", "shocked", "defensive"]) assert.deepEqual(P("uco", { emotion: pose }), [pose, "+4%", "+8Hz"], pose);
+  assert.deepEqual(P("uco", { emotion: null, expression: "furious" }), ["angry", "+4%", "+8Hz"], "from the expression");
   assert.deepEqual(P("uco", { emotion: "angry", thought_bubble: true }), ["thought", "-4%", "-2Hz"], "a thought wins over the pose");
-  // poses Uco doesn't have still map: deadpan / explaining / inspecting / cta → Uco's base
-  for (const pose of ["deadpan", "explaining", "inspecting", "cta"]) assert.deepEqual(P("uco", { emotion: pose }).slice(1), ["+10%", "+4Hz"], pose);
+  for (const pose of ["deadpan", "explaining", "inspecting", "cta"]) assert.deepEqual(P("uco", { emotion: pose }).slice(1), ["+2%", "+4Hz"], pose);
 });
 
-test("Ocu: steadier and deeper; flatter when deadpan / in thought, brighter when explaining / inspecting / cta", () => {
+test("Ocu: steady and deeper; flatter when deadpan / in thought, a little brighter when explaining / inspecting / cta", () => {
   assert.deepEqual(P("ocu"), ["deadpan", "-2%", "-6Hz"], "no pose: Ocu's usual deadpan");
   assert.deepEqual(P("ocu", { emotion: "deadpan" }), ["deadpan", "-2%", "-6Hz"]);
   assert.deepEqual(P("ocu", { thought_bubble: true, emotion: "explaining" }), ["thought", "-2%", "-6Hz"]);
-  for (const pose of ["explaining", "inspecting", "cta"]) assert.deepEqual(P("ocu", { emotion: pose }), [pose, "+8%", "-2Hz"], pose);
-  for (const pose of ["angry", "shocked", "defensive", "triumphant"]) assert.deepEqual(P("ocu", { emotion: pose }).slice(1), ["+5%", "-4Hz"], pose);
+  for (const pose of ["explaining", "inspecting", "cta"]) assert.deepEqual(P("ocu", { emotion: pose }), [pose, "+3%", "-2Hz"], pose);
+  for (const pose of ["angry", "shocked", "defensive", "triumphant"]) assert.deepEqual(P("ocu", { emotion: pose }).slice(1), ["+0%", "-4Hz"], pose);
+  // natural speaking speed: every base rate between +0% and +4%, never the old +10% / +16%
+  for (const sp of ["uco", "ocu"] as const) for (const pose of ["angry", "shocked", "defensive", "deadpan", "explaining", "inspecting", "cta", "triumphant", "phone"]) {
+    const rate = parseInt(P(sp, { emotion: pose })[1]);
+    assert.ok(rate >= -4 && rate <= 4, `${sp} ${pose}: ${rate}%`);
+  }
   // the two stay apart on every pose
   for (const pose of ["angry", "shocked", "defensive", "deadpan", "explaining", "inspecting", "cta"]) {
     assert.notDeepEqual(P("uco", { emotion: pose }).slice(1), P("ocu", { emotion: pose }).slice(1), pose);
@@ -66,7 +70,7 @@ test("routing: Own Voice and Gemini TTS slots use gemini-3.8-flash-tts first; Ed
 test("Edge TTS takes: Own Voice base takes go on to RVC, fallback takes don't, and the renderer doesn't speed them up twice", () => {
   const p = edgeProsody({ speaker: "uco", emotion: "shocked" });
   const base = edgeMark("gemini_tts_rvc", p);
-  assert.equal(base, `${RVC_BASE_MARK} edge-tts ${EDGE_VOICE} rate=+16% pitch=+8Hz pose=shocked`);
+  assert.equal(base, `${RVC_BASE_MARK} edge-tts ${EDGE_VOICE} rate=+4% pitch=+8Hz pose=shocked`);
   assert.equal(needsConversion({ source: "ai", ai_prompt: base }), true, "Stage B converts it");
   const fallback = edgeMark("gemini_tts", p);
   assert.match(fallback, /^\[edge_tts\] edge-tts id-ID-ArdiNeural/);
@@ -75,7 +79,9 @@ test("Edge TTS takes: Own Voice base takes go on to RVC, fallback takes don't, a
   assert.equal(isEdgeTake("[rvc] converted from x (edge-tts)"), true);
   assert.equal(takeSource("ai", base), "ai_edge");
   assert.equal(takeSource("ai", "[rvc] converted from x (edge-tts)"), "ai_edge");
-  assert.equal(takeSource("ai", "[gemini_tts] …"), "ai", "Gemini takes keep the renderer's AI pacing");
+  assert.equal(takeSource("ai", "[gemini_tts] …"), "ai_gemini", "Gemini takes keep their natural pace too");
+  assert.equal(takeSource("ai", "[gemini_tts_rvc:base] style: x"), "ai_gemini");
+  assert.equal(takeSource("ai", "an ElevenLabs direction"), "ai", "only ElevenLabs takes are sped up");
   assert.equal(takeSource("booth", null), "booth");
   // render.mts speeds up only source === "ai"
   assert.match(fs.readFileSync(path.join(ROOT, "video/render.mts"), "utf8"), /source === "ai" \? \(AI_SPEED\[speaker\] \?\? 1\)/);
@@ -94,7 +100,7 @@ test("cached audio is never voiced again; the voice reads the phonetic text, the
   assert.equal(jobs[0].text, "U-co dan Ocu: skincare mahal itu investasi!");
   assert.equal(lines[0].text, "Uco & Ocu: skincare mahal itu investasi!", "the stored line is untouched");
   assert.deepEqual([jobs[0].leadIn, jobs[1].leadIn], [true, false], "only Beat 1 keeps the lead-in pad");
-  assert.deepEqual([jobs[1].rate, jobs[1].pitch], ["+16%", "+8Hz"]);
+  assert.deepEqual([jobs[1].rate, jobs[1].pitch], ["+4%", "+8Hz"]);
   assert.deepEqual(edgeJobs(lines.slice(0, 3), () => true), [], "a fully voiced episode makes no request");
   // the worker's upload is refused for a line that got a take meanwhile, and registering never replaces one
   const src = fs.readFileSync(path.join(ROOT, "src/lib/scheduler-server.ts"), "utf8");

@@ -1,5 +1,5 @@
 import "server-only";
-import { GEMINI_KEY_MISSING, GeminiError, geminiApiKey, geminiErrorDetail, geminiImageModel, geminiTextModels, isModelError, parseGeminiJson } from "./gemini-core";
+import { GEMINI_KEY_MISSING, GeminiError, extractImage, geminiApiKey, geminiErrorDetail, geminiImageModel, geminiTextModels, imageRequestBody, isModelError, parseGeminiJson } from "./gemini-core";
 
 // Gemini text generation (free tier) for the autonomous scheduler: topic seeds and unattended scripts.
 // Key: the same lookup as Gemini TTS (gemini-core.ts). Model: GEMINI_TEXT_MODEL, else gemini-3.5-flash-lite, with
@@ -81,10 +81,7 @@ export async function geminiImage(prompt: string, refs: { mime: string; data: Bu
     res = await fetch(`${API()}/models/${model}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": key.key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [...refs.map((r) => ({ inlineData: { mimeType: r.mime, data: r.data.toString("base64") } })), { text: prompt }] }],
-        generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "1:1", imageSize: "1K" } },
-      }),
+      body: JSON.stringify(imageRequestBody(prompt, refs)),
       signal: AbortSignal.timeout(180_000),
     });
   } catch (e) {
@@ -95,8 +92,11 @@ export async function geminiImage(prompt: string, refs: { mime: string; data: Bu
     console.error(`[gemini-image] ${err.message}`);
     throw err;
   }
-  const j = (await res.json()) as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] }; finishReason?: string }[] };
-  const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
-  if (!part?.data) throw new GeminiError(res.status, model, `no image came back (${j.candidates?.[0]?.finishReason ?? "no candidates"})`);
-  return { data: Buffer.from(part.data, "base64"), mime: part.mimeType ?? "image/png", model };
+  const got = extractImage((await res.json()) as Parameters<typeof extractImage>[0]);
+  if ("error" in got) {
+    const err = new GeminiError(res.status, model, got.error);
+    console.error(`[gemini-image] ${err.message}`);
+    throw err;
+  }
+  return { ...got, model };
 }

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { LEAD_IN, LEAD_IN_MS, LINE_GAP_S, PAUSES, TRIM, fades } from "../../video/src/audioChain.ts";
+import { GAPS, LEAD_IN, LEAD_IN_MS, PAUSES, THOUGHT_FILTER, TRIM, fades } from "../../video/src/audioChain.ts";
 import { bgmFile, registerRemoteAssets, resetRemoteAssets } from "../../video/src/assets/index.ts";
 import { brainChips, buildBeats, cardHeader, overlayFor, thoughtCaption, type EpisodeLine } from "../../video/src/beats.ts";
 import { parseDirection } from "../../video/src/direction.ts";
@@ -82,9 +82,8 @@ test("no dead air: never two lines in a row with an empty stage; an inspecting l
   });
   const lines = fillDeadAir([base(1), base(2), base(3), base(4, { prop_tag: "serum-emas-c54315" }), base(5), base(6), base(7, { emotion: "inspecting", speaker: "ocu" })] as never, ["serum-emas-c54315"]);
   for (let i = 1; i < lines.length; i++) assert.ok(hasVisual(lines[i - 1]) || hasVisual(lines[i]), `lines ${i}-${i + 1} both empty`);
-  assert.equal(lines[0].kinetic_text, null, "the first line alone isn't forced");
   assert.equal(lines[1].kinetic_text, "POIN NOMOR 2");
-  assert.equal(lines[2].kinetic_text, null, "one callout is enough per pair");
+  assert.ok(lines.filter(hasVisual).length / lines.length >= 0.75, "at least 75 % of the lines show something");
   assert.equal(lines[6].prop_tag, "serum-emas-c54315", "the magnifier examines the episode's prop, not empty air");
   // a prop whose image failed is dropped to none, and the rule runs again so that line doesn't go blank
   assert.match(read("src/lib/scheduler-server.ts"), /SET lines = \$\{sql\.json\(fillDeadAir\(dropProp\(sc\.lines, name\), keep\) as never\)\}/);
@@ -102,17 +101,20 @@ test("generated props: style references must be real PNGs (the live run sent the
 });
 
 // ------------------------------------------------------------------ 2. audio
-test("every clip: gentle onset with a 40-60 ms pad, pauses capped at 0.18 s, 15 ms fade-in, 35 ms fade-out", () => {
+test("every clip: gentle onset with a 40-60 ms pad and a 70 ms tail, only dead pauses (> 0.5 s) shortened, 15 / 35 ms fades", () => {
   assert.match(TRIM, /silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0\.05,/);
   assert.ok(LEAD_IN_MS >= 40 && LEAD_IN_MS <= 60);
   assert.equal(LEAD_IN, "adelay=50:all=1,");
-  assert.equal(PAUSES, "silenceremove=stop_periods=-1:stop_duration=0.18:stop_threshold=-38dB:stop_silence=0.18,");
+  assert.match(TRIM, /areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0\.07,areverse/, "a 70 ms tail pad");
+  assert.equal(PAUSES, "silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-42dB:stop_silence=0.3,", "only a dead pause over 0.5 s, down to 0.3 s");
+  assert.doesNotMatch(TRIM + PAUSES, /stop_duration=0\.18/, "no 0.18 s mid-line chopping");
+  assert.doesNotMatch(THOUGHT_FILTER, /aecho|lowpass=f=4500|highpass=f=250/, "no hollow / walkie-talkie thought filter");
   assert.equal(fades(2), "afade=t=in:st=0:d=0.015,afade=t=out:st=1.965:d=0.035");
   assert.equal(fades(0.01), "afade=t=in:st=0:d=0.015,afade=t=out:st=0.000:d=0.035");
-  assert.ok(LINE_GAP_S >= 0.1 && LINE_GAP_S <= 0.12);
+  assert.ok(GAPS.switch >= 0.28 && GAPS.switch <= 0.32 && GAPS.same >= 0.22 && GAPS.same <= 0.26 && GAPS.shift >= 0.4 && GAPS.shift <= 0.45);
   // the renderer, Edge TTS and RVC all use them, the fades last (on the final length)
   const render = read("video/render.mts");
-  assert.match(render, /import \{ LEAD_IN, PAUSES, TRIM, fades \} from "\.\/src\/audioChain\.ts";/);
+  assert.match(render, /import \{ LEAD_IN, PAUSES, THOUGHT_FILTER, TRIM, fades \} from "\.\/src\/audioChain\.ts";/);
   assert.match(render, /ffmpeg\("-i", leveled, "-af", fades\(secs\),/);
   assert.match(read("video/edge-stage.mts"), /ffmpeg\("-i", leveled, "-af", fades\(secs\),/);
   assert.match(read("video/rvc-stage.mts"), /`highpass=f=20,\$\{fades\(seconds\)\}`/, "after RVC: DC removed, faded");
@@ -129,7 +131,8 @@ test("scheduled episodes get a background bed: urgent for Koran Kinetik, about -
   assert.equal(kk.bgm, true);
   assert.equal(kk.urgentBgm, true);
   assert.equal(kk.thoughtDuck, 0, "muted under inner thoughts");
-  assert.equal(kk.pauseS, 0.11);
+  assert.equal(kk.naturalPacing, true);
+  assert.equal(kk.pauseS, null, "no flat gap");
   assert.equal(kk.ctaText, "FOLLOW @UCO.OCU");
   const underDialogue = 20 * Math.log10(kk.bgmVolume * 0.35); // BackgroundMusic ducks to 35 % while someone talks
   assert.ok(underDialogue <= -22 && underDialogue >= -24, `${underDialogue.toFixed(1)} dB`);
@@ -146,15 +149,16 @@ test("scheduled episodes get a background bed: urgent for Koran Kinetik, about -
   assert.match(read("video/src/shared/Compositing.tsx"), /bgmFile\(urgent \|\| beats\.some\(\(b\) => b\.angry\)\)/);
   const srv = read("src/lib/scheduler-server.ts");
   assert.match(srv, /\$\{showDirection\(r\.visual_style\)\}, true, now\(\)\)/, "new scheduled scripts");
-  assert.match(srv, /UPDATE scripts SET direction = \$\{showDirection\(style\)\} WHERE project_id = \$\{s\.episode_id\} AND custom AND \(direction IS NULL OR direction = \$\{LEGACY_SHOW_DIRECTION\}\)/, "and older drafts at render time");
+  assert.match(srv, /UPDATE scripts SET direction = \$\{showDirection\(style\)\} WHERE project_id = \$\{s\.episode_id\} AND custom AND \(direction IS NULL OR direction LIKE \$\{LEGACY_SHOW_DIRECTION \+ "%"\}\)/, "and older drafts at render time");
   assert.equal(LEGACY_SHOW_DIRECTION, "CTA: FOLLOW @UCO.OCU");
 });
 
 // ------------------------------------------------------------------ 4. Ocu pacing, Show Bible rules
-test("Ocu's style is brisk and steady; the handle is enunciated; scripts never say 'Co' or end with a sermon", () => {
+test("Ocu's style is crisp and steady at natural speed; the handle is enunciated; scripts never say 'Co' or end with a sermon", () => {
   const ocu = geminiSpeech({ speaker: "ocu", text: "Itu namanya bias, bukan investasi.", emotion: "deadpan" });
   assert.ok(ocu.style.includes(OCU_PACE), ocu.style);
-  assert.match(OCU_PACE, /brisk, crisp, steady.*no slow pauses or stretched syllables/);
+  assert.match(OCU_PACE, /crisp and steady.*no drawn-out pauses or stretched syllables/);
+  assert.doesNotMatch(OCU_PACE, /brisk|fast|rapid/, "energy, not speed");
   assert.ok(!geminiSpeech({ speaker: "uco", text: "Gas!", emotion: "triumphant" }).style.includes(OCU_PACE), "Uco keeps his own energy");
   assert.ok(geminiSpeech({ speaker: "ocu", text: "Follow @uco.ocu biar nggak ketipu!", emotion: "cta" }).style.includes(HANDLE_DICTION));
   const prompt = showBiblePrompt({ format: "comedy_debate", label: "Comedy Debate", brief: "b", seed: "Skincare", bankProps: "" });

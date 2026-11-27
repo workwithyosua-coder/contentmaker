@@ -70,20 +70,25 @@ export function actingDirection(l: ActingLine, preset: DeliveryPreset = "standar
  * read `parts[].text` verbatim, so the acting cue lives here and only the dialogue goes in the text.
  */
 export const POSE_STYLE: Record<string, string> = {
-  angry: "Outraged Jakartan Indonesian rant, fast, loud, sharp emphasis",
+  angry: "Outraged Jakartan Indonesian rant, loud, sharp emphasis",
   deadpan: "Deadpan sarcastic Jakartan Indonesian, dry flat delivery",
   defensive: "Flustered, defensive Jakartan Indonesian, quick self-justification",
   inspecting: "Sharp, probing Jakartan Indonesian, laying out hard facts one by one",
   thought: "Quiet dry mutter to oneself, disbelieving, Jakartan Indonesian",
   shocked: "Shocked, high-energy Jakartan Indonesian comedy banter",
-  explaining: "Confident, energetic Jakartan Indonesian explanation at comedy banter pace",
+  explaining: "Confident, energetic Jakartan Indonesian explanation",
   cta: "Warm, upbeat Jakartan Indonesian sign-off",
-  triumphant: "Energetic Jakartan Indonesian comedy banter, confident and challenging, fast-paced",
-  phone: "Excited Jakartan Indonesian, reacting to a phone screen, fast",
+  triumphant: "Energetic Jakartan Indonesian comedy banter, confident and challenging",
+  phone: "Excited Jakartan Indonesian, reacting to a phone screen",
 };
 
-/** Ocu's pacing, added to every non-thought line of his. */
-export const OCU_PACE = "brisk, crisp, steady Jakartan pace, no slow pauses or stretched syllables";
+/**
+ * The speed every spoken line asks for, both characters: natural conversational speed. Energy comes from the tone,
+ * never from speed (the first natural-pacing review found the episode rushed).
+ */
+export const NATURAL_PACE = "natural, conversational Indonesian speaking speed, expressive and witty in tone, not rushed or rapid-fire";
+/** Ocu, on top: crisp and steady, without dragging (no slow pauses or stretched syllables). */
+export const OCU_PACE = "crisp and steady, clear enunciation, no drawn-out pauses or stretched syllables";
 /** Added when the line says the show's handle. */
 export const HANDLE_DICTION = 'enunciate the name "Uco Ocu" clearly, both names distinct';
 
@@ -106,7 +111,8 @@ export function geminiSpeech(l: ActingLine & { text: string }, preset: DeliveryP
   const pose = actingPose(l);
   const text = assertSpokenOnly(ttsText(l.text));
   const parts = [POSE_STYLE[pose] ?? POSE_STYLE.triumphant];
-  // Ocu: brisk and steady even when deadpan (the first live render dragged on his lines)
+  // natural speed for both (energy is in the tone); Ocu also crisp and steady, never dragging
+  if (pose !== "thought") parts.push(NATURAL_PACE);
   if (l.speaker === "ocu" && pose !== "thought") parts.push(OCU_PACE);
   if (preset === "angry" && pose !== "thought") parts.push("urgent, pressing");
   // the outro handle: every syllable of "U-co Ocu" said clearly

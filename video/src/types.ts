@@ -1,4 +1,5 @@
 import type { RenderDirection } from "./direction";
+import { GAPS } from "./audioChain";
 export const FPS = 30;
 export const WIDTH = 1080;
 export const HEIGHT = 1920;
@@ -89,7 +90,24 @@ export const COLORS = {
  * - Ocu answers: 4 frames (~0.13 s); his punchlines (button beat) and answers to a question get a 12-frame (0.4 s) deadpan beat.
  * - Inner thoughts: 8 frames to let the room dim.
  */
-export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubble" | "text" | "start_s">[], direction?: RenderDirection | null) {
+type TimedLine = Pick<EpisodeLine, "speaker" | "frames" | "beat" | "thought_bubble" | "text" | "start_s"> & { layout?: string | null; emotion?: string | null };
+
+/**
+ * Natural comedic timing ("Pacing: natural"): the gap before line `i`, in frames. A visual shift breathes (0.42 s):
+ * entering a takeover stat card, a thought (in or out), the final punchline (the line before the CTA) or the CTA
+ * itself; a speaker switch lets the line land (0.30 s); the same speaker carries on (0.24 s).
+ */
+export function naturalGap(lines: TimedLine[], i: number): number {
+  const l = lines[i];
+  const prev = lines[i - 1];
+  const ctaAt = lines.findIndex((x) => x.emotion === "cta");
+  const punchline = ctaAt > 0 ? ctaAt - 1 : lines.length - 1;
+  const shift = (l.layout === "takeover" && prev.layout !== "takeover") || Boolean(l.thought_bubble) !== Boolean(prev.thought_bubble) || i === punchline || i === ctaAt;
+  const s = shift ? GAPS.shift : l.speaker === prev.speaker ? GAPS.same : GAPS.switch;
+  return Math.round(s * FPS);
+}
+
+export function timeline(lines: TimedLine[], direction?: RenderDirection | null) {
   const starts: number[] = [];
   const pause = direction?.pauseS != null ? Math.round(direction.pauseS * FPS) : null;
   const thoughtPause = direction?.thoughtPauseS != null ? Math.round(direction.thoughtPauseS * FPS) : null;
@@ -98,7 +116,8 @@ export function timeline(lines: Pick<EpisodeLine, "speaker" | "frames" | "beat" 
     if (i > 0) {
       const prev = lines[i - 1];
       let gap = 4;
-      if (l.thought_bubble || prev.thought_bubble) gap = thoughtPause ?? Math.max(8, pause ?? 0);
+      if (direction?.naturalPacing) gap = naturalGap(lines, i);
+      else if (l.thought_bubble || prev.thought_bubble) gap = thoughtPause ?? Math.max(8, pause ?? 0);
       else if (pause !== null) gap = pause; // the direction's pause replaces the comedic defaults (no cut-ins)
       else if (l.speaker === "uco" && prev.speaker === "ocu") gap = -3;
       else if (l.speaker === "ocu" && (l.beat === "button" || /\?\s*$|\?!\s*$/.test(prev.text))) gap = 12;
