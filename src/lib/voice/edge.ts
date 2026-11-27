@@ -77,13 +77,13 @@ export type EdgeJob = { lineIndex: number; speaker: "uco" | "ocu"; text: string;
 
 /**
  * The worker's Edge TTS jobs: every line WITHOUT a take (cached audio is never voiced again), with the phonetic text
- * the voice reads ("&" → "dan", "Uco" → "U-co"; the stored script and subtitles stay as written) and its prosody.
+ * the voice reads ("&" → "dan", "@uco.ocu" → "Uco Ocu"; the stored script and subtitles stay as written) and its prosody.
  */
 export function edgeJobs(lines: (ProsodyLine & { index: number; text: string })[], hasTake: (index: number) => boolean): EdgeJob[] {
   return linesToVoice(lines, hasTake, "missing")
     .filter((l) => (l.speaker === "uco" || l.speaker === "ocu") && l.text.trim())
     .map((l) => {
       const p = edgeProsody(l);
-      return { lineIndex: l.index, speaker: l.speaker, text: assertSpokenOnly(ttsText(l.text)), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
+      return { lineIndex: l.index, speaker: l.speaker, text: assertSpokenOnly(ttsText(l.text, "edge")), rate: p.rate, pitch: p.pitch, pose: p.pose, leadIn: l.index === 0 };
     });
 }

@@ -4,7 +4,10 @@
 //
 // One slot = one episode: queued → scripting → voicing → rendering → ready_to_post → published (any step → failed;
 // a failed slot goes back to queued on retry).
-import { CAMERA_SHOTS, clampCue, parseStat } from "../../video/src/beats";
+import { CAMERA_SHOTS, clampCue, clampWords, parseStat } from "../../video/src/beats";
+
+/** A takeover stat card's subline, at most (the card wraps it on up to 3 lines and never cuts a word). */
+export const STAT_SUBLINE_MAX = 42;
 import { isPropName } from "../../video/src/props/library";
 import { POSES, type ManualLine } from "./manualScriptParser";
 import { BEATS, EXPRESSIONS } from "./script-parse";
@@ -381,7 +384,9 @@ export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; ban
     const thought = d.thought === true || d.thought_bubble === true || rawPose === "thought";
     const emotion = POSES[speaker].includes(rawPose) ? rawPose : speaker === "uco" ? (thought ? "defensive" : "triumphant") : "deadpan";
     const stat = parseStat(d.statCard ?? d.stat ?? null);
-    const statText = stat ? `${stat.headline}${stat.subline ? ` | ${stat.subline}` : ""}` : null;
+    // a long subline is cut between words to 42 characters ("… BERSTATUS NEET", never "… DI INDONES")
+    const subline = stat?.subline ? clampWords(stat.subline, STAT_SUBLINE_MAX) : null;
+    const statText = stat ? `${stat.headline}${subline ? ` | ${subline}` : ""}` : null;
     const beat = oneOf(BEATS, d.beat) ?? (lines.length === 0 ? "hook" : "escalation");
     const onScreen = d.on_screen_text ? noEmDash(d.on_screen_text).slice(0, 80) : null;
     const message = cue(

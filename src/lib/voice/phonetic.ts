@@ -16,14 +16,19 @@ const RULES: [RegExp, string][] = [
 ];
 
 /**
- * The text the voice model should read for a script line (never shown to anyone). Gemini TTS reads "U-co" the
- * Spanish / English way ("Uko"), so its transcript spells the names the way they sound: "Ucho", "Ochu". Edge TTS's
- * Indonesian voice reads "c" as /tʃ/ already and keeps "U-co" / "Ocu".
+ * The text the voice model should read for a script line (never shown to anyone), per engine:
+ *   gemini      "Ucho" / "Ochu": Gemini reads "Uco" / "U-co" the Spanish / English way ("Uko")
+ *   edge        "Uco" / "Ocu" as plain Indonesian words (c = /tʃ/). The hyphenated "U-co" made Edge's Indonesian
+ *               voice read "co" as a separate token, "ko": the 1:19 outro of the "100 lamaran" episode ("kayak Uco",
+ *               "follow @uco.ocu") was an Edge line and said "Uko"
+ *   elevenlabs  "U-co": split so it isn't slurred into "Ucu"
+ * Every occurrence is a whole word ("kayak Uco" too, not "Ucok").
  */
-export function ttsText(text: string, voice: "gemini" | "edge" = "edge"): string {
+export function ttsText(text: string, voice: "gemini" | "edge" | "elevenlabs" = "elevenlabs"): string {
   let out = text;
   for (const [re, to] of RULES) out = out.replace(re, to);
   if (voice === "gemini") out = out.replace(/\bU-co\b/g, "Ucho").replace(/\bOcu\b/gi, "Ochu");
+  if (voice === "edge") out = out.replace(/\bU-co\b/g, "Uco");
   return out.replace(/\s{2,}/g, " ").trim();
 }
 

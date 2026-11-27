@@ -97,7 +97,7 @@ test("cached audio is never voiced again; the voice reads the phonetic text, the
   const cached = new Set([1]);
   const jobs = edgeJobs(lines, (i) => cached.has(i));
   assert.deepEqual(jobs.map((j) => j.lineIndex), [0, 2], "the cached line and a blank one are skipped");
-  assert.equal(jobs[0].text, "U-co dan Ocu: skincare mahal itu investasi!");
+  assert.equal(jobs[0].text, "Uco dan Ocu: skincare mahal itu investasi!", "Edge reads plain Indonesian Uco (U-co made it say Uko)");
   assert.equal(lines[0].text, "Uco & Ocu: skincare mahal itu investasi!", "the stored line is untouched");
   assert.deepEqual([jobs[0].leadIn, jobs[1].leadIn], [true, false], "only Beat 1 keeps the lead-in pad");
   assert.deepEqual([jobs[1].rate, jobs[1].pitch], ["+4%", "+8Hz"]);

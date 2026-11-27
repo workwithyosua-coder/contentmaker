@@ -57,20 +57,19 @@ function draft(n: number, extra: (i: number) => Partial<DraftLine> = () => ({}))
 }
 const clean = (lines: DraftLine[], fresh: string[] = []) => withCta(sanitizeScript({ lines }, { fresh, bank: BANK }, "x", 1).lines);
 
-test("Show Bible lengths: comedy debate 14-16 lines, Koran Kinetik 16-18 with 3-4 takeovers; never under 12", () => {
-  assert.deepEqual(FORMAT_SPEC.comedy_debate.lines, [14, 16]);
-  assert.equal(FORMAT_SPEC.comedy_debate.seconds, "55-65");
-  assert.deepEqual(FORMAT_SPEC.koran_kinetik.lines, [16, 18]);
+test("Show Bible lengths: every format 13-15 lines (55-68 s), Koran Kinetik with 3-4 takeovers; never under 12", () => {
+  for (const f of Object.values(FORMAT_SPEC)) assert.deepEqual([f.lines, f.seconds], [[13, 15], "55-68"]);
   assert.deepEqual(FORMAT_SPEC.koran_kinetik.takeovers, [3, 4]);
-  assert.equal(FORMAT_SPEC.koran_kinetik.seconds, "75-90");
   assert.equal(MIN_LINES, 12);
   assert.deepEqual(showBibleProblems(clean(draft(15)), "comedy_debate"), [], "a full debate passes");
   // the 9-line "Skincare Mahal Investasi Wajah" kind of draft is rejected
-  assert.match(showBibleProblems(clean(draft(9)), "comedy_debate").join("; "), /only 9 lines \(needs 14-16\)/);
+  assert.match(showBibleProblems(clean(draft(9)), "comedy_debate").join("; "), /only 9 lines \(needs 13-15\)/);
+  // the 17-line, 82 s "100 lamaran" kind of draft is too long
+  assert.match(showBibleProblems(clean(draft(17)), "comedy_debate").join("; "), /17 lines \(max 15, about 55-68 s\)/);
   // Koran Kinetik without takeovers is rejected; with 3 it passes
-  const k = draft(17, (i) => (i === 0 ? { pose: "angry" } : {}));
+  const k = draft(14, (i) => (i === 0 ? { pose: "angry" } : {}));
   assert.match(showBibleProblems(clean(k), "koran_kinetik").join("; "), /0 takeover stat card\(s\) \(needs 3-4\)/);
-  const k3 = draft(17, (i) => ([3, 8, 13].includes(i) ? { layout: "takeover", statCard: "900 RIBU | SEBULAN BUAT SERUM" } : {}));
+  const k3 = draft(14, (i) => ([3, 8, 12].includes(i) ? { layout: "takeover", statCard: "900 RIBU | SEBULAN BUAT SERUM" } : {}));
   assert.deepEqual(showBibleProblems(clean(k3), "koran_kinetik"), []);
 });
 
@@ -120,7 +119,7 @@ test("a short script is retried once with the problems spelled out; the better a
   assert.equal(betterAttempt(short, longerFlawed), longerFlawed, "more lines beat fewer");
   const prompt = showBiblePrompt({ format: "comedy_debate", label: "Comedy Debate", brief: "b", seed: "Skincare mahal", bankProps: "", strict: ["only 9 lines (needs 14-16)"] });
   assert.match(prompt, /PERCOBAAN SEBELUMNYA DITOLAK karena: only 9 lines \(needs 14-16\)/);
-  assert.match(prompt, /14-16 baris/);
+  assert.match(prompt, /13-15 baris termasuk outro CTA \(sekitar 55-68 detik\)/);
   assert.match(prompt, /lo\/gue/);
   assert.match(prompt, /wajib demi investasi masa depan wajah" = salah/);
   assert.match(prompt, /FOLLOW|follow @UCO\.OCU|@UCO\.OCU/i);

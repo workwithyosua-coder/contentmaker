@@ -3,7 +3,7 @@
 // instructions), the outro CTA, and the episode's fresh prop specs. Pure code: no database, no network, no AI.
 import type { ManualLine } from "./manualScriptParser";
 import { cleanHandle } from "./voice/phonetic";
-import { SFX_NAMES, type EpisodeFormat, cleanCalloutText } from "./scheduler";
+import { SFX_NAMES, STAT_SUBLINE_MAX, type EpisodeFormat, cleanCalloutText } from "./scheduler";
 
 export const CTA_HANDLE = "@UCO.OCU";
 /** The first, outro-only direction scheduled scripts carried (upgraded to showDirection() at render time). */
@@ -32,8 +32,8 @@ export const MIN_LINES = 12;
 export type FormatSpec = { lines: [number, number]; seconds: string; takeovers: [number, number]; thoughts: [number, number]; explainer: number; structure: string };
 export const FORMAT_SPEC: Record<EpisodeFormat, FormatSpec> = {
   comedy_debate: {
-    lines: [14, 16],
-    seconds: "55-65",
+    lines: [13, 15],
+    seconds: "55-68",
     takeovers: [0, 2],
     thoughts: [1, 2],
     explainer: 1,
@@ -41,8 +41,8 @@ export const FORMAT_SPEC: Record<EpisodeFormat, FormatSpec> = {
       "Hook: kebiasaan buruk atau hot take Uco yang relatable → banter cepat dan eskalasi → Ocu membawa konsep psikologi / sains dengan NAMA (mis. sunk cost fallacy, efek Dunning-Kruger) plus angka nyata (Rupiah atau data dunia nyata) → 1-2 baris thought: true (monolog batin / kemunafikan) sebagai twist → punchline → outro CTA penuh.",
   },
   affiliate: {
-    lines: [14, 16],
-    seconds: "55-65",
+    lines: [13, 15],
+    seconds: "55-68",
     takeovers: [0, 2],
     thoughts: [1, 2],
     explainer: 1,
@@ -50,8 +50,8 @@ export const FORMAT_SPEC: Record<EpisodeFormat, FormatSpec> = {
       "Hook: Uco tergoda produk sehari-hari → debat jujur untung-rugi dengan harga Rupiah nyata dan konsep psikologi belanja ber-NAMA (mis. anchoring, decoy effect) → 1-2 baris thought: true → punchline → outro CTA penuh yang juga menyebut keranjang kuning. Tanpa klaim palsu.",
   },
   koran_kinetik: {
-    lines: [16, 18],
-    seconds: "75-90",
+    lines: [13, 15],
+    seconds: "55-68",
     takeovers: [3, 4],
     thoughts: [0, 2],
     explainer: 0,
@@ -59,8 +59,8 @@ export const FORMAT_SPEC: Record<EpisodeFormat, FormatSpec> = {
       "Buka langsung marah / mendesak ke masalahnya (tanpa pemanasan) → bukti data dan hitungan keras → 3-4 baris layout takeover dengan statCard, kira-kira satu tiap 20 detik (tersebar, jangan berurutan) → sarkasme tajam → outro CTA penuh.",
   },
   diagram_taktis: {
-    lines: [14, 16],
-    seconds: "60-75",
+    lines: [13, 15],
+    seconds: "55-68",
     takeovers: [1, 2],
     thoughts: [0, 2],
     explainer: 1,
@@ -102,7 +102,7 @@ export const SHOW_SCHEMA = {
           shot: { type: "STRING", enum: ["solo-uco", "solo-ocu", "closeup-punch", "two-shot"] },
           callout: S("2-4 kata HURUF BESAR yang muncul di layar pada beat penekanan, selain itu kosong"),
           layout: { type: "STRING", enum: ["standard", "takeover"] },
-          statCard: S("Untuk takeover: 'ANGKA/FAKTA | PENJELASAN SINGKAT', selain itu kosong"),
+          statCard: S("Untuk takeover: 'ANGKA/FAKTA | PENJELASAN SINGKAT' (penjelasan maksimal 42 karakter), selain itu kosong"),
           explainerCard: { type: "STRING", enum: ["none", "brain-badge", "wave-graph"] },
           sfx: { type: "ARRAY", items: { type: "STRING", enum: [...SFX_NAMES] } },
           prop: S("slug dari propSpecs, atau none"),
@@ -130,16 +130,17 @@ KARAKTER
 - Ocu: kalem, datar, sinis tajam, bawa data dan sains. Pose: deadpan, explaining, inspecting, angry, thought, cta.
 
 STRUKTUR (wajib)
-- ${f.lines[0]}-${f.lines[1]} baris. Kurang dari ${f.lines[0]} baris = gagal.
+- ${f.lines[0]}-${f.lines[1]} baris termasuk outro CTA (sekitar ${f.seconds} detik). Kurang dari ${f.lines[0]} atau lebih dari ${f.lines[1]} baris = gagal.
 - ${f.structure}
 - Baris terakhir: outro CTA penuh dari Ocu dengan pose cta, mengajak follow ${CTA_HANDLE} (mis. "Follow @uco.ocu biar nggak ketipu lagi!"). Tulis handle PERSIS "@uco.ocu" di text dan subtitle (subtitle: "Follow @uco.ocu ..."). DILARANG mengeja titiknya ("uco titik ocu", "uco dot ocu", "akun uco titik ocu"): suaranya otomatis membaca "Uco Ocu".
 - Sebelum CTA: tutup dengan twist kemunafikan yang lucu atau punchline keras kepala (mis. Uco tetap beli sambil ngeles). DILARANG penutup moral ala karangan sekolah / PSA, DILARANG Uco tiba-tiba sadar dan setuju jadi baik.
 - thought: pakai pose "thought" untuk monolog batin (${f.thoughts[0]}-${f.thoughts[1]} baris).
-- layout "takeover" + statCard "ANGKA | PENJELASAN" untuk angka kunci: ${f.takeovers[0]}-${f.takeovers[1]} baris.${f.explainer ? `\n- Minimal ${f.explainer} baris sains / psikologi dengan explainerCard "brain-badge" (psikologi) atau "wave-graph" (data / grafik).` : ""}
+- layout "takeover" + statCard "ANGKA | PENJELASAN" untuk angka kunci: ${f.takeovers[0]}-${f.takeovers[1]} baris. PENJELASAN maksimal ${STAT_SUBLINE_MAX} karakter, padat (mis. "9,9 JUTA | GEN Z NEET DI INDONESIA", bukan kalimat panjang).${f.explainer ? `\n- Minimal ${f.explainer} baris sains / psikologi dengan explainerCard.` : ""}
+- explainerCard: "brain-badge" HANYA kalau baris itu menyebut konsep psikologi ber-NAMA (bias konfirmasi, dopamin, sunk cost, efek Dunning-Kruger), "wave-graph" HANYA untuk data yang memang berupa grafik / tren. Poin umum tanpa konsep ber-nama: explainerCard "none".
 
 SUARA
 - Panggil Uco selalu "Uco", JANGAN PERNAH disingkat "Co" (terdengar seperti "cok").
-- Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat. Episode tetap muat 60-75 detik dengan tempo bicara natural.
+- Setiap baris 8-14 kata, 1-2 klausa pendek: padat, bukan cepat. Episode tetap muat ${f.seconds} detik dengan tempo bicara natural.
 - Kata serapan bahasa Inggris tulis sesuai ucapan Indonesia: "nge-hang", "eror", "nge-lag", "skrinsut", "apdet", "kepo" (bukan "hang", "error", "lag", "screenshot", "update").
 - Bahasa Jakarta yang natural dan nendang: lo/gue, cepat, lucu, tajam. DILARANG bahasa baku buku pelajaran ("wajib demi investasi masa depan wajah" = salah).
 - Setiap baris punya subtitle bahasa Inggris yang natural (bukan terjemahan kaku).
@@ -164,6 +165,8 @@ export function showBibleProblems(lines: ManualLine[], format: EpisodeFormat): s
   const f = FORMAT_SPEC[format];
   const out: string[] = [];
   if (lines.length < f.lines[0]) out.push(`only ${lines.length} lines (needs ${f.lines[0]}-${f.lines[1]})`);
+  // scheduled episodes stay 55-68 s: 13-15 tight lines, the outro included (an 82 s, 17-line draft is too long)
+  if (lines.length > f.lines[1]) out.push(`${lines.length} lines (max ${f.lines[1]}, about ${f.seconds} s)`);
   const takeovers = lines.filter((l) => l.layout === "takeover").length;
   if (takeovers < f.takeovers[0]) out.push(`${takeovers} takeover stat card(s) (needs ${f.takeovers[0]}-${f.takeovers[1]})`);
   const thoughts = lines.filter((l) => l.thought_bubble).length;

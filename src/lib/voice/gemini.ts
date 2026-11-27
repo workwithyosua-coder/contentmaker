@@ -1,5 +1,5 @@
 import "server-only";
-import { pcmRate, pcmToWav, ttsRequestBody } from "./acting";
+import { cleanPcmTail, pcmRate, pcmToWav, ttsRequestBody } from "./acting";
 import { GEMINI_KEY_MISSING, geminiApiKey, geminiErrorDetail, geminiTtsModels, isModelError } from "../gemini-core";
 
 // Gemini native text-to-speech: built-in voices, the acting direction as a spoken-style instruction and
@@ -40,7 +40,9 @@ export async function speakGemini(text: string, style: string, speaker: "uco" | 
     const j = (await res.json()) as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[] };
     const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
     if (!part?.data) throw new Error(`Gemini TTS (${model}): no audio came back. Try the line again.`);
-    return pcmToWav(new Uint8Array(Buffer.from(part.data, "base64")), pcmRate(part.mimeType));
+    // the take ends at its last word: Gemini's trailing click is cut here, before it's stored or converted by RVC
+    const rate = pcmRate(part.mimeType);
+    return pcmToWav(cleanPcmTail(new Uint8Array(Buffer.from(part.data, "base64")), rate), rate);
   }
   throw new Error("Gemini TTS: no model to call.");
 }
