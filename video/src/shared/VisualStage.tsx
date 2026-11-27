@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Img, interpolate, spring, useVideoConfig } from "remotion";
 import { propFile } from "../assets";
 import { assetSrc } from "../assets/src";
-import type { BeatStat, Overlay } from "../beats";
+import { brainChips, cardHeader, type BeatStat, type Overlay } from "../beats";
 import { HEAVY, MONO, textWidth, wrapHeadline } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
@@ -216,10 +216,11 @@ function Callouts({ rect, col, mode, ids, prop, k, skin, frame, reduced, driftY 
 
 // ------------------------------------------------------------------ explainer cards
 /**
- * A card that springs in with a title bar, then keeps moving for the whole beat: the graph's bars rise and its wave
- * settles toward the beat's midpoint; the brain pulses while ENDORFIN / DOPAMIN chips float up out of it.
+ * A card that springs in with a title bar, then keeps moving for the whole beat. With `graphic` (the line names a
+ * concept) the graph's bars rise and its wave settles, or the brain pulses (with the named chemical floating up);
+ * without, it is a clean text badge of the line's headline: no generic graph, no invented brain chemicals.
  */
-export function ExplainerCard({ kind, title, box, skin, frame, reduced, duration = 90 }: { kind: Overlay; title: string; box: Box; skin: PropSkin; frame: number; reduced: boolean; duration?: number }) {
+export function ExplainerCard({ kind, title, graphic = false, box, skin, frame, reduced, duration = 90 }: { kind: Overlay; title: string; graphic?: boolean; box: Box; skin: PropSkin; frame: number; reduced: boolean; duration?: number }) {
   const { fps } = useVideoConfig();
   const k = STAGE_INK[skin];
   const pop = reduced ? 1 : spring({ frame: frame - 8, fps, config: { mass: 0.6, damping: 12, stiffness: 190 } });
@@ -244,16 +245,32 @@ export function ExplainerCard({ kind, title, box, skin, frame, reduced, duration
       }}
     >
       <div style={{ height: barH, display: "flex", alignItems: "center", gap: 12, padding: "0 16px", background: skin === "paper" ? INK : "rgba(56,189,248,0.16)", borderBottom: `3px solid ${k.line}` }}>
-        <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 24, color: skin === "paper" ? "#FFE600" : k.accent, letterSpacing: 2 }}>{kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI"}</span>
-        <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 30, color: skin === "paper" ? "#FFFFFF" : k.text, whiteSpace: "nowrap" }}>{title}</span>
-      </div>
-      <svg viewBox={`0 0 ${box.w} ${box.h - barH}`} width="100%" height={box.h - barH} aria-hidden style={{ display: "block" }}>
-        {kind === "wave-graph" ? (
-          <WaveGraph w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} />
-        ) : (
-          <BrainBadge w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} title={title} />
+        {cardHeader(kind, graphic ? title : "").map((t, i) =>
+          i === 0 ? (
+            <span key={t} data-card-label style={{ fontFamily: MONO, fontWeight: 700, fontSize: 24, color: skin === "paper" ? "#FFE600" : k.accent, letterSpacing: 2 }}>
+              {t}
+            </span>
+          ) : (
+            <span key={t} data-card-title style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 30, color: skin === "paper" ? "#FFFFFF" : k.text, whiteSpace: "nowrap" }}>
+              {t}
+            </span>
+          ),
         )}
-      </svg>
+      </div>
+      {graphic ? (
+        <svg viewBox={`0 0 ${box.w} ${box.h - barH}`} width="100%" height={box.h - barH} aria-hidden style={{ display: "block" }}>
+          {kind === "wave-graph" ? (
+            <WaveGraph w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} />
+          ) : (
+            <BrainBadge w={box.w} h={box.h - barH - 12} k={k} skin={skin} frame={frame} reduced={reduced} mid={Math.max(30, duration / 2)} title={title} />
+          )}
+        </svg>
+      ) : (
+        // no concept to draw: the line's own headline as a clean badge
+        <div data-card-badge style={{ height: box.h - barH, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 28px", boxSizing: "border-box", textAlign: "center", fontFamily: HEAVY, fontWeight: 900, fontSize: Math.min(76, Math.max(40, box.w / Math.max(6, title.length * 0.55))), lineHeight: 1.05, color: skin === "paper" ? INK : k.text, textTransform: "uppercase" }}>
+          {title}
+        </div>
+      )}
     </div>
   );
 }
@@ -315,8 +332,7 @@ function BrainBadge({ w, h, k, skin, frame, reduced, mid, title }: { w: number; 
     [0.52, 0.25, 0.44],
   ];
   // chemical chips float up out of the brain, released one by one up to the midpoint
-  const named = title.toUpperCase().replace(/[^A-Z]/g, "");
-  const chems = [...new Set([named === "ENDORFIN" || named === "DOPAMIN" || named === "SEROTONIN" ? named : null, "ENDORFIN", "DOPAMIN"].filter((c): c is string => Boolean(c)))].slice(0, 2);
+  const chems = brainChips(title);
   // each chip rises on its own side of the brain, kept inside the card
   const chipX = (c: string, i: number) => {
     const half = (c.length * 21 + 28) / 2;
@@ -366,9 +382,9 @@ function BrainBadge({ w, h, k, skin, frame, reduced, mid, title }: { w: number; 
 // ------------------------------------------------------------------ thought bubble
 /**
  * A comic thought cloud over `box`, with three puffs trailing to `toward` (the thinker's head) and the line's prop
- * inset inside (or "…" when the line has none).
+ * inset inside, or, when the line has none, its 2–4 word thought caption in italics (never a bare "…").
  */
-export function ThoughtBubble({ box, toward, skin, frame, reduced, children }: { box: Box; toward: { x: number; y: number }; skin: PropSkin; frame: number; reduced: boolean; children?: React.ReactNode }) {
+export function ThoughtBubble({ box, toward, skin, frame, reduced, caption, children }: { box: Box; toward: { x: number; y: number }; skin: PropSkin; frame: number; reduced: boolean; caption?: string | null; children?: React.ReactNode }) {
   const { fps } = useVideoConfig();
   const pop = reduced ? 1 : spring({ frame: frame - 4, fps, config: { mass: 0.6, damping: 12, stiffness: 160 } });
   const bob = reduced ? 0 : Math.sin(frame / 14) * 5;
@@ -409,7 +425,11 @@ export function ThoughtBubble({ box, toward, skin, frame, reduced, children }: {
         </g>
       </svg>
       <div style={{ position: "absolute", left: cx - rx * 0.62 * s, top: cy - ry * 0.6 * s, width: rx * 1.24 * s, height: ry * 1.2 * s, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {children ?? <span style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: 96 * s, color: stroke, letterSpacing: 6 }}>…</span>}
+        {children ?? (
+          <span data-thought-caption style={{ fontFamily: HEAVY, fontWeight: 900, fontStyle: "italic", fontSize: Math.min(64, (rx * 1.1 * s) / Math.max(4, (caption ?? "HMM").length * 0.5)), lineHeight: 1.05, color: stroke, textAlign: "center", padding: "0 8px" }}>
+            {caption ?? "HMM"}
+          </span>
+        )}
       </div>
     </div>
   );

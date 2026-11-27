@@ -219,8 +219,12 @@ const step = async (...args) =>
   check('props: generated with 2 style references, cut out (transparent background, interior white kept), uploaded', /^RGBA 0 255$/.test(alpha) && requests.filter((r) => r.image).every((r) => r.refs === 2), alpha);
   const [hand] = await sql`SELECT handoff FROM episode_queue WHERE id = ${target}`;
   check('props: statuses (one done, the spoon dropped with its reason)', JSON.stringify(hand.handoff.props.map((x) => x.status)) === '["done","failed"]' && /500/.test(hand.handoff.props[1].error ?? ''), JSON.stringify(hand.handoff.props.map((x) => [x.name, x.status])));
+  const [final] = await sql`SELECT lines FROM scripts WHERE project_id = ${slot.episode_id}`;
+  const visual = (l) => (l.prop_tag && l.prop_tag !== 'none') || l.kinetic_text || l.layout === 'takeover' || l.overlay || l.thought_bubble;
+  const blank = final.lines.map((l, i) => i > 0 && !visual(final.lines[i - 1]) && !visual(l) ? i + 1 : null).filter(Boolean);
+  check('no dead air: no two lines in a row without a prop, callout, card or takeover (also after a prop failed)', blank.length === 0, JSON.stringify(blank));
   const takeovers = s.lines.filter((l) => l.layout === 'takeover' && l.stat);
-  check('script: 15 lines, takeovers, thought, explainer, callouts, SFX, FOLLOW @UCO.OCU outro, approved', s.lines.length === 15 && takeovers.length === 2 && s.lines.some((l) => l.thought_bubble) && s.lines.some((l) => l.overlay === 'brain-badge') && s.lines.filter((l) => l.kinetic_text).length >= 5 && s.lines.at(-1).emotion === 'cta' && s.direction === 'CTA: FOLLOW @UCO.OCU' && s.custom && s.approved_at && !JSON.stringify(s.lines).includes('—'));
+  check('script: 15 lines, takeovers, thought, explainer, callouts, SFX, FOLLOW @UCO.OCU outro, approved', s.lines.length === 15 && takeovers.length === 2 && s.lines.some((l) => l.thought_bubble) && s.lines.some((l) => l.overlay === 'brain-badge') && s.lines.filter((l) => l.kinetic_text).length >= 5 && s.lines.at(-1).emotion === 'cta' && s.direction.startsWith('CTA: FOLLOW @UCO.OCU\nBGM: urgent') && s.direction.includes('BGM off on thought') && s.custom && s.approved_at && !JSON.stringify(s.lines).includes('—'));
   const [p] = await sql`SELECT title, video_style, voice_provider, status, platform_captions IS NOT NULL AS caps FROM content_projects WHERE id = ${slot.episode_id}`;
   const [{ format }] = await sql`SELECT format FROM episode_queue WHERE id = ${target}`;
   const style = 'editorial-paper-cutout'; // every format: the schedule's visual style, Koran Kinetik by default

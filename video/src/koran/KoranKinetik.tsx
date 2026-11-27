@@ -63,7 +63,7 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="paper" />
       <SfxCues cues={sfxCuesFor(beats, { stampAt: KINETIC_SLAM })} />
-      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} beats={beats} lines={lines} />}
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );
 }

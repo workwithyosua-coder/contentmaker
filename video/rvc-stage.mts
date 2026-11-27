@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { progressAt } from "../src/lib/slotProgress.ts";
 import { slotReporter } from "./slot-progress.mts";
+import { fades } from "./src/audioChain.ts";
 
 const args = process.argv.slice(2);
 const episodeId = args.find((a) => !a.startsWith("--")) ?? process.env.EPISODE_ID;
@@ -129,8 +130,11 @@ log(`own voice: converted in ${((Date.now() - started) / 1000).toFixed(0)} s`);
 let done = 0;
 for (const j of jobs) {
   const seconds = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", j.output]).toString().trim());
+  // RVC tail noise / DC offset must not click at the cut: DC removed (20 Hz high-pass), 15 ms in, 35 ms out
+  const clean = j.output.replace(/\.wav$/, ".clean.wav");
+  execFileSync("ffmpeg", ["-nostdin", "-loglevel", "error", "-y", "-i", j.output, "-af", `highpass=f=20,${fades(seconds)}`, clean]);
   const up = await json<{ url: string; path: string }>(`${base}/api/render/${episodeId}/voices/upload`, { method: "POST", body: JSON.stringify({ lineIndex: j.lineIndex }) });
-  const put = await fetch(abs(up.url), { method: "PUT", headers: { "Content-Type": "audio/wav", "x-upsert": "true" }, body: readFileSync(j.output) });
+  const put = await fetch(abs(up.url), { method: "PUT", headers: { "Content-Type": "audio/wav", "x-upsert": "true" }, body: readFileSync(clean) });
   if (!put.ok) throw new Error(`Upload of line ${j.lineIndex + 1} failed (${put.status}).`);
   await json(`${base}/api/render/${episodeId}/voices/finish`, {
     method: "POST",

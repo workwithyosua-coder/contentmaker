@@ -339,6 +339,9 @@ export function cleanCalloutText(s: string | null | undefined): string | null {
   return w.length ? w.slice(0, 4).join(" ").toUpperCase() : null;
 }
 
+/** "Co" as a nickname for Uco is pronounced like "cok": always the full name. (Only the standalone word.) */
+export const noUcoShortening = (s: string) => s.replace(/(^|[^\p{L}\p{N}-])Co(?=$|[^\p{L}\p{N}-])/gu, "$1Uco");
+
 /** antislop: no em dashes in anything the episode shows or says. */
 export const noEmDash = (s: string) => s.replace(/\s*[—–]\s*/g, ", ").replace(/,\s*,/g, ",").trim();
 const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null => ((list as readonly string[]).includes(String(v)) ? (v as T) : null);
@@ -372,7 +375,7 @@ export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; ban
   const lines: ManualLine[] = [];
   for (const d of (draft.lines ?? []).slice(0, 20)) {
     const speaker = d.speaker === "ocu" ? "ocu" : d.speaker === "uco" ? "uco" : null;
-    const text = noEmDash(String(d.text ?? "")).slice(0, 400);
+    const text = noUcoShortening(noEmDash(String(d.text ?? ""))).slice(0, 400);
     if (!speaker || !text) continue;
     const rawPose = String(d.pose ?? d.emotion ?? "").toLowerCase();
     const thought = d.thought === true || d.thought_bubble === true || rawPose === "thought";
@@ -396,7 +399,7 @@ export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; ban
       beat,
       speaker,
       text,
-      subtitle: noEmDash(String(d.subtitle ?? "")).slice(0, 300),
+      subtitle: noUcoShortening(noEmDash(String(d.subtitle ?? ""))).slice(0, 300),
       expression: EXPRESSION_FOR[emotion] ?? (speaker === "uco" ? "excited" : "deadpan"),
       thought_bubble: thought,
       visual: "",
@@ -417,7 +420,32 @@ export function sanitizeScript(draft: DraftScript, props: { fresh: string[]; ban
     });
   }
   if (lines.length < min) throw new Error(`Gemini's script had only ${lines.length} usable line(s). Retry the slot.`);
-  return { title: noEmDash(String(draft.title ?? "").trim()).slice(0, 120) || fallbackTitle, lines };
+  return { title: noEmDash(String(draft.title ?? "").trim()).slice(0, 120) || fallbackTitle, lines: fillDeadAir(lines, props.fresh) };
+}
+
+/** Whether a line puts something on the stage besides the speaker: a prop, a callout, a takeover or a card. */
+export const hasVisual = (l: Pick<ManualLine, "prop_tag" | "kinetic_text" | "layout" | "overlay" | "thought_bubble">) =>
+  Boolean((l.prop_tag && l.prop_tag !== "none") || l.kinetic_text || l.layout === "takeover" || l.overlay || l.thought_bubble);
+
+/**
+ * No dead air: never two lines in a row with nothing on the stage (a 5–7 s blank stretch). The second gets a callout
+ * from its own cue headline. And an Ocu "inspecting" line (magnifier in hand) never examines empty air when the
+ * episode has a prop of its own: it holds the most recent one (only the episode's fresh props, never a leftover).
+ */
+export function fillDeadAir(lines: ManualLine[], fresh: string[] = []): ManualLine[] {
+  const firstFresh = lines.map((x) => x.prop_tag).find((t): t is string => Boolean(t && fresh.includes(t))) ?? null;
+  let lastProp: string | null = null;
+  const out: ManualLine[] = [];
+  for (const l of lines) {
+    let line = l;
+    if (l.prop_tag && fresh.includes(l.prop_tag)) lastProp = l.prop_tag;
+    const held = lastProp ?? firstFresh;
+    if (l.emotion === "inspecting" && (!l.prop_tag || l.prop_tag === "none") && held) line = { ...line, prop_tag: held };
+    const prev = out.at(-1);
+    if (prev && !hasVisual(prev) && !hasVisual(line)) line = { ...line, kinetic_text: cleanCalloutText(line.important_message?.headline ?? line.text) };
+    out.push(line);
+  }
+  return out;
 }
 
 /** The episode's captions for TikTok / Shopee hand-off: caption text plus the yellow-basket note for affiliate slots. */

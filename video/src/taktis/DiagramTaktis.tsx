@@ -68,7 +68,7 @@ export function DiagramTaktis({ lines, direction, assetUrls, reducedMotion = fal
       <VoiceTrack lines={lines} beats={beats} />
       <GrainVignette reduced={reducedMotion} tone="dark" />
       <SfxCues cues={sfxCuesFor(beats)} />
-      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} beats={beats} lines={lines} />}
+      {direction?.bgm && <BackgroundMusic volume={direction.bgmVolume} thoughtDuck={direction.thoughtDuck} urgent={Boolean(direction.urgentBgm)} beats={beats} lines={lines} />}
     </AbsoluteFill>
   );
 }

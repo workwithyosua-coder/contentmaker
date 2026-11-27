@@ -1,12 +1,31 @@
 // The Uco & Ocu Show Bible for unattended (scheduled) scripts: per-format length and structure, the prompt and JSON
 // schema Gemini writes to, the checks a script must pass (a short or flat script is retried once with stricter
 // instructions), the outro CTA, and the episode's fresh prop specs. Pure code: no database, no network, no AI.
+import { LINE_GAP_S } from "../../video/src/audioChain";
 import type { ManualLine } from "./manualScriptParser";
 import { SFX_NAMES, type EpisodeFormat, cleanCalloutText } from "./scheduler";
 
 export const CTA_HANDLE = "@UCO.OCU";
-/** Direction notes for every scheduled episode: the animated outro says FOLLOW @UCO.OCU. */
-export const SHOW_DIRECTION = `CTA: FOLLOW ${CTA_HANDLE}`;
+/** The first, outro-only direction scheduled scripts carried (upgraded to showDirection() at render time). */
+export const LEGACY_SHOW_DIRECTION = `CTA: FOLLOW ${CTA_HANDLE}`;
+
+/**
+ * Direction notes for every scheduled episode (parsed by video/src/direction.ts): the FOLLOW @UCO.OCU outro; the
+ * background bed, the urgent track for Koran Kinetik (falling back to the regular bed), at 20 % so it sits about
+ * −23 dB under dialogue (the player ducks it to 35 % while someone talks) and silent under inner thoughts; and tight
+ * 0.11 s gaps between lines.
+ */
+export function showDirection(style: string = "editorial-paper-cutout"): string {
+  return [
+    LEGACY_SHOW_DIRECTION,
+    style === "editorial-paper-cutout" ? "BGM: urgent" : "BGM: on",
+    "BGM volume: 20%",
+    "BGM off on thought",
+    `Pause: ${LINE_GAP_S}s`,
+  ].join("\n");
+}
+/** The default (Koran Kinetik) direction. */
+export const SHOW_DIRECTION = showDirection();
 /** Fewer lines than this is never accepted for a scheduled episode (after one stricter retry the slot fails). */
 export const MIN_LINES = 12;
 
@@ -114,10 +133,12 @@ STRUKTUR (wajib)
 - ${f.lines[0]}-${f.lines[1]} baris. Kurang dari ${f.lines[0]} baris = gagal.
 - ${f.structure}
 - Baris terakhir: outro CTA penuh dari Ocu dengan pose cta, mengajak follow ${CTA_HANDLE} (mis. "Follow @uco.ocu biar nggak ketipu lagi!").
+- Sebelum CTA: tutup dengan twist kemunafikan yang lucu atau punchline keras kepala (mis. Uco tetap beli sambil ngeles). DILARANG penutup moral ala karangan sekolah / PSA, DILARANG Uco tiba-tiba sadar dan setuju jadi baik.
 - thought: pakai pose "thought" untuk monolog batin (${f.thoughts[0]}-${f.thoughts[1]} baris).
 - layout "takeover" + statCard "ANGKA | PENJELASAN" untuk angka kunci: ${f.takeovers[0]}-${f.takeovers[1]} baris.${f.explainer ? `\n- Minimal ${f.explainer} baris sains / psikologi dengan explainerCard "brain-badge" (psikologi) atau "wave-graph" (data / grafik).` : ""}
 
 SUARA
+- Panggil Uco selalu "Uco", JANGAN PERNAH disingkat "Co" (terdengar seperti "cok").
 - Bahasa Jakarta yang natural dan nendang: lo/gue, cepat, lucu, tajam. DILARANG bahasa baku buku pelajaran ("wajib demi investasi masa depan wajah" = salah).
 - Setiap baris punya subtitle bahasa Inggris yang natural (bukan terjemahan kaku).
 - Jangan pakai em dash. Jangan mengarang kutipan, studi atau testimoni. Angka harus angka nyata yang masuk akal dan umum diketahui; kalau ragu, pakai hitungan sederhana yang bisa dicek (mis. 25 ribu x 30 hari = 750 ribu).

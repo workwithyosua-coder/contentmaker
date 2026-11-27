@@ -55,9 +55,10 @@ export function SfxCues({ cues }: { cues: SfxCue[] }) {
  * third while someone talks, and to `thoughtDuck` of the bed under (thought) lines (−12 dB by default, or silent),
  * with ≈ 150 ms fades. Silent without the file.
  */
-export function BackgroundMusic({ volume, thoughtDuck, beats, lines }: { volume: number; thoughtDuck: number; beats: Beat[]; lines: EpisodeLine[] }) {
-  // urgent episodes (an angry line) use the urgent track when there is one: uploaded, then repo, then the regular bed
-  const file = assetSrc(bgmFile(beats.some((b) => b.angry)));
+export function BackgroundMusic({ volume, thoughtDuck, urgent = false, beats, lines }: { volume: number; thoughtDuck: number; urgent?: boolean; beats: Beat[]; lines: EpisodeLine[] }) {
+  // urgent episodes ("BGM: urgent", or an angry line) use the urgent track when there is one: uploaded, then repo,
+  // then the regular bed
+  const file = assetSrc(bgmFile(urgent || beats.some((b) => b.angry)));
   if (!file) return null;
   const target = (f: number) => {
     const b = beats.find((x) => f >= x.startFrame && f < x.startFrame + x.durationInFrames);

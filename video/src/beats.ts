@@ -42,8 +42,14 @@ export type Beat = {
   propImage: string | null;
   /** callout labels pointing at parts of propImage (ids from props/library.ts), in the order they appear */
   callouts: string[];
-  /** explainer card on the visual stage, with its 1-word title */
-  overlay: { kind: Overlay; title: string } | null;
+  /**
+   * explainer card on the visual stage. `graphic`: the beat names a concept the card can draw (a graph for EMULSI, a
+   * brain for DOPAMIN…); otherwise the card is a clean text badge showing `title` (the beat's own headline), never a
+   * generic graph or made-up brain chemicals.
+   */
+  overlay: { kind: Overlay; title: string; graphic: boolean } | null;
+  /** inner thoughts: 2–4 italic words shown inside the bubble when the line has no prop (never a bare "…") */
+  thoughtCaption: string | null;
   /** inner thought: dimmed backdrop, comic thought bubble with the prop inside, italic subtitle */
   thought: boolean;
   /** 2–4 word floating kinetic text on emphasis beats (hook, insight, button, close-ups) and the CTA; else null */
@@ -225,14 +231,42 @@ const OVERLAY_TITLES: Record<Overlay, [RegExp, string][]> = {
   "brain-badge": [[/dopamin/i, "DOPAMIN"], [/nostalgi/i, "NOSTALGIA"], [/kebiasaan|habit/i, "KEBIASAAN"], [/placebo|sugesti/i, "SUGESTI"], [/persepsi|perception|ilusi|illusion/i, "PERSEPSI"], [/\bbias\b/i, "BIAS"], [/emosi|emotion/i, "EMOSI"]],
 };
 
-function overlayFor(l: EpisodeLine): { kind: Overlay; title: string } | null {
-  const tag = (l as { overlay?: string | null }).overlay;
+/** The card's kind label (its header), shown once: never repeated as the title. */
+export const OVERLAY_LABEL: Record<Overlay, string> = { "wave-graph": "GRAFIK", "brain-badge": "PSIKOLOGI" };
+
+/**
+ * The explainer card for a line: a drawn graphic only when the line names a concept the card can show; otherwise a
+ * text badge with the line's own headline (`fallbackTitle`). The title is never the kind label again.
+ */
+export function overlayFor(l: Pick<EpisodeLine, "text" | "subtitle"> & { visual?: string | null; overlay?: string | null }, fallbackTitle = ""): { kind: Overlay; title: string; graphic: boolean } | null {
+  const tag = l.overlay;
   if (tag === "none") return null;
   const v = `${l.visual ?? ""} ${l.text} ${l.subtitle ?? ""}`;
   const kind = oneOf(OVERLAYS, tag) ?? OVERLAYS.find((o) => OVERLAY_RX[o].test(v)) ?? null;
   if (!kind) return null;
-  const title = OVERLAY_TITLES[kind].find(([rx]) => rx.test(v))?.[1] ?? (kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI");
-  return { kind, title };
+  const concept = OVERLAY_TITLES[kind].find(([rx]) => rx.test(v))?.[1] ?? null;
+  const title = (concept ?? cleanCallout(fallbackTitle, 4) ?? "").trim();
+  if (!title || title === OVERLAY_LABEL[kind]) return concept ? { kind, title: concept, graphic: true } : null;
+  return { kind, title, graphic: Boolean(concept) };
+}
+
+/** The card's header: the kind label, then the title only when it says something else (never "GRAFIK GRAFIK"). */
+export function cardHeader(kind: Overlay, title: string): string[] {
+  const label = kind === "wave-graph" ? "GRAFIK" : "PSIKOLOGI";
+  const t = title.trim().toUpperCase();
+  return !t || t === label ? [label] : [label, t];
+}
+
+/** Brain-card chips: only the chemical the line names (DOPAMIN, ENDORFIN, SEROTONIN), never made-up ones. */
+export function brainChips(title: string): string[] {
+  const named = title.toUpperCase().replace(/[^A-Z]/g, "");
+  return named === "ENDORFIN" || named === "DOPAMIN" || named === "SEROTONIN" ? [named] : [];
+}
+
+/** The words inside a thought bubble without a prop: the line's callout, else its cue headline, else its first words. */
+export function thoughtCaption(l: Pick<EpisodeLine, "text"> & { kinetic_text?: string | null }, cueHeadline: string | null | undefined): string {
+  const pick = cleanCallout(l.kinetic_text, 4) ?? cleanCallout(cueHeadline, 4) ?? cleanCallout(l.text, 4);
+  return pick && /[\p{L}\p{N}]/u.test(pick) ? pick : "HMM";
 }
 
 /** Parts of the prop the line names (in the order spoken), or up to 3 parts when the speaker is explaining it. */
@@ -460,9 +494,11 @@ function stageFor(l: EpisodeLine, d: { emotion: Emotion; cameraShot: CameraShot 
   return {
     propImage,
     callouts: exact && !Array.isArray(l.callouts) ? [] : calloutsFor(l, propImage, d.emotion),
-    // exact scripts get a card only when the line asks for one
-    overlay: exact ? (explicitOverlay ? overlayFor(l) : null) : overlayFor(l),
+    // exact scripts get a card only when the line asks for one; a card without a concept to draw gives way to the
+    // line's prop (a text badge is only for lines without one)
+    overlay: ((o) => (o && !o.graphic && propImage ? null : o))(exact ? (explicitOverlay ? overlayFor(l, cue.headline) : null) : overlayFor(l, cue.headline)),
     thought: Boolean(l.thought_bubble),
+    thoughtCaption: l.thought_bubble ? thoughtCaption(l, cue.headline) : null,
     // a manual line's own on-screen callout always shows (first 4 words); otherwise kinetic text only on emphasis beats
     kinetic: l.thought_bubble ? null : cleanCallout(l.kinetic_text) ?? (exact ? null : cleanCallout(kineticFor(l.beat, d.cameraShot, cue))),
     sfx: (Array.isArray(l.sfx) ? l.sfx : []).map((n) => String(n).trim().toLowerCase()).filter((n) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n)).slice(0, 4),
@@ -540,6 +576,7 @@ export function buildBeats(lines: EpisodeLine[], direction?: RenderDirection | n
     propImage: null,
     callouts: [],
     overlay: null,
+    thoughtCaption: null,
     thought: false,
     kinetic: direction?.ctaText || CTA_CUE.stamp || null,
     sfx: [],
