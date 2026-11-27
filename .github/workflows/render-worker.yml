@@ -55,7 +55,7 @@ jobs:
         if: env.JOB_ID != ''
         run: |
           if [[ "$VOICE" == rvc ]]; then STATUS=converting_voice; STAGE="Setting up the voice converter"; else STATUS=rendering; STAGE="Setting up the renderer"; fi
-          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+          curl -sS --fail-with-body --retry 5 --retry-delay 6 --retry-all-errors -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
             -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"$STATUS\",\"runUrl\":\"$RUN_URL\",\"progress\":0,\"stage\":\"$STAGE\"}"
 
       - uses: actions/checkout@v4
@@ -116,11 +116,13 @@ jobs:
       - name: Report done
         if: success() && env.JOB_ID != ''
         run: |
-          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+          curl -sS --fail-with-body --retry 5 --retry-delay 6 --retry-all-errors -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
             -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"done\"}"
 
+      # the failure report retries transient (5xx / network) errors and prints the app's reason if it's refused;
+      # its payload is checked against the route by tests/unit/render-route-regression.test.mts
       - name: Report failure
         if: failure() && env.JOB_ID != ''
         run: |
-          curl -fsS -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
+          curl -sS --fail-with-body --retry 5 --retry-delay 6 --retry-all-errors -X POST "$APP_URL/api/render/$EPISODE_ID/job" -H "Authorization: Bearer $RENDER_TOKEN" \
             -H "Content-Type: application/json" -d "{\"jobId\":\"$JOB_ID\",\"status\":\"failed\",\"error\":\"The worker failed. Open the run on GitHub for the log.\",\"runUrl\":\"$RUN_URL\"}"

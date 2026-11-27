@@ -66,12 +66,19 @@ async function get(url: string): Promise<Buffer> {
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch(`${base}${url}`, { headers: auth, signal: AbortSignal.timeout(60_000) });
-      if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${(await res.text()).slice(0, 200)}`);
+      if (!res.ok) {
+        const body = (await res.text()).slice(0, 400);
+        const err = new Error(`GET ${url} → ${res.status} ${body || "(empty body)"}`);
+        // a 4xx (not found, unauthorized) won't change on a retry
+        if (res.status < 500) throw Object.assign(err, { final: true });
+        throw err;
+      }
       return Buffer.from(await res.arrayBuffer());
     } catch (err) {
-      if (attempt >= 4) throw err;
+      // 5xx / network: up to 6 tries over ~1 min (a deploy that just went live can fail its first requests)
+      if (attempt >= 6 || (err as { final?: boolean }).final) throw err;
       log(`retrying ${url} (${err instanceof Error ? err.message : err})`);
-      await new Promise((r) => setTimeout(r, attempt * 2000));
+      await new Promise((r) => setTimeout(r, attempt * 4000));
     }
   }
 }

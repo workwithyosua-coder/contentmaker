@@ -110,7 +110,8 @@ test("propWarning: a short summary of the failed props (null when none failed)",
 
 test("generated props reach Koran Kinetik: the render manifest's assetUrls.props, registered by render.mts, resolved by name", () => {
   // the app lists every uploaded prop (custom-assets bucket, where the worker uploads generated ones) for the render
-  assert.match(read("src/app/api/render/[id]/route.ts"), /assetUrls: await videoAssetUrls\(/);
+  assert.match(read("src/app/api/render/[id]/route.ts"), /const assetUrls = await videoAssetUrls\(/);
+  assert.match(read("src/lib/render-manifest.ts"), /    assetUrls,\n/);
   assert.match(read("src/lib/studio-assets.ts"), /return \{ props: attached\.props, sfx/);
   assert.match(read("video/render.mts"), /registerRemoteAssets\(/);
   // a generated prop's name on a beat resolves to its Supabase URL

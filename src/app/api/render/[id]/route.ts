@@ -1,31 +1,28 @@
-import { styleById } from "../../../../../video/src/styles/registry";
 import { videoAssetUrls } from "@/lib/studio-assets";
 import { notFound, renderAuthorized, renderSource } from "@/lib/render";
-import { takeSource } from "@/lib/voice/edge";
+import { renderManifest, serverError } from "@/lib/render-manifest";
 
 // GET /api/render/:id → everything the renderer needs to animate an episode (script lines + which lines have audio).
+// Any unexpected failure answers with a readable JSON error (and its stack in the function log), never an empty 500:
+// the worker prints it, and retries a 5xx.
 export async function GET(request: Request, ctx: RouteContext<"/api/render/[id]">) {
   if (!renderAuthorized(request)) return notFound();
   const { id } = await ctx.params;
-  const src = await renderSource(id);
+  let src: Awaited<ReturnType<typeof renderSource>>;
+  try {
+    src = await renderSource(id);
+  } catch (err) {
+    // the database (connection, pooler, query): retryable
+    return serverError(`render manifest ${id}: loading the episode`, err, 503);
+  }
   if (!src?.script) return notFound();
-  const recorded = new Set(src.takes.map((t) => t.line_index));
-  // where each take came from ("ai" = Gemini / ElevenLabs TTS, "ai_edge" = Edge TTS, "upload", "booth"…): the
-  // renderer paces "ai" voices a little faster; Edge TTS takes already have their pace from the prosody
-  const sourceOf = new Map(src.takes.map((t) => [t.line_index, takeSource(t.source, t.ai_prompt)]));
-  return Response.json({
-    projectId: src.project.id,
-    title: src.script.title || src.project.title,
-    videoStyle: styleById(src.project.video_style).id,
-    scriptId: src.script.id,
-    version: src.script.version,
-    targetDurationS: src.script.target_duration_s,
-    // custom scripts: direction / pacing notes, parsed by the renderer (video/src/direction.ts)
-    direction: src.script.direction ?? null,
-    custom: src.script.custom ?? false,
-    // uploaded custom props / SFX (public Supabase bucket custom-assets) by name → HTTPS URL; Remotion loads them directly
-    // custom props / SFX and the global Studio Assets (angry sprites, urgent BGM), as public URLs
-    assetUrls: await videoAssetUrls(new URL(request.url).origin).catch(() => ({ props: {}, sfx: {}, cast: {} })),
-    lines: src.script.lines.map((l, index) => ({ ...l, index, hasAudio: recorded.has(index), audioSource: sourceOf.get(index) ?? null })),
-  });
+  try {
+    const assetUrls = await videoAssetUrls(new URL(request.url).origin).catch((err) => {
+      console.error(`[render manifest ${id}] uploaded assets unavailable, rendering without them:`, err);
+      return { props: {}, sfx: {}, cast: {} };
+    });
+    return Response.json(renderManifest(src, assetUrls));
+  } catch (err) {
+    return serverError(`render manifest ${id}`, err);
+  }
 }
