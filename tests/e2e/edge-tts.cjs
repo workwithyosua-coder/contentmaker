@@ -96,13 +96,13 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   const [a] = await sql`INSERT INTO episode_queue (schedule_id, user_id, scheduled_for, format, topic_seed, topic_source) VALUES (${sch.id}, ${u.id}, ${at(30)}, 'comedy_debate', 'Skincare mahal investasi wajah', 'manual') RETURNING id`;
   const [b] = await sql`INSERT INTO episode_queue (schedule_id, user_id, scheduled_for, format, topic_seed, topic_source) VALUES (${sch.id}, ${u.id}, ${at(31)}, 'koran_kinetik', 'Skincare mahal investasi wajah', 'manual') RETURNING id`;
 
-  // ---- A. Own Voice: Gemini TTS is out of quota (429) → Edge TTS takes over; Edge TTS breaks once → the slot fails,
-  //      already scripted
+  // ---- A. Own Voice: never Gemini TTS (even with its quota out): Edge TTS makes every base take, then RVC; Edge TTS
+  //      breaks once → the slot fails, already scripted
   ttsOk = 0;
   await step(['plan', a.id]);
   const broken = await tryStep(['prepare', a.id], { EDGE_PYTHON: '/bin/false' });
   const [fa] = await sql`SELECT status, episode_id, error_message FROM episode_queue WHERE id = ${a.id}`;
-  check('A: Own Voice tries gemini TTS first; the 429 hands all 14 lines to Edge TTS', tts.length >= 1 && /Gemini TTS quota hit .*Edge TTS fallback used for the remaining 14 line\(s\)/.test(broken.out), broken.out.split('\n').find((l) => /quota/.test(l)));
+  check('A: Own Voice never calls Gemini TTS; Edge TTS gets all 14 lines', tts.length === 0 && /Edge TTS makes the 14 take\(s\) in the worker|edge-tts: 14 line\(s\)/.test(broken.out), `${tts.length} Gemini TTS requests`);
   check('A: Edge TTS failing fails the slot, script kept', !broken.ok && fa.status === 'failed' && fa.episode_id && /Edge TTS failed/.test(fa.error_message), JSON.stringify(fa));
 
   // Retry on the Schedule page (a 390 px phone)
@@ -123,7 +123,7 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   const prepA = await step(['prepare', a.id], { EDGE_FAKE: '1' });
   const outA = outputs();
   check('A: the existing script is reused', prepA.includes('kept the script of "Skincare Mahal Investasi Wajah"') && (await sql`SELECT count(*)::int AS n FROM scripts WHERE project_id = ${fa.episode_id}`)[0].n === 1);
-  check('A: on the retry Gemini TTS is asked again (still 429), Edge TTS makes the takes', /Gemini TTS quota hit/.test(prepA), `${tts.length} Gemini TTS requests`);
+  check('A: on the retry still no Gemini TTS, Edge TTS makes the takes', tts.length === 0 && !/Gemini TTS quota hit/.test(prepA), `${tts.length} Gemini TTS requests`);
   const takesA = await sql`SELECT line_index, ai_prompt, mime_type, duration_ms FROM recordings WHERE project_id = ${fa.episode_id} AND is_selected ORDER BY line_index`;
   check('A: 14 Edge TTS base takes (RVC base mark, WAV)', takesA.length === N && takesA.every((t) => t.ai_prompt.startsWith('[gemini_tts_rvc:base] edge-tts id-ID-ArdiNeural') && t.mime_type === 'audio/wav' && t.duration_ms > 500), JSON.stringify(takesA.map((t) => t.ai_prompt.slice(22))));
   check('A: per-pose prosody (Uco shocked thought, Ocu cta)', /rate=-4% pitch=-2Hz pose=thought/.test(takesA[4].ai_prompt) && /rate=\+3% pitch=-2Hz pose=cta/.test(takesA[13].ai_prompt) && /rate=\+4% pitch=\+8Hz pose=defensive/.test(takesA[2].ai_prompt));
@@ -165,17 +165,17 @@ const outputs = () => Object.fromEntries(fs.readFileSync(path.join(OUT, 'edge-gh
   const stray = await fetch(`${base}/api/scheduler/slots/${b.id}/edge-plan`, { method: 'POST', headers: { Authorization: `Bearer ${process.env.RENDER_TOKEN}` } });
   check('a stray step call → 409, the rendering slot untouched', stray.status === 409 && (await sql`SELECT status FROM episode_queue WHERE id = ${b.id}`)[0].status === 'rendering', `${stray.status}`);
 
-  // ---- C. Own Voice with Gemini TTS available (Paid Tier): gemini-3.8-flash-tts makes every acted base take, no Edge TTS
+  // ---- C. Own Voice with Gemini TTS available: still Edge TTS for every line (one voice from first line to last), then RVC
   ttsOk = Infinity;
   await sql`UPDATE content_schedules SET voice_provider = 'gemini_tts_rvc' WHERE id = ${sch.id}`;
   const [c] = await sql`INSERT INTO episode_queue (schedule_id, user_id, scheduled_for, format, topic_seed, topic_source) VALUES (${sch.id}, ${u.id}, ${at(32)}, 'comedy_debate', 'Skincare mahal investasi wajah', 'manual') RETURNING id`;
   const ttsBefore = tts.length;
   await step(['plan', c.id]);
-  const prepC = await step(['prepare', c.id], { EDGE_PYTHON: '/bin/false' }); // Edge TTS would fail: it must not be used
+  const prepC = await step(['prepare', c.id], { EDGE_FAKE: '1' });
   const [sc] = await sql`SELECT status, episode_id FROM episode_queue WHERE id = ${c.id}`;
   const takesC = await sql`SELECT ai_prompt FROM recordings WHERE project_id = ${sc.episode_id} AND is_selected ORDER BY line_index`;
-  check('C: Own Voice voiced by Gemini TTS (acted base takes, marked for RVC), no Edge TTS', sc.status === 'rendering' && takesC.length === N && takesC.every((t) => t.ai_prompt.startsWith('[gemini_tts_rvc:base]') && !t.ai_prompt.includes('edge-tts')) && tts.length - ttsBefore === N && !/edge-tts|quota hit/.test(prepC), `${tts.length - ttsBefore} Gemini TTS requests`);
-  check('C: render job with voice=rvc (Stage B converts the Gemini takes)', outputs().voice === 'rvc');
+  check('C: Own Voice voiced by Edge TTS only (base takes marked for RVC), no Gemini TTS even with quota', sc.status === 'rendering' && takesC.length === N && takesC.every((t) => t.ai_prompt.startsWith('[gemini_tts_rvc:base] edge-tts id-ID-ArdiNeural')) && tts.length === ttsBefore && !/quota hit/.test(prepC), `${tts.length - ttsBefore} Gemini TTS requests`);
+  check('C: render job with voice=rvc (Stage B converts the Edge takes)', outputs().voice === 'rvc');
   if (sc.episode_id) await sql`DELETE FROM content_projects WHERE id = ${sc.episode_id}`;
 
   check('every Gemini TTS request: the line only as text, the cue in speechMetadata.style', badTts.length === 0 && tts.length > 0, badTts[0]);
