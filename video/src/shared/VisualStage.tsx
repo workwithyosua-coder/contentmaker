@@ -6,7 +6,7 @@ import { brainChips, cardHeader, type BeatStat, type Overlay } from "../beats";
 import { HEAVY, MONO, textWidth } from "../cast/CueShared";
 import { pngPropByName } from "../props/library";
 import { PROP_SHADOW, PROP_SPRING, type Box, type PropSkin } from "./PropStage";
-import { badgeMaxScale, badgeRect, badgeScale, statCardText } from "./motion";
+import { TAKEOVER_STEPS, badgeMaxScale, badgeRect, badgeScale, countUp, statCardText, takeoverTimeline } from "./motion";
 export { statWrap } from "./motion";
 
 // The open "visual stage" beside or above the speaker: floating kinetic text, callout labels on a PNG prop, explainer
@@ -460,6 +460,12 @@ export function EvidenceStage({
   const { fps } = useVideoConfig();
   const pop = reduced ? 1 : spring({ frame: frame - at, fps, config: { mass: 0.55, damping: 11, stiffness: 210 } });
   const zoom = reduced ? 1 : interpolate(frame, [at, Math.max(at + 1, duration)], [1, 1.05], clamp);
+  // staggered: the frame lands with the strip (0-6), the red card springs in over 4-12, the subline wipes on 12-18
+  const tl = reduced ? { card: 1, sub: 1 } : takeoverTimeline(frame, at);
+  const cardPop = reduced ? 1 : spring({ frame: frame - at - TAKEOVER_STEPS.card[0], fps, config: { mass: 0.5, damping: 9, stiffness: 230 } });
+  // the number counts up over 0.6 s and pops as it locks; a progress underline runs for the rest of the beat
+  const count = stat && !reduced ? countUp(stat.headline.toUpperCase(), frame, at) : null;
+  const progress = interpolate(frame, [at, Math.max(at + 1, duration)], [0, 1], clamp);
   const k = STAGE_INK[skin];
   const paper = skin === "paper";
   const pad = 26;
@@ -490,6 +496,10 @@ export function EvidenceStage({
           height: hero.h,
           boxSizing: "border-box",
           background: paper ? "#FFFDF6" : "rgba(15,23,42,0.92)",
+          // a slow halftone drift behind everything, so the frame is never a still slide
+          backgroundImage: `radial-gradient(${paper ? "rgba(20,22,25,0.10)" : "rgba(56,189,248,0.10)"} 2.2px, transparent 2.4px)`,
+          backgroundSize: "22px 22px",
+          backgroundPosition: reduced ? undefined : `${(frame * 0.6) % 22}px ${(frame * 0.35) % 22}px`,
           border: paper ? `8px solid ${INK}` : `4px solid ${k.line}`,
           boxShadow: paper ? `14px 14px 0 ${INK}` : `${k.glow}, inset 0 0 0 2px rgba(56,189,248,0.25)`,
           borderRadius: paper ? 6 : 4,
@@ -515,19 +525,31 @@ export function EvidenceStage({
             color: paper ? "#FFFFFF" : k.accent,
             textAlign: "center",
             padding: "10px 20px",
+            transform: `scale(${0.55 + 0.45 * cardPop})`,
+            opacity: Math.min(1, tl.card * 2),
           }}
         >
-          {head!.lines.map((l, i) => (
-            <div key={`h${i}`} style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: head!.size, lineHeight: 1.02, letterSpacing: 1, whiteSpace: "nowrap" }}>
-              {l}
-            </div>
-          ))}
-          {sub &&
-            sub.lines.map((l, i) => (
-              <div key={`s${i}`} style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: sub.size, lineHeight: 1.08, letterSpacing: 0.5, whiteSpace: "nowrap", color: paper ? "#FFE600" : k.text, marginTop: i ? 0 : 6 }}>
-                {l}
+          {head!.lines.map((l, i) => {
+            // the line holding the number shows it counting, and pops when it locks
+            const has = count?.final && l.includes(count.final);
+            return (
+              <div key={`h${i}`} data-stat-headline style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: head!.size, lineHeight: 1.02, letterSpacing: 1, whiteSpace: "nowrap", transform: has ? `scale(${count!.scale})` : undefined }}>
+                {has ? l.replace(count!.final!, count!.number!) : l}
               </div>
-            ))}
+            );
+          })}
+          {sub && (
+            // the subline wipes on left to right once the card has landed
+            <div style={{ clipPath: `inset(0 ${(1 - tl.sub) * 100}% 0 0)`, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              {sub.lines.map((l, i) => (
+                <div key={`s${i}`} style={{ fontFamily: HEAVY, fontWeight: 900, fontSize: sub.size, lineHeight: 1.08, letterSpacing: 0.5, whiteSpace: "nowrap", color: paper ? "#FFE600" : k.text, marginTop: i ? 0 : 6 }}>
+                  {l}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* editorial progress underline: runs across the card for the length of the beat */}
+          {!reduced && <div style={{ position: "absolute", left: 0, bottom: 0, height: 8, width: `${progress * 100}%`, background: paper ? "#FFE600" : k.accent }} />}
         </div>
       )}
     </div>

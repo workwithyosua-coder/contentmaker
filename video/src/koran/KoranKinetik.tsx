@@ -14,7 +14,8 @@ import { EDITORIAL_PAPER_CUTOUT_STYLE } from "../styles/registry";
 import type { EpisodeLine, EpisodeProps } from "../types";
 
 // "Koran Kinetik" (editorial-paper-cutout), ported from the Uco & Ocu Style Lab reference (PR #28). Frame-driven only:
-// slow 1.00→1.04 push-in (camera moves in shared/motion.ts), red kinetic stamps that slam in on emphasis beats, cut-out cast and props.
+// camera framing per beat (medium push-in, punch close-up, slow creep, a mid-beat punch-in; shared/motion.ts), a slowly
+// drifting halftone paper, red kinetic stamps that slam in on emphasis beats, cut-out cast and props.
 // On-screen text: short kinetic stamps on emphasis beats only, and the line's English subtitle (never the Indonesian
 // line).
 
@@ -79,7 +80,7 @@ function KoranBeat({ beat, line, reduced, cutDir }: { beat: Beat; line: EpisodeL
   // on shocked beats, a micro punch-in halfway through long beats, and a short shake on urgent impacts
   const cam = reduced ? { scale: 1, rotate: 0, x: 0, y: 0 } : cameraAt(beat, f, [G.pushInScale[0], G.pushInScale[1]]);
   return (
-    <AbsoluteFill style={{ ...BACKGROUND, transform: x ? `translateX(${x}px)` : undefined }}>
+    <AbsoluteFill style={{ ...BACKGROUND, backgroundPosition: reduced ? undefined : `${((beat.startFrame + f) * 0.5) % 24}px ${((beat.startFrame + f) * 0.3) % 24}px`, transform: x ? `translateX(${x}px)` : undefined }}>
       <AbsoluteFill style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale}) rotate(${cam.rotate}deg)`, transformOrigin: "50% 40%" }}>
         <DirectorStage beat={beat} line={line} frame={f} skin={SKIN} reduced={reduced} camera={{ ...cam, y: cam.y, slideX: x }} />
       </AbsoluteFill>

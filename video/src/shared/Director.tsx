@@ -8,8 +8,11 @@ import type { EpisodeLine } from "../types";
 import { UcoOcuWordmark, WORDMARK_ASPECT } from "../brand/UcoOcuWordmark";
 import { PropStage, propLabel, type Box, type PropSkin } from "./PropStage";
 import type { MouthStage } from "./motion";
-import { CTA_FACE, CTA_H, FRAME_BOTTOM, PAIR_H, SOLO_H, STAGE_BOTTOM, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, type HeadFrac } from "./castLayout";
-import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, levelAt, mouthStage, stackColumn, TAKEOVER_HERO } from "./motion";
+import { CTA_FACE, CTA_H, FRAME_BOTTOM, PAIR_H, SOLO_H, STAGE_BOTTOM, STAGE_TOP, cameoFigure, closeupFrameH, fitFrameH, headFracFor, INSPECT_FACE_X, INSPECT_PAIR_X, lensOnCanvas, type HeadFrac } from "./castLayout";
+import { CUT_FRAMES, inverseCamera, blinkAt, ctaTapFrame, chatterStage, entranceAt, lensHover, lensPropBox, levelAt, mouthStage, stackColumn, takeoverTimeline, TAKEOVER_HERO } from "./motion";
+
+/** A listener in a two-shot: brightness 0.82 (and a little desaturated), so the speaker is unmistakable. */
+export const LISTENER_DIM = 0.18;
 import { kineticAt } from "./sfxCues";
 import { EvidenceStage, ExplainerCard, KineticText, PngPropStage, ThoughtBubble, kineticHeight, type LabelMode } from "./VisualStage";
 
@@ -77,7 +80,8 @@ export function DirectorStage({
   const tap = ctaTapFrame(beat.durationInFrames);
   const ucoOn = beat.speaker === "uco" || beat.speaker === "both";
   const ocuOn = beat.speaker === "ocu" || beat.speaker === "both";
-  const emotionOf = (who: "uco" | "ocu") => (cta ? (who === "uco" ? "triumphant" : "cta") : beat.emotion);
+  // the listener in a two-shot reacts (beat.listenerPose: Uco defensive / shocked while Ocu roasts, never smug)
+  const emotionOf = (who: "uco" | "ocu") => (cta ? (who === "uco" ? "triumphant" : "cta") : who !== beat.speaker && beat.listenerPose ? beat.listenerPose : beat.emotion);
   const label = propLabel(beat.importantMessage.stamp, line?.on_screen_text, beat.importantMessage.headline);
   const hasProp = Boolean(beat.propImage || beat.sceneImageUrl || beat.propTag !== "none" || label);
   const kinetic = beat.kinetic;
@@ -125,7 +129,9 @@ export function DirectorStage({
     const who = shot === "solo-uco" ? "uco" : "ocu";
     const f = who === "uco" ? U.frac : O.frac;
     const intense = !beat.thought && who === "uco" && (beat.emotion === "triumphant" || beat.emotion === "shocked");
-    placed = [place(who, f, fit(f, SOLO_H), who === "uco" ? 350 : 740, true, FRAME_BOTTOM, intense && !reduced ? "rotate(-3deg)" : undefined)];
+    // inspecting a prop: Ocu steps left so his magnifying glass, and the prop above it, sit inside the safe columns
+    const inspectX = who === "ocu" && beat.emotion === "inspecting" && !beat.thought && (beat.propImage || beat.sceneImageUrl) && O.lens ? INSPECT_FACE_X : 740;
+    placed = [place(who, f, fit(f, SOLO_H), who === "uco" ? 350 : inspectX, true, FRAME_BOTTOM, intense && !reduced ? "rotate(-3deg)" : undefined)];
     const col = who === "uco" ? { x: 600, w: 340 } : { x: 60, w: 340 };
     kineticAlign = who === "uco" ? "right" : "left";
     labelMode = who === "uco" ? "below-right" : "below-left";
@@ -155,8 +161,10 @@ export function DirectorStage({
     // Uco's hair never crosses Ocu's glasses), and Ocu's fingertip lands right of centre, under the FOLLOW + pill.
     const pointing = cta && O.tip;
     const H = pointing ? CTA_H : Math.min(fit(U.frac, PAIR_H), fit(O.frac, PAIR_H));
-    const uco = place("uco", U.frac, H, pointing ? CTA_FACE.uco : cta ? 290 : 300, ucoOn);
-    const ocu = place("ocu", O.frac, H, pointing ? CTA_FACE.ocu : cta ? 740 : 790, ocuOn);
+    // Ocu inspecting a prop: the pair steps left so his magnifying glass (and the prop above it) stays in the safe columns
+    const inspecting = !cta && ocuOn && beat.emotion === "inspecting" && !beat.thought && Boolean(beat.propImage || beat.sceneImageUrl) && Boolean(O.lens);
+    const uco = place("uco", U.frac, H, pointing ? CTA_FACE.uco : cta ? 290 : inspecting ? INSPECT_PAIR_X.uco : 300, ucoOn);
+    const ocu = place("ocu", O.frac, H, pointing ? CTA_FACE.ocu : cta ? 740 : inspecting ? INSPECT_PAIR_X.ocu : 790, ocuOn);
     // the speaker stands in front; in the pointing CTA Ocu does (he's the one pointing)
     placed = ocuOn && !ucoOn && !pointing ? [uco, ocu] : pointing ? [uco, ocu] : [ocu, uco];
     const hairTop = Math.min(uco.head.top, ocu.head.top);
@@ -169,6 +177,29 @@ export function DirectorStage({
       } else stack({ x: 230, w: 620 }, STAGE_TOP, hairTop + 40, 200);
     }
   }
+
+  // inspecting: the prop hovers just above Ocu's magnifying-glass lens (not across the frame from it)
+  const ocuFig = placed.find((p) => p.who === "ocu");
+  const lens = !cta && !beat.thought && shot !== "closeup-punch" && beat.emotion === "inspecting" && ocuOn && (beat.propImage || beat.sceneImageUrl) && ocuFig ? lensOnCanvas(ocuFig, O.lens) : null;
+  if (lens) {
+    const hv = reduced ? { dy: 0, scale: 1 } : lensHover(frame);
+    const b = lensPropBox(lens, placed.length > 1 ? 260 : 330, STAGE_TOP);
+    propBox = { x: b.x + (b.w * (1 - hv.scale)) / 2, y: b.y + hv.dy + (b.h * (1 - hv.scale)) / 2, w: b.w * hv.scale, h: b.h * hv.scale };
+    labelMode = "below-left";
+  }
+  // two-shot focus: the speaker pops forward (1.04×), the listener dims (brightness 0.82) and steps back (0.96×)
+  const pair = placed.length > 1 && !cta && !beat.thought;
+  // the speaker lands on the cut: a 6-frame spring with a short slide in from their side
+  const figureTransform = (p: Placed) => {
+    const parts: string[] = [];
+    if (p.on && !cta && !reduced) {
+      const e = entranceAt(p.who, frame);
+      if (e.dx || e.scale !== 1) parts.push(`translateX(${e.dx}px) scale(${e.scale})`);
+    }
+    if (pair) parts.push(`scale(${p.on ? 1.04 : 0.96})`);
+    if (p.transform) parts.push(p.transform);
+    return parts.length ? parts.join(" ") : undefined;
+  };
 
   const look = (who: "uco" | "ocu") => (cta || placed.length === 1 ? 0 : who === "uco" ? (ocuOn && !ucoOn ? 1 : 0.4) : ucoOn && !ocuOn ? -1 : -0.4);
   const speaker = placed.find((p) => p.on) ?? placed[0];
@@ -206,7 +237,7 @@ export function DirectorStage({
       {placed.map((p) => (
         <React.Fragment key={p.who}>
           {skin.figureExtras && placed.length > 1 && skin.figureExtras({ who: p.who, head: p.head, on: p.on, level: p.on ? level : 0, frame })}
-          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on || cta ? 0 : beat.thought ? 0.6 : skin.dimListener} transform={cta && p.who === "ocu" && !reduced ? tapNudge(frame, tap) : p.transform}>
+          <CastFigure cx={p.cx} top={p.top} s={p.s} dim={p.on || cta ? 0 : beat.thought ? 0.6 : Math.max(skin.dimListener, LISTENER_DIM)} transform={cta && p.who === "ocu" && !reduced ? tapNudge(frame, tap) : figureTransform(p)}>
             <CastPuppet
               who={p.who}
               variant={skin.variant}
@@ -508,9 +539,13 @@ function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, l
   // head-and-shoulders framing from the pose's calibration (uploads are framed to it too): never sunk or tiny
   const { box, s, w, left, top } = cameoFigure(who, beat.emotion);
   const cameoPop = reduced ? 1 : interpolate(frame, [0, 6], [0.85, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.back(2)) });
+  // the narrator bounces with the voice inside the cameo (on top of the puppet's own bounce)
+  const cameoBounce = reduced ? 0 : -10 * Math.min(1, level);
+  // the headline strip slams down with a 4 px screen shake
+  const shake = reduced ? { x: 0, y: 0 } : takeoverTimeline(frame, at).shake;
   const paper = skin.prop === "paper";
   return (
-    <AbsoluteFill>
+    <AbsoluteFill style={shake.x || shake.y ? { transform: `translate(${shake.x}px, ${shake.y}px)` } : undefined}>
       <EvidenceStage hero={TAKEOVER_HERO} skin={skin.prop} frame={frame} duration={beat.durationInFrames} at={at} stat={stat} reduced={reduced}>
         {hasProp
           ? (pb) =>
@@ -534,7 +569,7 @@ function TakeoverStage({ beat, frame, g, skin, reduced, label, hasProp, mouth, l
           border: paper ? "6px solid #141619" : `3px solid ${who === "uco" ? "#F59E0B" : "#38BDF8"}`,
           boxShadow: paper ? "8px 8px 0 #141619" : skin.rim[who] ? `0 0 16px ${skin.rim[who]}` : undefined,
           borderRadius: paper ? 4 : 6,
-          transform: `scale(${cameoPop})`,
+          transform: `translateY(${cameoBounce}px) scale(${cameoPop})`,
           transformOrigin: who === "uco" ? "0% 100%" : "100% 100%",
         }}
       >

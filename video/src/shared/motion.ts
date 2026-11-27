@@ -62,12 +62,40 @@ export function blinkAt(seed: string, frame: number, durationInFrames: number): 
   return [0.6, 1, 1, 0.6][frame - s];
 }
 
-/** Audio-reactive body motion in canvas px / degrees: Uco bouncy, Ocu calm; still during inner thoughts. */
-export function bodyMotion(who: "uco" | "ocu", level: number, globalFrame: number, thought: boolean): { dy: number; scale: number; tilt: number } {
-  if (thought) return { dy: 0, scale: 1, tilt: 0 };
+/** Per character: bounce on vocal peaks (px), squash-stretch, head / torso tilt (°) and its sway period (frames). */
+export const BODY_ENERGY = {
+  uco: { bob: 12, stretch: 0.045, squash: 0.025, tilt: 2.8, sway: 9 },
+  ocu: { bob: 6, stretch: 0.045, squash: 0.025, tilt: 1.2, sway: 14 },
+} as const;
+/** Idle breathing, always on (talking, listening or thinking): a slow 1.5 px rise and a 0.5 % chest swell. */
+const BREATH = { px: 1.5, swell: 0.005, period: 22 };
+
+/**
+ * Audio-reactive puppet motion in canvas px / degrees, driven by the voice's loudness (0..1): a clear vertical bounce
+ * on peaks (Uco up to 12 px, Ocu up to 6: a loud peak, level ≥ 0.5, lifts Uco 6-12 px and Ocu 3-6), squash-stretch
+ * (scaleY up to 1.045, scaleX down to 0.975) and a swaying tilt (±2.8° Uco, ±1.2° Ocu), over a breathing idle so a
+ * figure is never frozen. Inner thoughts only breathe.
+ */
+export function bodyMotion(who: "uco" | "ocu", level: number, globalFrame: number, thought: boolean): { dy: number; sx: number; sy: number; tilt: number } {
+  const b = Math.sin((2 * Math.PI * globalFrame) / (BREATH.period * 4));
+  const idle = { dy: -BREATH.px * b, sy: 1 + BREATH.swell * b };
+  if (thought) return { dy: idle.dy, sx: 1, sy: idle.sy, tilt: 0 };
   const l = Math.min(1, Math.max(0, level));
-  const e = who === "uco" ? { bob: 4, scale: 0.025, tilt: 1.5, sway: 9 } : { bob: 2, scale: 0.012, tilt: 0.7, sway: 14 };
-  return { dy: -e.bob * l, scale: 1 + e.scale * l, tilt: e.tilt * l * Math.sin(globalFrame / e.sway) };
+  const e = BODY_ENERGY[who];
+  return { dy: idle.dy - e.bob * l, sx: 1 - e.squash * l, sy: idle.sy * (1 + e.stretch * l), tilt: e.tilt * l * Math.sin(globalFrame / e.sway) };
+}
+
+/** Frames of a speaker's entrance after a cut. */
+export const ENTRANCE_FRAMES = 6;
+/**
+ * A speaker landing on a cut: a 6-frame spring (scale 0.92 → 1.03 at frame 3 → 1.00) with a short slide in from their
+ * side (Uco from the left, Ocu from the right), so cuts land with a punch instead of teleporting.
+ */
+export function entranceAt(who: "uco" | "ocu", frame: number): { scale: number; dx: number } {
+  if (frame >= ENTRANCE_FRAMES) return { scale: 1, dx: 0 };
+  const f = Math.max(0, frame);
+  const scale = f <= 3 ? 0.92 + (1.03 - 0.92) * ease(f / 3) : 1.03 + (1 - 1.03) * ((f - 3) / 3);
+  return { scale, dx: (who === "uco" ? -1 : 1) * 46 * (1 - ease(f / ENTRANCE_FRAMES)) };
 }
 
 const ease = (t: number) => {
@@ -80,39 +108,75 @@ export function isExplanation(b: Beat): boolean {
   return b.beatType === "insight" || b.emotion === "explaining" || b.emotion === "inspecting" || Boolean(b.overlay);
 }
 
-export const LONG_BEAT = 5 * FPS;
-export const MICRO_PUNCH = 1.07;
-export const SHOCK_PUNCH = 1.12;
+/** A beat longer than this gets a mid-beat accent (2.8 s): no shot holds still longer than ~1.8 s after it. */
+export const LONG_BEAT = Math.round(2.8 * FPS);
+/** The mid-beat accent: a crisp +8 % punch-in. */
+export const MICRO_PUNCH = 1.08;
+/** Punch close-up: the camera snaps to 1.26× (overshooting to 1.30) framed on face and upper chest, ±2.5° Dutch tilt. */
+export const PUNCH_SCALE = 1.26;
+export const PUNCH_TILT = 2.5;
+/** Slow dramatic creep on investigative / explaining lines: 1.00 → 1.10 over the beat. */
+export const CREEP = [1, 1.1] as const;
+/** The tightest the camera gets on a beat with an explainer card (creep × mid-beat punch): the card's clearance. */
+export const CARD_CAMERA_MAX = CREEP[1] * MICRO_PUNCH;
+
+export type Framing = "still" | "medium" | "punch-closeup" | "creep";
+/**
+ * The beat's camera framing: punch-closeup for shocked / angry lines and deadpan punchlines (never on a card, a takeover
+ * or a thought), a slow creep on explaining / inspecting lines, else the medium push-in. The outro stays still.
+ */
+export function framingOf(b: Pick<Beat, "cameraShot" | "emotion" | "thought" | "overlay" | "layout" | "angry" | "beatType">): Framing {
+  if (b.cameraShot === "cta-stinger") return "still";
+  if (!b.thought && !b.overlay && b.layout !== "takeover" && (b.emotion === "shocked" || b.angry || (b.emotion === "deadpan" && b.beatType === "button"))) return "punch-closeup";
+  if (isExplanation(b as Beat)) return "creep";
+  return "medium";
+}
+
+/** Frame (inside the beat) of the mid-beat accent: half way through a beat over 2.8 s, else null. */
+export function midAccentFrame(b: Pick<Beat, "durationInFrames" | "cameraShot">): number | null {
+  return b.cameraShot !== "cta-stinger" && b.durationInFrames > LONG_BEAT ? Math.round(b.durationInFrames * 0.5) : null;
+}
 
 /**
- * The camera for one beat: a slow 1.00 → 1.06 push on explanation beats (else the style's own push-in), a snappy
- * 1.12× punch with a 2° tilt on shocked beats, and a 1.07× micro punch-in halfway through any beat over 5 s so a
- * long hold never looks frozen. The outro stays still so both characters stay whole.
+ * The camera for one beat, by framing: medium (the style's push-in), creep (1.00 → 1.10), or punch-closeup (snaps in
+ * over 5 frames to 1.30 and settles at 1.26, a ±2.5° Dutch tilt, shifted toward the speaker's face; an existing extreme
+ * close-up only gets a light 1.06 snap and the tilt), then the mid-beat +8 % punch-in on long beats and the impact
+ * shake (an angry delivery or a keyword slam).
  */
 export function cameraAt(b: Beat, frame: number, basePush: [number, number] = [1, 1.04]): Camera {
-  if (b.cameraShot === "cta-stinger") return { scale: 1, rotate: 0, x: 0, y: 0 };
-  const t = frame / Math.max(1, b.durationInFrames);
-  const push = isExplanation(b) ? [1, 1.06] : basePush;
-  let scale = push[0] + (push[1] - push[0]) * Math.min(1, Math.max(0, t));
+  const framing = framingOf(b);
+  if (framing === "still") return { scale: 1, rotate: 0, x: 0, y: 0 };
+  const t = Math.min(1, Math.max(0, frame / Math.max(1, b.durationInFrames)));
+  const push = framing === "creep" ? CREEP : basePush;
+  let scale = push[0] + (push[1] - push[0]) * t;
   let rotate = 0;
-  if (b.emotion === "shocked" && !b.thought) {
-    // snaps in over 5 frames with a small overshoot, then holds
+  let x = 0;
+  let y = 0;
+  if (framing === "punch-closeup") {
+    const closeup = b.cameraShot === "closeup-punch";
+    const target = closeup ? 1.06 : PUNCH_SCALE;
+    const peak = closeup ? 1.08 : 1.3;
     const k = Math.min(1, frame / 5);
-    const snap = k < 1 ? ease(k) * 1.08 : 1 + 0.08 * Math.max(0, 1 - (frame - 5) / 6);
-    scale *= 1 + (SHOCK_PUNCH - 1) * Math.min(snap, 1.08);
-    rotate = -2 * Math.min(1, snap);
+    const zoom = frame < 5 ? 1 + (peak - 1) * ease(k) : peak + (target - peak) * Math.min(1, (frame - 5) / 6);
+    scale = zoom;
+    const side = b.speaker === "ocu" ? 1 : -1;
+    rotate = side * PUNCH_TILT * Math.min(1, frame / 5);
+    // keep face and upper chest in frame: lean the frame toward the speaker's side, and a little up
+    if (!closeup) {
+      x = -side * 70 * (zoom - 1) / (peak - 1);
+      y = 60 * (zoom - 1) / (peak - 1);
+    }
   }
-  if (b.durationInFrames > LONG_BEAT) {
-    const mid = Math.round(b.durationInFrames / 2);
-    scale *= 1 + (MICRO_PUNCH - 1) * ease((frame - mid) / 6);
-  }
-  return { scale, rotate, ...impactShake(frame, b.impactFrame) };
+  const mid = midAccentFrame(b);
+  if (mid !== null) scale *= 1 + (MICRO_PUNCH - 1) * ease((frame - mid) / 4);
+  const shake = impactShake(frame, b.impactFrame);
+  return { scale, rotate, x: x + shake.x, y: y + shake.y };
 }
 
 export type Camera = { scale: number; rotate: number; x: number; y: number };
 
 export const SHAKE_FRAMES = 6;
-export const SHAKE_PX = 6;
+export const SHAKE_PX = 5;
 /**
  * Urgent beats (angry delivery, a stamp SFX): a damped ±6 px shake for 6 frames from the impact frame, alternating
  * direction each frame and settling to 0.
@@ -234,6 +298,10 @@ export function subtitleVisible(b: Pick<Beat, "speechStart">, frame: number, cut
 // ------------------------------------------------------------------ lower-zone subtitles
 /** The subtitle band on the 1080×1920 canvas: under the characters' hands, above the platforms' bottom UI. */
 export const SUBTITLE_BAND = { left: 60, width: 880, top: 1540, bottom: 1630 } as const;
+/** The largest single-line subtitle (px): up from 46, still inside the band above the platforms' bottom UI. */
+export const SUBTITLE_MAX = 52;
+/** The spoken word's pop: warm yellow, 1.12× for a beat. */
+export const ACTIVE_WORD = { color: [0xff, 0xc8, 0x1f], scale: 1.12 } as const;
 const PILL_PAD = { x: 22, y: 9 };
 const LINE = 1.12;
 
@@ -241,9 +309,9 @@ const LINE = 1.12;
 export function subtitleLayout(text: string): { size: number; lines: string[]; pill: { x: number; y: number; w: number; h: number } } {
   const inner = SUBTITLE_BAND.width - 2 * PILL_PAD.x;
   const maxH = SUBTITLE_BAND.bottom - SUBTITLE_BAND.top;
-  let size = 46;
+  let size = SUBTITLE_MAX;
   let lines = [text];
-  // one line, as large as fits (46 → 32 px); else two lines at the size whose two lines fit the band's height
+  // one line, as large as fits (52 → 32 px); else two lines at the size whose two lines fit the band's height
   for (; size >= 32 && textWidth(text, size) > inner; size -= 2);
   if (size < 32) {
     size = Math.floor((maxH - 2 * PILL_PAD.y) / (2 * LINE));
@@ -256,9 +324,10 @@ export function subtitleLayout(text: string): { size: number; lines: string[]; p
 }
 
 // ------------------------------------------------------------------ evidence takeover layout
-/** Evidence Takeover: the hero stage (70 % of the canvas width, y 340..1160) and the speaker's corner cameo. */
-export const TAKEOVER_HERO = { x: 162, y: 340, w: 756, h: 820 } as const;
-export const CAMEO = { w: 324, h: 320, bottom: 1500 } as const;
+/** Evidence Takeover: the hero stage (70 % of the canvas width, y 340..1090) and the speaker's corner cameo below it. */
+export const TAKEOVER_HERO = { x: 162, y: 340, w: 756, h: 750 } as const;
+/** The speaker's corner cameo: 22 % larger than the first version (324 × 320), so the narrator reads as alive. */
+export const CAMEO = { w: 395, h: 390, bottom: 1500 } as const;
 /** The speaker's cameo box: lower-left for Uco, lower-right for Ocu, inside the safe columns, ending at y 1500. */
 export function cameoBox(who: "uco" | "ocu"): { x: number; y: number; w: number; h: number } {
   return { x: who === "uco" ? 60 : 940 - CAMEO.w, y: CAMEO.bottom - CAMEO.h, w: CAMEO.w, h: CAMEO.h };
@@ -396,9 +465,9 @@ export const kineticHeight = (text: string, w: number) => {
 const BADGE_SHADOW = 9;
 /** Clear air between the callout stamp and an explainer card under it, at the stamp's biggest (mid-slam) frame. */
 export const STAMP_CARD_GAP = 24;
-/** Worst-case camera on a card beat: the 1.06 explanation push × the 1.07 micro punch × the 1.12 shock punch. The
- *  card zooms with the camera; the stamp doesn't (it's un-cameraed so it never zooms off-screen). */
-const CAMERA_MAX = 1.06 * MICRO_PUNCH * SHOCK_PUNCH;
+/** Worst-case camera on a card beat (creep × the mid-beat punch; a card beat never punches close). The card zooms
+ *  with the camera; the stamp doesn't (it's un-cameraed so it never zooms off-screen). */
+const CAMERA_MAX = CARD_CAMERA_MAX;
 /** The beat's transform origin ("50% 40%" of 1080 × 1920) */
 const CAMERA_ORIGIN_Y = 768;
 
@@ -503,4 +572,71 @@ export function statCardText(stat: { headline: string; subline: string | null },
     headMax = Math.max(32, headMax - 4);
     subMax = Math.max(24, subMax - 2);
   }
+}
+
+// ------------------------------------------------------------------ takeover stat card motion
+/**
+ * The takeover's staggered entrance, in frames from `at` (the voice onset): the headline strip slams down over 0-6
+ * (with a 4 px screen shake), the red stat card springs in over 4-12, then the subline wipes on over 12-18. Each value
+ * is 0..1 (`shake` in px).
+ */
+export const TAKEOVER_STEPS = { strip: [0, 6], card: [4, 12], sub: [12, 18], shakePx: 4 } as const;
+export function takeoverTimeline(frame: number, at: number): { strip: number; card: number; sub: number; shake: { x: number; y: number } } {
+  const k = frame - at;
+  const span = ([a, b]: readonly [number, number]) => Math.min(1, Math.max(0, (k - a) / (b - a)));
+  const shakeK = k >= 0 && k < SHAKE_FRAMES ? TAKEOVER_STEPS.shakePx * (1 - k / SHAKE_FRAMES) : 0;
+  return { strip: span(TAKEOVER_STEPS.strip), card: span(TAKEOVER_STEPS.card), sub: span(TAKEOVER_STEPS.sub), shake: { x: (k % 2 ? -1 : 1) * shakeK, y: (k % 2 ? 1 : -1) * shakeK * 0.5 } };
+}
+
+/** The first number in a stat headline ("9,6 JUTA", "2.800+ KASUS", "76%", "10 KALI LIPAT"), Indonesian style. */
+export function statNumber(headline: string): { value: number; decimals: number; thousands: boolean; start: number; end: number } | null {
+  const m = /\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/.exec(headline);
+  if (!m) return null;
+  const [int, frac = ""] = m[0].split(",");
+  return { value: Number(int.replace(/\./g, "") + (frac ? `.${frac}` : "")), decimals: frac.length, thousands: int.includes("."), start: m.index, end: m.index + m[0].length };
+}
+
+const formatId = (v: number, decimals: number, thousands: boolean) => {
+  const [i, f] = v.toFixed(decimals).split(".");
+  const int = thousands ? i.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : i;
+  return f ? `${int},${f}` : int;
+};
+
+/** Frames the number counts up over (0.6 s), then the pop when it locks. */
+export const COUNT_FRAMES = Math.round(0.6 * FPS);
+export const LOCK_POP_FRAMES = 6;
+/**
+ * The headline as shown on a frame: its number counting up from 0 over the first 0.6 s after the card lands (an
+ * ease-out, so it slows into the value) in the headline's own format, then a 1.15× overshoot pop as it locks on the
+ * final value. A headline without a number shows as it is.
+ */
+export function countUp(headline: string, frame: number, at: number): { text: string; scale: number; counting: boolean; number: string | null; final: string | null } {
+  const n = statNumber(headline);
+  if (!n) return { text: headline, scale: 1, counting: false, number: null, final: null };
+  const start = at + TAKEOVER_STEPS.card[0];
+  const k = frame - start;
+  const t = Math.min(1, Math.max(0, k / COUNT_FRAMES));
+  const v = n.value * ease(t);
+  const shown = t >= 1 ? headline.slice(n.start, n.end) : formatId(n.decimals ? v : Math.floor(v), n.decimals, n.thousands);
+  const after = k - COUNT_FRAMES;
+  const scale = after >= 0 && after < LOCK_POP_FRAMES ? 1 + 0.15 * Math.sin((Math.PI * after) / LOCK_POP_FRAMES) : 1;
+  return { text: headline.slice(0, n.start) + shown + headline.slice(n.end), scale, counting: t < 1, number: shown, final: headline.slice(n.start, n.end) };
+}
+
+// ------------------------------------------------------------------ inspecting: the prop at Ocu's magnifying glass
+/**
+ * The prop box on an inspecting beat: just above Ocu's magnifying-glass lens (canvas point + radius), the lens's top rim
+ * overlapping its lower edge so he's visibly examining it, kept inside the safe columns (x 60..940) and under the
+ * stage top.
+ */
+export function lensPropBox(lens: { x: number; y: number; r: number }, size: number, top: number): { x: number; y: number; w: number; h: number } {
+  const w = size;
+  const x = Math.min(940 - w, Math.max(60, lens.x - w * 0.6));
+  const y = Math.max(top, lens.y - lens.r * 0.35 - w);
+  return { x, y, w, h: w };
+}
+
+/** The prop's hover on an inspecting beat: a slow 6 px float and a gentle 1.00-1.04 zoom pulse. */
+export function lensHover(frame: number): { dy: number; scale: number } {
+  return { dy: -6 * Math.sin(frame / 14), scale: 1.02 + 0.02 * Math.sin(frame / 9) };
 }

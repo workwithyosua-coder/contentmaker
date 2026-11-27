@@ -15,15 +15,17 @@ const SVG_HEAD: HeadFrac = { hair: 8 / 340, chin: 104 / 340, mouth: 86 / 340, fa
  * The head's place in a character's figure frame for a pose. Uploaded sprites (Studio Assets) are drawn framed to the
  * same calibration (spriteFrame.ts), so the numbers hold for them too.
  */
-export function headFracFor(who: "uco" | "ocu", emotion: string): { frac: HeadFrac; sprite: boolean; tip: { x: number; y: number } | null } {
+export function headFracFor(who: "uco" | "ocu", emotion: string): { frac: HeadFrac; sprite: boolean; tip: { x: number; y: number } | null; lens: { x: number; y: number; r: number } | null } {
   const sp = castSprites(who, emotion);
-  if (!sp) return { frac: SVG_HEAD, sprite: false, tip: null };
+  if (!sp) return { frac: SVG_HEAD, sprite: false, tip: null, lens: null };
   const h = headBoxFor(who, sp.emotion);
   return {
     frac: { hair: h.hairTop / 1700, chin: h.chin / 1700, mouth: (h.hairTop + 0.8 * (h.chin - h.hairTop)) / 1700, faceX: h.faceX / 900 },
     sprite: true,
     // fingertip as fractions of the figure frame
     tip: h.fingertip && sp.emotion === emotion ? { x: h.fingertip.x / 900, y: h.fingertip.y / 1700 } : null,
+    // magnifying-glass lens as fractions of the figure frame (r as a fraction of its width)
+    lens: h.lens && sp.emotion === emotion ? { x: h.lens.x / 900, y: h.lens.y / 1700, r: h.lens.r / 900 } : null,
   };
 }
 
@@ -84,3 +86,20 @@ export function cameoFigure(who: "uco" | "ocu", emotion: string) {
 
 /** The cameo can't reach the subtitles: its box ends at y 1500, above the 1540 band. */
 export const CAMEO_CLEAR = CAMEO.bottom < SUBTITLE_BAND.top;
+
+/**
+ * Ocu's magnifying-glass lens on the canvas for a placed figure (frame left / top / scale `s`, the 180 × 340 view),
+ * or null when the pose has no measured lens.
+ */
+export function lensOnCanvas(fig: { cx: number; top: number; s: number }, lens: { x: number; y: number; r: number } | null): { x: number; y: number; r: number } | null {
+  if (!lens) return null;
+  const w = 180 * fig.s;
+  const h = 340 * fig.s;
+  return { x: fig.cx - w / 2 + lens.x * w, y: fig.top + lens.y * h, r: lens.r * w };
+}
+
+/** Ocu's face x in a solo inspecting shot: 100 px left of his usual 740, so the magnifying glass (and the prop he
+ *  examines just above it) lands inside the safe columns instead of on the right-hand icon rail. */
+export const INSPECT_FACE_X = 640;
+/** Two-shot faces while Ocu inspects a prop: the pair shifted left (Uco 300 → 260, Ocu 790 → 700) for the same reason. */
+export const INSPECT_PAIR_X = { uco: 260, ocu: 700 } as const;

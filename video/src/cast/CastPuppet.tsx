@@ -50,8 +50,9 @@ export function CastPuppet(p: PuppetProps) {
   const breathe = r ? 0 : Math.sin(p.globalFrame / 22) * 0.008;
   const sy = 0.9 + 0.1 * pop + breathe;
   const sx = 1 / Math.sqrt(sy);
-  // audio-reactive: a 2–4 px bob, a 1.00–1.025 pulse and a ±1.5° tilt while talking (Ocu about half as much)
-  const body = r ? { dy: 0, scale: 1, tilt: 0 } : bodyMotion(p.who, p.level, p.globalFrame, Boolean(p.thought));
+  // audio-reactive: a bounce on vocal peaks (Uco up to 12 px, Ocu 6), squash-stretch and a swaying tilt (±2.8° / ±1.2°),
+  // over idle breathing (motion.ts bodyMotion)
+  const body = r ? { dy: 0, sx: 1, sy: 1, tilt: 0 } : bodyMotion(p.who, p.level, p.globalFrame, Boolean(p.thought));
   const box = sprites ? headBoxFor(p.who, sprites.emotion) : null;
   const sweaty = (p.fx ?? "sweat") === "sweat" && (p.emotion === "shocked" || p.emotion === "defensive");
   // the coded Uco already sweats in his "sweat" mood
@@ -63,7 +64,7 @@ export function CastPuppet(p: PuppetProps) {
         style={{
           position: "absolute",
           inset: 0,
-          transform: `translateY(${body.dy}px) rotate(${body.tilt}deg) scale(${sx * body.scale}, ${sy * body.scale})`,
+          transform: `translateY(${body.dy}px) rotate(${body.tilt}deg) scale(${sx * body.sx}, ${sy * body.sy})`,
           transformOrigin: "50% 100%",
           filter: p.rim ? `drop-shadow(0 0 10px ${p.rim}) drop-shadow(0 0 2px ${p.rim})` : undefined,
         }}

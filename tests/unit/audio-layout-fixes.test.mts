@@ -49,23 +49,24 @@ const episode = () => EPISODE.map((o, i) => line(o as never, i));
 const speaking = (frames: number) => Array.from({ length: frames }, (_, f) => (f >= 6 && f < frames - 6 ? 0.5 : 0));
 
 // ------------------------------------------------------------------ 1. the per-beat "chk-tsk"
-test("the per-beat stamp is gone: that episode now makes only new-prop pops, nothing on dialogue cuts, callouts, thoughts or the outro", () => {
+test("the per-beat stamp stays gone: that episode makes new-prop pops, one impact accent and the outro ding, nothing on cuts or thoughts", () => {
   resetRemoteAssets();
   registerRemoteAssets({ props: PROPS });
   const beats = buildBeats(episode(), KK);
-  const cues = sfxCuesFor(beats);
+  const cues = sfxCuesFor(beats, { ding: true });
   resetRemoteAssets();
-  // was: a stamp on every beat with a callout (sfxCues.ts:46, 8 here) + pops + dings + whooshes + every script effect
-  assert.deepEqual(cues.map((c) => c.name), ["pop", "pop", "pop"], JSON.stringify(cues));
   const beatOf = (f: number) => beats.findIndex((b) => f >= b.startFrame && f < b.startFrame + b.durationInFrames);
-  // the book appears (b1), comes back after a line without it (b3), the crystal appears (b10); b4 / b11 keep the same prop
-  assert.deepEqual(cues.map((c) => beatOf(c.frame) + 1), [1, 3, 10]);
-  for (const b of beats.filter((x) => x.thought || x.cameraShot === "cta-stinger")) assert.ok(!cues.some((c) => beatOf(c.frame) === beats.indexOf(b)), `nothing on ${b.id}`);
-  assert.ok(cues.every((c) => c.volume! <= 0.2));
+  // was (before #58): a stamp on every beat with a callout (8 here) + pops + dings + whooshes + every script effect.
+  // Now: the book appears (b1), comes back after a line without it (b3), the crystal appears (b10); the angry b5 callout
+  // is the one impact accent; the outro button flips with a ding
+  assert.deepEqual(cues.map((c) => [c.name, beatOf(c.frame) + 1]), [["pop", 1], ["pop", 3], ["stamp", 5], ["pop", 10], ["ding", 15]]);
+  for (const b of beats.filter((x) => x.thought)) assert.ok(!cues.some((c) => beatOf(c.frame) === beats.indexOf(b)), `nothing on ${b.id}`);
+  assert.ok(cues.length <= 6, "a handful per episode, not one per cut");
+  assert.ok(cues.every((c) => c.volume! <= 0.28));
 });
 
-test("a takeover stat card stamps once (≤ 0.22) as it lands; a new prop pops (≤ 0.20); plain cuts and script effects stay silent", () => {
-  assert.deepEqual(SFX_VOLUME, { stamp: 0.22, pop: 0.2 });
+test("a takeover stat card: whoosh (0.16) then stamp (0.26) as it slams, once per run; a new prop pops (0.22); thoughts stay silent", () => {
+  assert.deepEqual(SFX_VOLUME, { whoosh: 0.16, stamp: 0.26, pop: 0.22, accentStamp: 0.22, accentPop: 0.18, ding: 0.28 });
   const lines = [
     line({ speaker: "uco", sfx: ["whoosh", "stamp", "ding"] }, 0),
     line({ speaker: "ocu", layout: "takeover", stat: "35 RIBU | SEGELAS" }, 1),
@@ -75,14 +76,14 @@ test("a takeover stat card stamps once (≤ 0.22) as it lands; a new prop pops (
   ];
   resetRemoteAssets();
   registerRemoteAssets({ props: PROPS });
-  const beats = buildBeats(lines, KK);
+  const beats = buildBeats(lines, { exact: true } as never);
   resetRemoteAssets();
-  const cues = sfxCuesFor(beats);
-  assert.deepEqual(cues.map((c) => c.name), ["stamp", "pop"]);
-  assert.equal(cues[0].frame, beats[1].startFrame + beats[1].speechStart, "the stamp lands with the card, as the voice starts");
-  assert.equal(cues[0].volume, 0.22);
-  assert.equal(cues[1].frame, beats[3].startFrame + beats[3].propEntry);
-  assert.equal(cues[1].volume, 0.2);
+  const cues = sfxCuesFor(beats, { ding: false });
+  assert.deepEqual(cues.map((c) => c.name), ["whoosh", "stamp", "pop"]);
+  const lands = beats[1].startFrame + beats[1].speechStart;
+  assert.deepEqual([cues[0].frame, cues[0].volume], [Math.max(beats[1].startFrame, lands - 4), 0.16]);
+  assert.deepEqual([cues[1].frame, cues[1].volume], [lands, 0.26], "the stamp lands with the card, as the voice starts");
+  assert.deepEqual([cues[2].frame, cues[2].volume], [beats[3].startFrame + beats[3].propEntry, 0.22]);
 });
 
 test("no other sound source fires per beat: the only <Audio> tags in the video are the voices, these cues and the music bed", () => {
