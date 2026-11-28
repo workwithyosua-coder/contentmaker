@@ -14,6 +14,13 @@ export class HttpError extends Error {
     super(message);
   }
 }
+/**
+ * The platform gave back no number at all for a post (every insight refused and the like / comment fallback failed:
+ * deleted, private, not readable with this login, or too new to have stats). The post counts as failed for this sync
+ * instead of being saved as an all-zero row, which would rank it last and mislead the pattern analyst.
+ */
+export class NoNumbersError extends Error {}
+
 /** GET a URL with query params; resolves the JSON body or throws HttpError. */
 export type Getter = (url: string, params: Record<string, string>) => Promise<unknown>;
 export type Fetched = { numbers: PostNumbers; notices: string[] };
@@ -101,15 +108,21 @@ export async function fetchInstagram(get: Getter, mediaId: string, base = GRAPH_
     if (p.got.plays != null) r.got.views = p.got.plays;
   }
   const numbers: PostNumbers = { views: num(r.got.views), likes: num(r.got.likes), comments: num(r.got.comments), shares: num(r.got.shares), saves: num(r.got.saved), avg_view_pct: null };
+  let fallback: string | null = null;
+  let counted = false;
   if (r.permission || r.got.likes == null || r.got.comments == null) {
     try {
       const m = (await get(`${base}/${mediaId}`, { fields: "like_count,comments_count" })) as { like_count?: number; comments_count?: number };
       if (r.got.likes == null) numbers.likes = num(m.like_count);
       if (r.got.comments == null) numbers.comments = num(m.comments_count);
+      counted = m.like_count != null || m.comments_count != null;
     } catch (e) {
-      notices.push(`Instagram media counts unavailable (${errText(e)}).`);
+      fallback = errText(e);
+      notices.push(`Instagram media counts unavailable (${fallback}).`);
     }
   }
+  if (!Object.keys(r.got).length && !counted)
+    throw new NoNumbersError(`Instagram returned no numbers for media ${mediaId}${fallback ? ` (${fallback})` : ""}; not saved. It may be deleted, private or too new.`);
   if (r.permission) notices.push("Instagram insights permission is missing, so only likes and comments synced. Reconnect Instagram on the Accounts page to allow insights.");
   else if (r.refused.length) notices.push(`Instagram didn't return: ${r.refused.filter((m) => !(m === "views" && r.got.views != null)).join(", ") || "none"}.`);
   return { numbers, notices: notices.filter((n) => !n.endsWith(": none.")) };
@@ -128,6 +141,8 @@ export async function fetchFacebook(get: Getter, videoId: string, base = GRAPH_B
     saves: pick("save"),
     avg_view_pct: null,
   };
+  let fallback: string | null = null;
+  let counted = false;
   if (!numbers.likes || !numbers.comments) {
     try {
       const v = (await get(`${base}/${videoId}`, { fields: "likes.summary(true).limit(0),comments.summary(true).limit(0)" })) as {
@@ -136,10 +151,14 @@ export async function fetchFacebook(get: Getter, videoId: string, base = GRAPH_B
       };
       numbers.likes ||= num(v.likes?.summary?.total_count);
       numbers.comments ||= num(v.comments?.summary?.total_count);
+      counted = v.likes?.summary?.total_count != null || v.comments?.summary?.total_count != null;
     } catch (e) {
-      notices.push(`Facebook like / comment counts unavailable (${errText(e)}).`);
+      fallback = errText(e);
+      notices.push(`Facebook like / comment counts unavailable (${fallback}).`);
     }
   }
+  if (!Object.keys(r.got).length && !counted)
+    throw new NoNumbersError(`Facebook returned no numbers for video ${videoId}${fallback ? ` (${fallback})` : ""}; not saved. It may be deleted, private or too new.`);
   if (r.permission) notices.push("Facebook video insights permission is missing, so plays and shares stay at 0. Reconnect Facebook on the Accounts page to allow insights.");
   else if (r.refused.length) notices.push(`Facebook didn't return: ${r.refused.join(", ")}.`);
   return { numbers, notices };

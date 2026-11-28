@@ -220,7 +220,7 @@ export async function getPlaybook(): Promise<PlaybookInput & { tunables: Tunable
       SELECT category, rule_text FROM studio_lessons WHERE status = 'active' ORDER BY evidence_count DESC, updated_at DESC LIMIT ${LESSON_CAP}`;
     const hooks = await sql<{ hook: string | null }[]>`
       SELECT (SELECT s.lines->0->>'text' FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS hook
-      FROM (SELECT episode_id, max(engagement_score) AS score FROM episode_metrics GROUP BY episode_id) m
+      FROM (SELECT episode_id, max(engagement_score) AS score FROM episode_metrics WHERE (views + likes + comments + shares + saves) > 0 GROUP BY episode_id) m
       ORDER BY m.score DESC LIMIT 2`;
     const avoid = await sql<{ tag: string }[]>`
       SELECT DISTINCT unnest(issue_tags) AS tag FROM (
@@ -411,13 +411,13 @@ export async function analyzePatterns(now = new Date()): Promise<string | null> 
   const sql = db();
   const [last] = await sql<{ value: string }[]>`SELECT value FROM app_settings WHERE key = ${ANALYSIS_KEY}`;
   const since = last ? new Date(last.value) : new Date(0);
-  const [{ n }] = await sql<{ n: number }[]>`SELECT count(DISTINCT episode_id)::int AS n FROM episode_metrics WHERE captured_at > ${since}`;
+  const [{ n }] = await sql<{ n: number }[]>`SELECT count(DISTINCT episode_id)::int AS n FROM episode_metrics WHERE captured_at > ${since} AND (views + likes + comments + shares + saves) > 0`;
   if (n < ANALYSIS_MIN_NEW) return null;
   const scored = await sql<Scored[]>`
     SELECT m.episode_id, p.title, m.score::float8 AS engagement_score, m.pct::float8 AS avg_view_pct,
            (SELECT s.lines->0->>'text' FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS hook,
            (SELECT jsonb_array_length(s.lines) FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS lines
-    FROM (SELECT episode_id, max(engagement_score) AS score, max(avg_view_pct) AS pct FROM episode_metrics GROUP BY episode_id) m
+    FROM (SELECT episode_id, max(engagement_score) AS score, max(avg_view_pct) AS pct FROM episode_metrics WHERE (views + likes + comments + shares + saves) > 0 GROUP BY episode_id) m
     JOIN content_projects p ON p.id = m.episode_id`;
   if (scored.length < ANALYSIS_MIN_NEW) return null;
   const { top, bottom } = quartiles(scored);
