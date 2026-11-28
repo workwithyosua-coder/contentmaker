@@ -196,3 +196,14 @@ test("zero Anthropic in the progress path", () => {
     assert.equal(pathTo(entry, AI), null, `${entry} reaches AI via ${pathTo(entry, AI)?.join(" → ")}`);
   }
 });
+
+test("a slot finishing while the Schedule page polls never crashes the page (stale pipeline hand-off)", () => {
+  const card = fs.readFileSync(path.join(ROOT, "src/components/scheduler.tsx"), "utf8");
+  // the pipeline's hand-off is only { props }: every posting field is optional and read defensively
+  assert.match(card, /queued\?: string\[\];/);
+  assert.match(card, /notConnected\?: string\[\];/);
+  assert.doesNotMatch(card, /s\.handoff\.queued\.length|s\.handoff\.notConnected\.length/);
+  // the poll brings the hand-off together with the status
+  assert.match(card, /type Live = Pick<SlotView, [^>]*"handoff"/);
+  assert.match(fs.readFileSync(path.join(ROOT, "src/app/api/schedule/queue/route.ts"), "utf8"), /handoff: q\.handoff \?\? null,/);
+});

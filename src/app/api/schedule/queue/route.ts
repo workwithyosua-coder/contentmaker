@@ -17,6 +17,9 @@ export async function GET() {
         runUrl: q.run_url,
         episodeId: q.episode_id,
         episodeTitle: q.episode_title ?? null,
+        // the hand-off changes with the status (props while running, the posting plan when finished): sent together,
+        // so the card never pairs a new status with the old hand-off
+        handoff: q.handoff ?? null,
         progressPercent: q.progress_percent,
         progressStage: q.progress_stage,
         progressDetail: q.progress_detail,

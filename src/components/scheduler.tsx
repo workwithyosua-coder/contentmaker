@@ -365,11 +365,15 @@ export type SlotView = {
   episodeTitle: string | null;
   error: string | null;
   runUrl: string | null;
+  /**
+   * While the pipeline runs this holds only the episode's props ({ props, propWarning }); the posting fields arrive
+   * when the slot finishes. So every posting field is optional here and read defensively.
+   */
   handoff: {
-    tiktokCaption: string | null;
-    queued: string[];
-    postAt: string;
-    notConnected: string[];
+    tiktokCaption?: string | null;
+    queued?: string[];
+    postAt?: string;
+    notConnected?: string[];
     /** why generated props failed, in short (the episode renders without them) */
     propWarning?: string | null;
   } | null;
@@ -414,7 +418,7 @@ export function SeedsForm() {
   );
 }
 
-type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeId" | "episodeTitle" | "progressPercent" | "progressStage" | "progressDetail" | "progressUpdatedAt">;
+type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeId" | "episodeTitle" | "handoff" | "progressPercent" | "progressStage" | "progressDetail" | "progressUpdatedAt">;
 
 /**
  * The queue, with live pipeline progress: while a slot is running and the tab is visible, the progress fields come
@@ -568,15 +572,15 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
       {s.handoff &&
         (s.status === "ready_to_post" || s.status === "published") && (
           <div className="min-w-0 space-y-2 text-sm">
-            {s.handoff.queued.length > 0 && (
+            {(s.handoff.queued?.length ?? 0) > 0 && s.handoff.postAt && (
               <p className="text-muted">
-                Posting to {s.handoff.queued.join(", ")} at{" "}
+                Posting to {s.handoff.queued!.join(", ")} at{" "}
                 {formatWib(new Date(s.handoff.postAt))}.
               </p>
             )}
-            {s.handoff.notConnected.length > 0 && (
+            {(s.handoff.notConnected?.length ?? 0) > 0 && (
               <p className="text-muted">
-                Not connected: {s.handoff.notConnected.join(", ")}. Connect on
+                Not connected: {s.handoff.notConnected!.join(", ")}. Connect on
                 Accounts to post there.
               </p>
             )}
