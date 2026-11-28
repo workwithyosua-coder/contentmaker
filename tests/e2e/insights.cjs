@@ -172,7 +172,7 @@ async function audit(page, label, scope = 'main') {
     await page.locator('[data-section="pronunciation"] form').waitFor();
     check(`${vp.name}: one h1 "Insights"`, (await page.locator('h1').allInnerTexts()).join('|') === 'Insights');
     const h2 = await page.locator('main section h2').allInnerTexts();
-    check(`${vp.name}: four section headings`, h2.length === 4 && /^Leaderboard$/.test(h2[0]) && /^Active Playbook Rules 1 \/ 12 active$/.test(h2[1]) && h2[2] === 'Live Studio Tunables' && h2[3] === 'Pronunciation Dictionary', h2.join(' | '));
+    check(`${vp.name}: five section headings`, h2.length === 5 && /^Leaderboard$/.test(h2[0]) && /^Active Playbook Rules 1 \/ 12 active$/.test(h2[1]) && h2[2] === 'Live Studio Tunables' && h2[3] === 'Affiliate Conversions' && h2[4] === 'Pronunciation Dictionary', h2.join(' | '));
     const primaries = await page.locator('main .btn-primary').count();
     check(`${vp.name}: one amber primary on /insights`, primaries === 1, String(primaries));
 
@@ -193,8 +193,8 @@ async function audit(page, label, scope = 'main') {
     await page.unroute('**/api/insights/sync-metrics');
 
     await page.click('[data-tiktok] summary');
-    for (const [label, v] of [['Views', firstVisit ? '1500' : '400'], ['Likes', '120'], ['Comments', '14'], ['Shares', '22'], ['Saves', '9']]) await page.getByLabel(label, { exact: true }).fill(v);
-    await page.getByLabel('Episode', { exact: true }).selectOption({ label: 'Kopi susu review test' });
+    for (const [label, v] of [['Views', firstVisit ? '1500' : '400'], ['Likes', '120'], ['Comments', '14'], ['Shares', '22'], ['Saves', '9']]) await page.locator('[data-tiktok]').getByLabel(label, { exact: true }).fill(v);
+    await page.locator('[data-tiktok]').getByLabel('Episode', { exact: true }).selectOption({ label: 'Kopi susu review test' });
     await page.click('text=Save TikTok metrics');
     await page.locator('[data-tiktok] [role=status]').waitFor();
     check(`${vp.name}: TikTok metrics saved`, (await page.locator('[data-tiktok] [role=status]').innerText()).startsWith('TikTok metrics saved. Engagement score'));

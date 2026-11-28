@@ -93,10 +93,12 @@ export async function runQaGate<T extends { lines: QaLine[] }>(opts: {
   rules: string[];
   audit: (lines: QaLine[], rules: string[]) => Promise<{ pass: boolean; violations: string[] }>;
   regenerate: (critique: string[]) => Promise<T>;
+  /** format-specific deterministic checks (the Affiliate Debate's no-pitch-on-lines-1-2 rules) */
+  extra?: (lines: QaLine[]) => string[];
 }): Promise<QaReport<T>> {
   const log: string[] = [];
   const check = async (d: T, label: string): Promise<string[]> => {
-    const problems = qaProblems(d.lines);
+    const problems = [...qaProblems(d.lines), ...(opts.extra?.(d.lines) ?? [])];
     if (opts.rules.length) {
       try {
         const a = await opts.audit(d.lines, opts.rules);
