@@ -2,7 +2,7 @@ import "server-only";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createHmac } from "node:crypto";
-import { PRESIGN, presignGet, presignPut, r2Config, r2Delete, r2Get, r2Head, r2Key, r2List, r2Put } from "./r2";
+import { isR2NotFound, PRESIGN, presignGet, presignPut, r2Config, r2Delete, r2ErrorInfo, r2Get, r2Head, r2Key, r2List, r2Probe, r2Put, type R2Config } from "./r2";
 
 // Private file storage for recordings, renders, studio assets and custom assets.
 // Production with R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME: Cloudflare R2 (one private
@@ -18,23 +18,80 @@ const localPath = (objectPath: string, bucket: string) => path.join(LOCAL_DIR, b
 const local = () => process.env.STORAGE_DRIVER === "local" && !process.env.VERCEL; // never on Vercel
 const LOCAL_DIR = path.join(process.cwd(), ".local-storage");
 
-/** R2 settings when configured (never with the local test driver). */
-const r2 = () => (local() ? null : r2Config());
-/** Supabase Storage is still reachable for the fallback (older objects). */
+/** Supabase Storage is still reachable for the fallback (older objects, and whenever R2 fails). */
 const supabaseReady = () => Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SECRET_KEY?.trim());
+
+// Circuit breaker: an R2 failure that isn't "not found" (bad keys, wrong bucket or endpoint, an outage) sends every
+// storage call to Supabase for a minute, with the real (sanitized) error in the log, instead of failing the request.
+// Objects written to Supabase meanwhile stay readable through the normal fallback once R2 is back.
+const R2_COOLDOWN_MS = 60_000;
+let r2DownUntil = 0;
+let r2LastError: (ReturnType<typeof r2ErrorInfo> & { op: string; at: string }) | null = null;
+function r2Failed(op: string, e: unknown, cfg: R2Config | null) {
+  const info = r2ErrorInfo(e, cfg);
+  r2LastError = { ...info, op, at: new Date().toISOString() };
+  r2DownUntil = Date.now() + R2_COOLDOWN_MS;
+  console.error(`[storage] R2 ${op} failed (${info.name}${info.code && info.code !== info.name ? ` ${info.code}` : ""}${info.status ? ` HTTP ${info.status}` : ""}): ${info.message}. ${supabaseReady() ? "Using Supabase Storage for the next minute." : "No Supabase fallback configured."}`);
+}
+/** Whether an R2 error can fall back (Supabase is configured); otherwise it is rethrown. */
+const canFallBack = () => supabaseReady();
+
+/** R2 settings when configured and not cooling down after a failure (never with the local test driver). */
+const r2 = (): R2Config | null => {
+  if (local()) return null;
+  const cfg = r2Config();
+  if (!cfg) return null;
+  return Date.now() < r2DownUntil && canFallBack() ? null : cfg;
+};
 
 /** Which backend serves storage right now (health checks, logs). */
 export const storageDriver = (): "local" | "r2" | "supabase" => (local() ? "local" : r2() ? "r2" : "supabase");
 
 // a positive R2 existence answer is remembered briefly, so a page signing 15 takes doesn't HEAD each one every time
 const inR2 = new Map<string, number>();
-async function r2Has(key: string): Promise<boolean> {
-  const cfg = r2()!;
+/** Whether R2 has the object; an R2 failure counts as "no" (so the caller uses Supabase) when Supabase is there. */
+async function r2Has(cfg: R2Config, key: string): Promise<boolean> {
   const seen = inR2.get(key);
   if (seen && seen > Date.now()) return true;
-  const ok = Boolean(await r2Head(cfg, key));
-  if (ok) inR2.set(key, Date.now() + 5 * 60_000);
-  return ok;
+  try {
+    const ok = Boolean(await r2Head(cfg, key));
+    if (ok) inR2.set(key, Date.now() + 5 * 60_000);
+    return ok;
+  } catch (e) {
+    if (isR2NotFound(e) || !canFallBack()) throw e;
+    r2Failed("head", e, cfg);
+    return false;
+  }
+}
+
+// before handing out a presigned PUT (signed offline, so it can't fail by itself) the bucket is probed, at most once
+// a minute, so a browser never gets an upload URL that R2 would refuse
+let reachable: { ok: boolean; until: number } | null = null;
+async function r2Reachable(cfg: R2Config): Promise<boolean> {
+  if (reachable && reachable.until > Date.now()) return reachable.ok;
+  const p = await r2Probe(cfg);
+  if (!p.ok) r2Failed("probe", Object.assign(new Error(p.error.message), { name: p.error.name, Code: p.error.code, $metadata: { httpStatusCode: p.error.status } }), cfg);
+  reachable = { ok: p.ok, until: Date.now() + R2_COOLDOWN_MS };
+  return p.ok;
+}
+
+/** The live R2 check for /api/health?storage=1: configured or not, reachable or the sanitized error, and the last failure. */
+export async function r2Health() {
+  if (local()) return { configured: false, driver: "local" as const };
+  const cfg = r2Config();
+  if (!cfg) return { configured: false, driver: storageDriver() };
+  const probe = await r2Probe(cfg);
+  return {
+    configured: true,
+    driver: storageDriver(),
+    endpointHost: new URL(cfg.endpoint).host.replace(cfg.accountId, "<account-id>"),
+    bucket: cfg.bucket,
+    ok: probe.ok,
+    ms: probe.ms,
+    ...(probe.ok ? {} : { error: probe.error }),
+    lastError: r2LastError,
+    coolingDown: Date.now() < r2DownUntil,
+  };
 }
 
 function supabase() {
@@ -56,9 +113,14 @@ export async function putObject(objectPath: string, data: ArrayBuffer, contentTy
   }
   const cfg = r2();
   if (cfg) {
-    await r2Put(cfg, r2Key(BUCKET, objectPath), new Uint8Array(data), baseMime(contentType));
-    inR2.set(r2Key(BUCKET, objectPath), Date.now() + 5 * 60_000);
-    return;
+    try {
+      await r2Put(cfg, r2Key(BUCKET, objectPath), new Uint8Array(data), baseMime(contentType));
+      inR2.set(r2Key(BUCKET, objectPath), Date.now() + 5 * 60_000);
+      return;
+    } catch (e) {
+      if (!canFallBack()) throw e;
+      r2Failed("put", e, cfg);
+    }
   }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/${BUCKET}/${objectPath}`, {
@@ -82,7 +144,7 @@ export async function signedUrl(objectPath: string, seconds = 3600, opts: { down
   const cfg = r2();
   if (cfg) {
     const key = r2Key(BUCKET, objectPath);
-    if (!supabaseReady() || (await r2Has(key))) return presignGet(cfg, key, seconds, opts);
+    if (!supabaseReady() || (await r2Has(cfg, key))) return presignGet(cfg, key, seconds, opts);
   }
   const u = await supabaseSignedUrl(objectPath, seconds);
   return opts.download ? `${u}&download=${encodeURIComponent(opts.download)}` : u;
@@ -109,8 +171,13 @@ export async function getObject(objectPath: string, bucket = BUCKET): Promise<Ar
   if (local()) return readFile(localPath(objectPath, bucket)).then((b) => new Uint8Array(b).buffer, () => null);
   const cfg = r2();
   if (cfg) {
-    const got = await r2Get(cfg, r2Key(bucket, objectPath));
-    if (got || !supabaseReady()) return got;
+    try {
+      const got = await r2Get(cfg, r2Key(bucket, objectPath));
+      if (got || !supabaseReady()) return got;
+    } catch (e) {
+      if (!canFallBack()) throw e;
+      r2Failed("get", e, cfg);
+    }
   }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/authenticated/${bucket}/${objectPath}`, { headers });
@@ -131,7 +198,7 @@ export async function signedUploadUrl(objectPath: string, bucket = BUCKET, upser
   }
   const cfg = r2();
   // R2: a presigned PUT (it replaces an existing object, so `upsert` needs nothing more)
-  if (cfg) return presignPut(cfg, r2Key(bucket, objectPath), PRESIGN.upload);
+  if (cfg && (!canFallBack() || (await r2Reachable(cfg)))) return presignPut(cfg, r2Key(bucket, objectPath), PRESIGN.upload);
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/upload/sign/${bucket}/${objectPath}`, {
     method: "POST",
@@ -151,8 +218,13 @@ export async function objectSize(objectPath: string): Promise<number | null> {
   }
   const cfg = r2();
   if (cfg) {
-    const h = await r2Head(cfg, r2Key(BUCKET, objectPath));
-    if (h || !supabaseReady()) return h ? h.size : null;
+    try {
+      const h = await r2Head(cfg, r2Key(BUCKET, objectPath));
+      if (h || !supabaseReady()) return h ? h.size : null;
+    } catch (e) {
+      if (!canFallBack()) throw e;
+      r2Failed("head", e, cfg);
+    }
   }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/info/authenticated/${BUCKET}/${objectPath}`, { headers });
@@ -203,9 +275,14 @@ export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{
   const cfg = r2();
   if (cfg) {
     // R2's files plus older ones still only in Supabase (R2 wins on a name in both)
-    const [fromR2, older] = await Promise.all([r2List(cfg, r2Key(bucket, clean)), supabaseReady() ? supabaseListInfo(clean, bucket).catch(() => []) : []]);
-    const names = new Set(fromR2.map((o) => o.name));
-    return [...fromR2, ...older.filter((o) => !names.has(o.name))].sort((a, b) => a.name.localeCompare(b.name));
+    try {
+      const [fromR2, older] = await Promise.all([r2List(cfg, r2Key(bucket, clean)), supabaseReady() ? supabaseListInfo(clean, bucket).catch(() => []) : []]);
+      const names = new Set(fromR2.map((o) => o.name));
+      return [...fromR2, ...older.filter((o) => !names.has(o.name))].sort((a, b) => a.name.localeCompare(b.name));
+    } catch (e) {
+      if (!canFallBack()) throw e;
+      r2Failed("list", e, cfg);
+    }
   }
   return supabaseListInfo(clean, bucket);
 }
@@ -237,8 +314,13 @@ export async function deleteObjects(paths: string[], bucket = BUCKET) {
   const cfg = r2();
   if (cfg) {
     const keys = paths.map((p) => r2Key(bucket, p));
-    await r2Delete(cfg, keys);
     for (const k of keys) inR2.delete(k);
+    try {
+      await r2Delete(cfg, keys);
+    } catch (e) {
+      if (!canFallBack()) throw e;
+      r2Failed("delete", e, cfg); // the Supabase copies are still removed below
+    }
     // the older copy too, so the Supabase fallback can't serve a deleted file again
     if (!supabaseReady()) return;
   }
@@ -346,7 +428,7 @@ export async function publicRedirect(bucket: string, objectPath: string): Promis
   }
   const cfg = r2();
   if (!cfg) return supabaseReady() ? supabasePublicUrl(objectPath, bucket) : null;
-  if (!supabaseReady() || (await r2Has(key))) return presignGet(cfg, key, PRESIGN.asset);
+  if (!supabaseReady() || (await r2Has(cfg, key))) return presignGet(cfg, key, PRESIGN.asset);
   return supabasePublicUrl(objectPath, bucket);
 }
 

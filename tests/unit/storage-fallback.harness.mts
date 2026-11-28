@@ -50,6 +50,12 @@ const server = http.createServer((req, res) => {
     }
     // ---- fake S3 (path style: /<bucket>/<key>)
     const [, bucket, ...rest] = u.pathname.split("/");
+    if (process.env.MODE === "r2broken") {
+      // a bad key pair: R2 refuses everything, echoing the access key id like S3 does
+      calls.push(`r2 ${req.method} refused`);
+      const xml = `<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidAccessKeyId</Code><Message>The AWS Access Key Id you provided does not exist in our records: AKIDTEST (secret s3cr3t-very-long-signing-key-0123456789abcdef)</Message></Error>`;
+      return res.writeHead(403, { "Content-Type": "application/xml" }).end(req.method === "HEAD" ? undefined : xml);
+    }
     const key = decodeURIComponent(rest.join("/"));
     calls.push(`r2 ${req.method} ${key || "?" + u.searchParams.toString()}`);
     if (bucket !== "media") return res.writeHead(404).end();
@@ -81,9 +87,28 @@ await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const mode = process.env.MODE;
 Object.assign(process.env, { SUPABASE_URL: base, SUPABASE_SECRET_KEY: "supa-secret", STORAGE_DRIVER: "" });
-if (mode === "r2") Object.assign(process.env, { R2_ACCOUNT_ID: "acct123", R2_ACCESS_KEY_ID: "AKIDTEST", R2_SECRET_ACCESS_KEY: "secret", R2_BUCKET_NAME: "media", R2_ENDPOINT: base });
+if (mode === "r2" || mode === "r2broken") Object.assign(process.env, { R2_ACCOUNT_ID: "acct123", R2_ACCESS_KEY_ID: "AKIDTEST", R2_SECRET_ACCESS_KEY: "secret", R2_BUCKET_NAME: "media", R2_ENDPOINT: base });
 
 const S = await import("../../src/lib/storage.ts");
+if (mode === "r2broken") {
+  // every call must still work (through Supabase), and the health check must show the real, sanitized error
+  const health = await S.r2Health();
+  await S.putObject("broken/line-01.webm", new TextEncoder().encode("saved anyway").buffer, "audio/webm");
+  const report = {
+    health,
+    driverAfter: S.storageDriver(),
+    putLandedInSupabase: supa.get("recordings/broken/line-01.webm")?.toString() ?? null,
+    signedOld: await S.signedUrl("old-episode/line-01.webm"),
+    bytesOld: Buffer.from((await S.getObject("old-episode/line-01.webm"))!).toString(),
+    uploadUrl: await S.signedUploadUrl("sprites/uco-angry-open.png", "studio-assets", true),
+    redirect: await S.publicRedirect("studio-assets", "sprites/uco-angry-closed.png"),
+    list: (await S.listObjectInfo("sprites", "studio-assets")).map((o) => o.name),
+    calls,
+  };
+  console.log(JSON.stringify(report));
+  server.close();
+  process.exit(0);
+}
 const out: Record<string, unknown> = { driver: S.storageDriver() };
 const text = (b: ArrayBuffer | null) => (b ? Buffer.from(b).toString() : null);
 

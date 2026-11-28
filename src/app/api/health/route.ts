@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/auth";
-import { deleteObjects, putObject, signedUrl, storageDriver } from "@/lib/storage";
+import { deleteObjects, putObject, r2Health, signedUrl, storageDriver } from "@/lib/storage";
 
 // Diagnostic endpoint: GET /api/health with header `x-health-token: <HEALTH_TOKEN>`.
 // Excluded from the password proxy, protected by its own token instead. Fails closed if HEALTH_TOKEN is unset.
@@ -17,17 +17,19 @@ export async function GET(request: Request) {
         SELECT (SELECT count(*)::int FROM users) AS users, (SELECT count(*)::int FROM posts) AS posts, now()`,
       timeout,
     ]);
-    // ?storage=1: round-trip a tiny file through the private recordings bucket
+    // ?storage=1: a live R2 check (sanitized: error name / code / HTTP status / message only, never a key), then a
+    // round-trip of a tiny file through the private recordings area on whichever backend serves it
     let storage: unknown = undefined;
     if (new URL(request.url).searchParams.get("storage") === "1") {
       const path = `_healthcheck/${Date.now()}.webm`;
+      const r2 = await r2Health().catch(() => ({ configured: true, ok: false, error: { name: "Error", code: null, status: null, message: "The R2 check itself failed; see the function log." } }));
       try {
         await putObject(path, new Uint8Array([26, 69, 223, 163]).buffer, "audio/webm");
         const url = await signedUrl(path, 60);
         const res = await fetch(url);
-        storage = { ok: res.ok, status: res.status, bytes: (await res.arrayBuffer()).byteLength, driver: storageDriver() };
+        storage = { ok: res.ok, status: res.status, bytes: (await res.arrayBuffer()).byteLength, driver: storageDriver(), r2 };
       } catch (err) {
-        storage = { ok: false, error: err instanceof Error ? err.message : String(err), driver: storageDriver() };
+        storage = { ok: false, error: err instanceof Error ? err.message : String(err), driver: storageDriver(), r2 };
       } finally {
         await deleteObjects([path]).catch(() => {});
       }
