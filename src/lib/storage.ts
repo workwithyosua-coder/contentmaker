@@ -2,9 +2,14 @@ import "server-only";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createHmac } from "node:crypto";
+import { PRESIGN, presignGet, presignPut, r2Config, r2Delete, r2Get, r2Head, r2Key, r2List, r2Put } from "./r2";
 
-// Private file storage for recordings (and later renders).
-// Production: Supabase Storage (private bucket, server-side secret key, short-lived signed URLs for playback).
+// Private file storage for recordings, renders, studio assets and custom assets.
+// Production with R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME: Cloudflare R2 (one private
+// bucket, the old Supabase bucket names as key prefixes, presigned URLs for every read). Every new upload goes to R2;
+// a read whose object isn't in R2 yet (an older episode or asset) falls back to Supabase Storage, so no existing link
+// breaks; a delete removes both copies (so the fallback can't bring a deleted file back).
+// Production without R2: Supabase Storage (private bucket, server-side secret key, short-lived signed URLs).
 // Local tests: STORAGE_DRIVER=local writes to ./.local-storage and serves files through /api/media (dev only).
 
 const BUCKET = "recordings";
@@ -12,6 +17,25 @@ const BUCKET = "recordings";
 const localPath = (objectPath: string, bucket: string) => path.join(LOCAL_DIR, bucket === BUCKET ? objectPath : `${bucket}/${objectPath}`);
 const local = () => process.env.STORAGE_DRIVER === "local" && !process.env.VERCEL; // never on Vercel
 const LOCAL_DIR = path.join(process.cwd(), ".local-storage");
+
+/** R2 settings when configured (never with the local test driver). */
+const r2 = () => (local() ? null : r2Config());
+/** Supabase Storage is still reachable for the fallback (older objects). */
+const supabaseReady = () => Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SECRET_KEY?.trim());
+
+/** Which backend serves storage right now (health checks, logs). */
+export const storageDriver = (): "local" | "r2" | "supabase" => (local() ? "local" : r2() ? "r2" : "supabase");
+
+// a positive R2 existence answer is remembered briefly, so a page signing 15 takes doesn't HEAD each one every time
+const inR2 = new Map<string, number>();
+async function r2Has(key: string): Promise<boolean> {
+  const cfg = r2()!;
+  const seen = inR2.get(key);
+  if (seen && seen > Date.now()) return true;
+  const ok = Boolean(await r2Head(cfg, key));
+  if (ok) inR2.set(key, Date.now() + 5 * 60_000);
+  return ok;
+}
 
 function supabase() {
   const url = process.env.SUPABASE_URL?.trim();
@@ -30,6 +54,12 @@ export async function putObject(objectPath: string, data: ArrayBuffer, contentTy
     await writeFile(file, Buffer.from(data));
     return;
   }
+  const cfg = r2();
+  if (cfg) {
+    await r2Put(cfg, r2Key(BUCKET, objectPath), new Uint8Array(data), baseMime(contentType));
+    inR2.set(r2Key(BUCKET, objectPath), Date.now() + 5 * 60_000);
+    return;
+  }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/${BUCKET}/${objectPath}`, {
     method: "POST",
@@ -39,12 +69,26 @@ export async function putObject(objectPath: string, data: ArrayBuffer, contentTy
   if (!res.ok) throw new Error(`Upload failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
 }
 
-/** A playback URL valid for `seconds`. */
-export async function signedUrl(objectPath: string, seconds = 3600): Promise<string> {
+/**
+ * A playback / download URL valid for `seconds` (R2: a presigned GET; an object not in R2 yet: Supabase's signed URL).
+ * `download` makes the browser save it under that file name (R2: signed into the URL; Supabase: its &download= flag).
+ * Never append query parameters to an R2 URL afterwards: that breaks its signature.
+ */
+export async function signedUrl(objectPath: string, seconds = 3600, opts: { download?: string } = {}): Promise<string> {
   if (local()) {
     const exp = Math.floor(Date.now() / 1000) + seconds;
     return `/api/media/${objectPath}?exp=${exp}&sig=${localSig(objectPath, exp)}`;
   }
+  const cfg = r2();
+  if (cfg) {
+    const key = r2Key(BUCKET, objectPath);
+    if (!supabaseReady() || (await r2Has(key))) return presignGet(cfg, key, seconds, opts);
+  }
+  const u = await supabaseSignedUrl(objectPath, seconds);
+  return opts.download ? `${u}&download=${encodeURIComponent(opts.download)}` : u;
+}
+
+async function supabaseSignedUrl(objectPath: string, seconds: number): Promise<string> {
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/sign/${BUCKET}/${objectPath}`, {
     method: "POST",
@@ -63,6 +107,11 @@ export async function signedUrls(paths: string[], seconds = 3600) {
 /** Downloads a private object (server-side only). Returns null if it doesn't exist. */
 export async function getObject(objectPath: string, bucket = BUCKET): Promise<ArrayBuffer | null> {
   if (local()) return readFile(localPath(objectPath, bucket)).then((b) => new Uint8Array(b).buffer, () => null);
+  const cfg = r2();
+  if (cfg) {
+    const got = await r2Get(cfg, r2Key(bucket, objectPath));
+    if (got || !supabaseReady()) return got;
+  }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/authenticated/${bucket}/${objectPath}`, { headers });
   if (res.status === 404 || res.status === 400) return null;
@@ -80,6 +129,9 @@ export async function signedUploadUrl(objectPath: string, bucket = BUCKET, upser
     const exp = Math.floor(Date.now() / 1000) + 900;
     return `/api/media/${p}?exp=${exp}&sig=${localSig(`put:${p}`, exp)}`;
   }
+  const cfg = r2();
+  // R2: a presigned PUT (it replaces an existing object, so `upsert` needs nothing more)
+  if (cfg) return presignPut(cfg, r2Key(bucket, objectPath), PRESIGN.upload);
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/upload/sign/${bucket}/${objectPath}`, {
     method: "POST",
@@ -96,6 +148,11 @@ export async function objectSize(objectPath: string): Promise<number | null> {
   if (local()) {
     const { stat } = await import("node:fs/promises");
     return stat(path.join(LOCAL_DIR, objectPath)).then((s) => s.size, () => null);
+  }
+  const cfg = r2();
+  if (cfg) {
+    const h = await r2Head(cfg, r2Key(BUCKET, objectPath));
+    if (h || !supabaseReady()) return h ? h.size : null;
   }
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/info/authenticated/${BUCKET}/${objectPath}`, { headers });
@@ -114,6 +171,7 @@ export async function listObjects(prefix: string, bucket = BUCKET): Promise<stri
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
     return entries.filter((e) => e.isFile()).map((e) => e.name).sort();
   }
+  if (r2()) return (await listObjectInfo(clean, bucket)).map((o) => o.name);
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
     method: "POST",
@@ -142,6 +200,17 @@ export async function listObjectInfo(prefix: string, bucket = BUCKET): Promise<{
       }),
     );
   }
+  const cfg = r2();
+  if (cfg) {
+    // R2's files plus older ones still only in Supabase (R2 wins on a name in both)
+    const [fromR2, older] = await Promise.all([r2List(cfg, r2Key(bucket, clean)), supabaseReady() ? supabaseListInfo(clean, bucket).catch(() => []) : []]);
+    const names = new Set(fromR2.map((o) => o.name));
+    return [...fromR2, ...older.filter((o) => !names.has(o.name))].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return supabaseListInfo(clean, bucket);
+}
+
+async function supabaseListInfo(clean: string, bucket: string): Promise<{ name: string; updatedAt: number | null; size?: number | null }[]> {
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/object/list/${bucket}`, {
     method: "POST",
@@ -165,6 +234,14 @@ export async function deleteObjects(paths: string[], bucket = BUCKET) {
     await Promise.all(paths.map((p) => rm(localPath(p, bucket), { force: true })));
     return;
   }
+  const cfg = r2();
+  if (cfg) {
+    const keys = paths.map((p) => r2Key(bucket, p));
+    await r2Delete(cfg, keys);
+    for (const k of keys) inR2.delete(k);
+    // the older copy too, so the Supabase fallback can't serve a deleted file again
+    if (!supabaseReady()) return;
+  }
   const { url, headers } = supabase();
   await fetch(`${url}/storage/v1/object/${bucket}`, {
     method: "DELETE",
@@ -179,7 +256,7 @@ export async function deleteObjects(paths: string[], bucket = BUCKET) {
  * by Supabase too. No-op for the local driver.
  */
 export async function ensurePublicBucket(bucket: string, opts: { maxBytes: number; types: string[] }) {
-  if (local()) return;
+  if (local() || r2()) return; // R2: one bucket, no per-bucket limits; uploads are size / type checked by the app
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
   if (res.ok) {
@@ -210,7 +287,7 @@ export async function ensurePublicBucket(bucket: string, opts: { maxBytes: numbe
  * upload limit still applies: 50 MB on the Free plan.)
  */
 export async function raisePrivateBucketLimit(maxBytes: number, types: string[], bucket = BUCKET) {
-  if (local()) return;
+  if (local() || r2()) return;
   const { url, headers } = supabase();
   const res = await fetch(`${url}/storage/v1/bucket/${bucket}`, { headers });
   if (!res.ok) throw new Error(`Couldn't read the ${bucket} storage bucket (${res.status}).`);
@@ -227,8 +304,10 @@ export async function raisePrivateBucketLimit(maxBytes: number, types: string[],
 }
 
 /**
- * Permanent HTTPS URL of an object in a public bucket. Local driver: an /api/media URL signed for 10 years (pass
- * `origin` to make it absolute, as the renderer needs).
+ * Permanent HTTPS URL of an object in a public bucket (studio-assets, custom-assets). Local driver: an /api/media URL
+ * signed for 10 years. R2: the app's /api/storage/<bucket>/<path>, which redirects every request to a fresh presigned
+ * R2 URL (or to the Supabase public URL for an older object not copied yet), so the URL itself never expires and the
+ * bucket stays private. Pass `origin` to make it absolute, as the renderer needs (else the production URL on Vercel).
  */
 export function publicObjectUrl(objectPath: string, bucket: string, origin?: string) {
   if (local()) {
@@ -237,7 +316,38 @@ export function publicObjectUrl(objectPath: string, bucket: string, origin?: str
     const u = `/api/media/${p}?exp=${exp}&sig=${localSig(p, exp)}`;
     return origin ? new URL(u, origin).toString() : u;
   }
+  if (r2()) {
+    const u = `/api/storage/${bucket}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+    const host = origin ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null);
+    return host ? new URL(u, host).toString() : u;
+  }
+  return supabasePublicUrl(objectPath, bucket);
+}
+
+/** The Supabase Storage public URL of an object (the fallback for older assets not copied to R2). */
+export function supabasePublicUrl(objectPath: string, bucket: string) {
   return `${process.env.SUPABASE_URL!.trim().replace(/\/$/, "")}/storage/v1/object/public/${bucket}/${objectPath}`;
+}
+
+/** Public buckets the /api/storage redirect serves (never the private recordings). */
+export const PUBLIC_AREAS = ["studio-assets", "custom-assets"] as const;
+
+/**
+ * Where /api/storage/<bucket>/<path> sends the browser / renderer: a fresh presigned R2 URL, or the Supabase public
+ * URL when the object isn't in R2 yet. Null for a private bucket or a bad path.
+ */
+export async function publicRedirect(bucket: string, objectPath: string): Promise<string | null> {
+  if (!(PUBLIC_AREAS as readonly string[]).includes(bucket)) return null;
+  let key: string;
+  try {
+    key = r2Key(bucket, objectPath);
+  } catch {
+    return null;
+  }
+  const cfg = r2();
+  if (!cfg) return supabaseReady() ? supabasePublicUrl(objectPath, bucket) : null;
+  if (!supabaseReady() || (await r2Has(key))) return presignGet(cfg, key, PRESIGN.asset);
+  return supabasePublicUrl(objectPath, bucket);
 }
 
 // ---- local driver helpers (dev/test only) ----

@@ -13,19 +13,22 @@
     "test:unit": "tsx --tsconfig tsconfig.json --test tests/unit/*.test.mts",
     "test:integration": "for f in tests/integration/*.test.mts; do echo \"== $f\"; tsx --conditions=react-server --tsconfig tsconfig.json \"$f\" || exit 1; done",
     "prebuild": "tsx scripts/asset-manifest.mts",
-    "assets": "tsx scripts/asset-manifest.mts"
+    "assets": "tsx scripts/asset-manifest.mts",
+    "storage:migrate-r2": "tsx --env-file-if-exists=.env.local scripts/migrate-supabase-to-r2.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@aws-sdk/client-s3": "^3.1179.0",
+    "@aws-sdk/s3-request-presigner": "^3.1179.0",
+    "@remotion/player": "4.0.544",
     "next": "16.4.6",
     "postgres": "^4.1.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
+    "remotion": "4.0.544",
     "server-only": "^0.0.1",
-    "zod": "^4.6.7",
-    "@remotion/player": "4.0.544",
-    "remotion": "4.0.544"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

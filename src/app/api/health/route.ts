@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { safeEqual } from "@/lib/auth";
-import { deleteObjects, putObject, signedUrl } from "@/lib/storage";
+import { deleteObjects, putObject, signedUrl, storageDriver } from "@/lib/storage";
 
 // Diagnostic endpoint: GET /api/health with header `x-health-token: <HEALTH_TOKEN>`.
 // Excluded from the password proxy, protected by its own token instead. Fails closed if HEALTH_TOKEN is unset.
@@ -25,9 +25,9 @@ export async function GET(request: Request) {
         await putObject(path, new Uint8Array([26, 69, 223, 163]).buffer, "audio/webm");
         const url = await signedUrl(path, 60);
         const res = await fetch(url);
-        storage = { ok: res.ok, status: res.status, bytes: (await res.arrayBuffer()).byteLength };
+        storage = { ok: res.ok, status: res.status, bytes: (await res.arrayBuffer()).byteLength, driver: storageDriver() };
       } catch (err) {
-        storage = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        storage = { ok: false, error: err instanceof Error ? err.message : String(err), driver: storageDriver() };
       } finally {
         await deleteObjects([path]).catch(() => {});
       }

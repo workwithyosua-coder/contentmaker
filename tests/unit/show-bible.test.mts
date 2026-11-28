@@ -227,6 +227,6 @@ test("zero Anthropic anywhere in the scheduler, its worker steps and the new pro
     assert.doesNotMatch(fs.readFileSync(path.join(ROOT, f), "utf8"), /ANTHROPIC_API_KEY|api\.anthropic\.com|import anthropic/, f);
   }
   const wf = fs.readFileSync(path.join(ROOT, ".github/workflows/autonomous-scheduler.yml"), "utf8");
-  assert.deepEqual([...new Set([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]))], ["RENDER_TOKEN"], "no new secret: the image model is called by the app");
+  assert.deepEqual([...new Set([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]))], ["RENDER_TOKEN", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"], "no new secret (beyond R2 media storage): the image model is called by the app");
   assert.match(fs.readFileSync(path.join(ROOT, "worker/edge/requirements.txt"), "utf8"), /^Pillow>=/m);
 });
