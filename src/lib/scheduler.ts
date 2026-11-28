@@ -73,8 +73,9 @@ export function defaultSlotTimes(n: number): string[] {
 export const FORMATS = {
   comedy_debate: { label: "Comedy Debate", brief: "Uco and Ocu argue a topic from opposite worldviews; real facts, neither one wins." },
   affiliate: {
-    label: "Affiliate (Yellow Basket)",
-    brief: "Uco and Ocu debate whether an everyday product is worth buying; honest pros and cons, no fake claims, ends by pointing to the yellow basket.",
+    label: "Affiliate Debate",
+    brief:
+      "A comedy debate about an everyday problem (85 %) that turns naturally to one product from the Affiliate Product Bank (15 %); honest, no fake claims, ends with a direct basket CTA.",
   },
   koran_kinetik: { label: "Koran Kinetik", brief: "A news-explainer episode built on short on-screen headlines; the key number gets an Evidence Takeover stat card." },
   diagram_taktis: { label: "Diagram Taktis", brief: "A tactical breakdown: Ocu explains how something really works step by step while Uco reacts." },

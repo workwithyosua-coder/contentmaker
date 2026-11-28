@@ -378,6 +378,8 @@ export type SlotView = {
     propWarning?: string | null;
   } | null;
   videoUrl: string | null;
+  /** Affiliate Debate: the product this queued slot is pinned to (null: the least recently used active one) */
+  affiliateProductId?: string | null;
   progressPercent: number | null;
   progressStage: string | null;
   progressDetail: string | null;
@@ -425,7 +427,20 @@ type Live = Pick<SlotView, "id" | "status" | "error" | "runUrl" | "episodeId" | 
  * from /api/schedule/queue every 4 s; polling stops when every slot is idle, done or failed, and pauses while the tab
  * is hidden. A slot whose status changed brings in the full card (hand-off, buttons) with one page refresh.
  */
-export function QueueList({ slots, canRun }: { slots: SlotView[]; canRun: boolean }) {
+export type SlotProductOption = { id: string; name: string };
+
+export function QueueList({
+  slots,
+  canRun,
+  products = [],
+  setSlotProduct,
+}: {
+  slots: SlotView[];
+  canRun: boolean;
+  /** active Affiliate Product Bank products, for a queued Affiliate Debate slot's picker */
+  products?: SlotProductOption[];
+  setSlotProduct?: (slotId: string, productId: string) => Promise<{ ok: boolean; message: string }>;
+}) {
   const router = useRouter();
   const [live, setLive] = useState<SlotView[]>(slots);
   // a server refresh brings new slots: they replace the live copy (React's "adjust state on a prop change" pattern)
@@ -474,14 +489,60 @@ export function QueueList({ slots, canRun }: { slots: SlotView[]; canRun: boolea
     <ol className="space-y-3" data-polling={polling ? "on" : "off"}>
       {live.map((s) => (
         <li key={s.id} className="min-w-0 rounded-control border border-border p-3" aria-busy={isActiveStage(s.progressStage) && s.status !== "failed" ? true : undefined}>
-          <SlotRow slot={s} canRun={canRun} />
+          <SlotRow slot={s} canRun={canRun} products={products} setSlotProduct={setSlotProduct} />
         </li>
       ))}
     </ol>
   );
 }
 
-function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
+/** A queued Affiliate Debate slot's product: Auto (least recently used active product) or one from the bank. */
+function SlotProductPicker({ slot, products, save }: { slot: SlotView; products: SlotProductOption[]; save: (slotId: string, productId: string) => Promise<{ ok: boolean; message: string }> }) {
+  const [value, setValue] = useState(slot.affiliateProductId ?? "");
+  const [msg, setMsg] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pending, start] = useTransition();
+  const id = `slot-product-${slot.id}`;
+  return (
+    <div className="space-y-1" data-slot-product>
+      <label htmlFor={id} className="block text-xs font-semibold">
+        Product
+      </label>
+      <select
+        id={id}
+        className="field min-w-0"
+        value={value}
+        disabled={pending}
+        onChange={(e) => {
+          const v = e.target.value;
+          setValue(v);
+          start(async () => setMsg(await save(slot.id, v)));
+        }}
+      >
+        <option value="">Auto: least recently used active product</option>
+        {products.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <p aria-live="polite" className="text-xs" style={{ color: msg && !msg.ok ? "var(--bad)" : "var(--muted)" }}>
+        {pending ? "Saving..." : msg?.message ?? (products.length ? "" : "No active products: this slot runs as a regular Comedy Debate.")}
+      </p>
+    </div>
+  );
+}
+
+function SlotRow({
+  slot: s,
+  canRun,
+  products = [],
+  setSlotProduct,
+}: {
+  slot: SlotView;
+  canRun: boolean;
+  products?: SlotProductOption[];
+  setSlotProduct?: (slotId: string, productId: string) => Promise<{ ok: boolean; message: string }>;
+}) {
   const [state, setState] = useState<Result>(null);
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -559,6 +620,8 @@ function SlotRow({ slot: s, canRun }: { slot: SlotView; canRun: boolean }) {
           )}
         </p>
       )}
+
+      {s.format === "affiliate" && s.status === "queued" && setSlotProduct && <SlotProductPicker slot={s} products={products} save={setSlotProduct} />}
 
       {showsProgress(s, now) && <SlotProgress slot={s} name={s.episodeTitle ?? s.topic ?? formatWib(new Date(s.scheduledFor))} />}
 

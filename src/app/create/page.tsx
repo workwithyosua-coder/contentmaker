@@ -43,6 +43,17 @@ export default function CreatePage() {
             <NewEpisodeModes />
           </Suspense>
         </Card>
+        <Card title="Affiliate Debate">
+          <Suspense
+            fallback={
+              <p role="status" aria-busy="true" className="text-sm text-muted">
+                Loading products...
+              </p>
+            }
+          >
+            <AffiliateDebateCard />
+          </Suspense>
+        </Card>
         <Suspense
           fallback={
             <div className="h-40 animate-pulse rounded-card bg-surface-2" />
@@ -129,4 +140,23 @@ function Voices({ ownerId }: { ownerId: string }) {
       <VoicesCard ownerId={ownerId} />
     </Suspense>
   );
+}
+
+/** Queue a one-off Affiliate Debate slot (Gemini only, through the scheduler); the active products to pick from. */
+async function AffiliateDebateCard() {
+  await connection();
+  const { listProducts } = await import("@/lib/affiliate/server");
+  const { QueueAffiliateDebate } = await import("@/components/affiliate/queue-affiliate");
+  const { queueAffiliateDebateAction } = await import("../schedule/affiliate-actions");
+  let products;
+  try {
+    products = (await listProducts()).filter((p) => p.status === "active").map((p) => ({ id: p.id, name: p.name }));
+  } catch (e) {
+    return (
+      <p role="alert" className="text-sm" style={{ color: "var(--bad)" }}>
+        The product bank couldn&apos;t load: {e instanceof Error ? e.message : String(e)}.
+      </p>
+    );
+  }
+  return <QueueAffiliateDebate products={products} action={queueAffiliateDebateAction} />;
 }

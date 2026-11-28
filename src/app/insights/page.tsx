@@ -87,6 +87,12 @@ export default function InsightsPage() {
         </Suspense>
       </Section>
 
+      <Section id="affiliate" title="Affiliate Conversions">
+        <Suspense fallback={<Loading what="affiliate conversions" />}>
+          <AffiliateBody />
+        </Suspense>
+      </Section>
+
       <Section id="pronunciation" title="Pronunciation Dictionary">
         <Suspense fallback={<Loading what="the dictionary" />}>
           <PronunciationBody />
@@ -207,4 +213,52 @@ async function PronunciationBody() {
     return <Failed what="The dictionary" error={e} />;
   }
   return <Pronunciations rows={rows.map((r) => ({ term: r.term, spoken_as: r.spoken_as }))} add={addPronunciationAction} remove={removePronunciationAction} />;
+}
+
+async function AffiliateBody() {
+  await connection();
+  const { conversionSummary, loggableAffiliateEpisodes } = await import("@/lib/affiliate/server");
+  const { formatRp } = await import("@/lib/affiliate/affiliate");
+  const { LogAffiliateOrders } = await import("@/components/affiliate/conversions");
+  let totals, episodes;
+  try {
+    [totals, episodes] = await Promise.all([conversionSummary(), loggableAffiliateEpisodes()]);
+  } catch (e) {
+    return <Failed what="Affiliate conversions" error={e} />;
+  }
+  return (
+    <div className="space-y-4">
+      {totals.episodes.length === 0 ? (
+        <p className="rounded-card border border-dashed border-border p-4 text-sm text-muted" data-empty>
+          No affiliate orders logged yet.
+        </p>
+      ) : (
+        <>
+          <dl className="grid grid-cols-3 gap-2" data-affiliate-totals>
+            {[
+              ["Orders", totals.orders.toLocaleString("id-ID")],
+              ["Clicks", totals.clicks.toLocaleString("id-ID")],
+              ["Commission (IDR)", formatRp(totals.commissionIdr)],
+            ].map(([k, v]) => (
+              <div key={k} className="min-w-0 rounded-card border border-border p-3">
+                <dt className="text-xs text-muted">{k}</dt>
+                <dd className="break-words text-lg font-semibold tabular-nums">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <ul className="space-y-2" data-affiliate-episodes>
+            {totals.episodes.map((e) => (
+              <li key={e.episodeId} className="rounded-card border border-border p-3 text-sm">
+                <p className="break-words font-semibold">{e.title}</p>
+                <p className="text-xs tabular-nums text-muted">
+                  {e.orders.toLocaleString("id-ID")} orders, {e.clicks.toLocaleString("id-ID")} clicks, {formatRp(e.commissionIdr)} commission
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <LogAffiliateOrders episodes={episodes} />
+    </div>
+  );
 }

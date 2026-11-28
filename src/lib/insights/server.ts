@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "../db";
 import { geminiJson } from "../gemini-text";
 import { applyNudges, adjustmentText, asIssueTags, asRating, clampTunables, DEFAULT_TUNABLES, TUNABLE_KEYS, type Tunables } from "./tunables";
-import { asCategory, canActivate, cleanRule, LESSON_CAP, LESSON_CATEGORIES, planLesson, type Lesson, type LessonCategory, type LessonSource, type PlaybookInput } from "./playbook";
+import { asCategory, canActivate, cleanRule, SHOW_BIBLE_GUARDRAIL, showBibleViolation, LESSON_CAP, LESSON_CATEGORIES, planLesson, type Lesson, type LessonCategory, type LessonSource, type PlaybookInput } from "./playbook";
 import { cleanViewPct, engagementScore, MIN_SAMPLE_VIEWS, quartiles, RETENTION_SETTLE_HOURS, snapshotWindow } from "./score";
 import { fetchFacebook, fetchInstagram, fetchYouTube, HttpError, type Fetched, type Getter } from "./metrics";
 import type { PronunciationOverride } from "../voice/phonetic";
@@ -398,6 +398,8 @@ BOTTOM QUARTILE
 ${bottom.map(row).join("\n")}
 
 Write up to 4 atomic, actionable rules (max 25 words each, imperative, English, no em dashes) that explain the difference and would make future episodes perform like the top ones. Only patterns the data supports. Category: topic, script, pacing, voice or visual.
+
+${SHOW_BIBLE_GUARDRAIL}
 Existing rules (do not repeat): ${existing.map((r) => `"${r}"`).join("; ") || "none"}.
 Answer JSON {"rules": [{"category": "...", "rule": "..."}]}.`;
 }
@@ -430,6 +432,12 @@ export async function analyzePatterns(now = new Date()): Promise<string | null> 
   const learned: string[] = [];
   for (const r of (out.rules ?? []).slice(0, 4)) {
     if (!cleanRule(r.rule)) continue;
+    // a rule that contradicts a Show Bible hard rule never enters the playbook, whatever the analyst wrote
+    const bad = showBibleViolation(r.rule);
+    if (bad) {
+      console.log(`[insights] analyst rule dropped (${bad}): ${cleanRule(r.rule)}`);
+      continue;
+    }
     const l = await learnLesson(asCategory(r.category), r.rule, "metrics_insight");
     learned.push(l.rule);
   }

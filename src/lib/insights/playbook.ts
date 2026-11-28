@@ -92,3 +92,29 @@ export function playbookBlock(p: PlaybookInput): string {
   if (avoid.length) parts.push(`- Avoid repeating (keluhan review terakhir): ${avoid.join(", ")}.`);
   return parts.join("\n");
 }
+
+/**
+ * The Show Bible's hard rules, which no learned rule may contradict: given to the Pattern Analyst in its prompt, and
+ * checked again on every rule it writes (showBibleViolation).
+ */
+export const SHOW_BIBLE_GUARDRAIL = `HARD RULES (never write a rule that contradicts these; leave such a pattern out):
+- The characters are always called "Uco" and "Ocu" in full. Never shorten either name (no "Cu", "Co", "U", "O" or any nickname).
+- A script is 12 to 16 lines including the outro CTA. Never ask for fewer than 12 or more than 16 lines.
+- A thought bubble is a silent inner monologue: nobody hears it, answers it, or reacts to it, and it is never read aloud to the other character.
+- Uco and Ocu alternate (never 3 lines in a row by one speaker) and the episode ends with the outro CTA.`;
+
+const NUM = "(\\d+|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty)";
+const WORD_NUM: Record<string, number> = { twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30 };
+const asNum = (s: string) => (/^\d+$/.test(s) ? Number(s) : WORD_NUM[s.toLowerCase()] ?? NaN);
+
+/** Which Show Bible hard rule a learned rule breaks, or null. */
+export function showBibleViolation(rule: string): string | null {
+  const r = cleanRule(rule);
+  if (/(^|[^\p{L}])(cu|co)([^\p{L}]|$)/iu.test(r) || /\b(nickname|shorten(ed)? (his|their|the) name)/i.test(r)) return "shortens Uco / Ocu";
+  for (const m of r.matchAll(new RegExp(`${NUM}(?:\\s*(?:-|to|or)\\s*${NUM})?\\s+(?:rapid[- ]fire\\s+)?(?:dialogue\\s+)?lines?`, "gi"))) {
+    const nums = [m[1], m[2]].filter(Boolean).map(asNum).filter((n) => Number.isFinite(n));
+    if (nums.some((n) => n < 12 || n > 16)) return "line count outside 12-16";
+  }
+  if (/thought[- ]?bubble|inner (monologue|thought)|\bthoughts?\b/i.test(r) && /\b(answer|answers|respond|responds|reply|replies|react|reacts|hear|hears|heard|aloud|out loud|overhear)/i.test(r)) return "breaks the silent thought rule";
+  return null;
+}

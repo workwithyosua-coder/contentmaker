@@ -6,6 +6,9 @@ import { Card } from "@/components/ui";
 import { getOwner } from "@/lib/queries";
 import { DEFAULT_RULE, normalizeRule } from "@/lib/scheduler";
 import { getSchedule, listQueue, propBank } from "@/lib/scheduler-server";
+import { ProductBank, type ProductView } from "@/components/affiliate/product-bank";
+import { listProducts, slotProducts } from "@/lib/affiliate/server";
+import { deleteProductAction, saveProductAction, setProductStatusAction, setSlotProductAction } from "./affiliate-actions";
 
 export const metadata: Metadata = { title: "Schedule" };
 
@@ -45,6 +48,9 @@ async function ScheduleBody() {
   const { publicObjectUrl } = await import("@/lib/storage");
   const { ASSET_BUCKET } = await import("@/lib/attached-assets");
   const rvc = await rvcModelStatus().catch(() => ({ uco: false, ocu: false }));
+  // Affiliate Debate slots: each queued slot's pinned product and the bank's active products (empty before migration 022)
+  const [pinned, bankProducts] = await Promise.all([slotProducts(queue.map((q) => q.id)).catch(() => ({}) as Record<string, string>), listProducts().catch(() => [])]);
+  const activeProducts = bankProducts.filter((p) => p.status === "active").map((p) => ({ id: p.id, name: p.name }));
   const slots: SlotView[] = await Promise.all(
     queue.map(async (q) => ({
       id: q.id,
@@ -58,6 +64,7 @@ async function ScheduleBody() {
       error: q.error_message,
       runUrl: q.run_url,
       handoff: q.handoff,
+      affiliateProductId: (pinned as Record<string, string>)[q.id] ?? null,
       videoUrl: q.handoff?.tiktokCaption && q.episode_id ? ((await latestVideo(q.episode_id).catch(() => null))?.url ?? null) : null,
       progressPercent: q.progress_percent,
       progressStage: q.progress_stage,
@@ -87,8 +94,22 @@ async function ScheduleBody() {
           <div className="space-y-4">
             <SeedsForm />
             {!canRun && <p className="text-sm text-muted">Run slot now needs GITHUB_DISPATCH_TOKEN in Vercel (the same token as Render video).</p>}
-            <QueueList slots={slots} canRun={canRun} />
+            <QueueList slots={slots} canRun={canRun} products={activeProducts} setSlotProduct={setSlotProductAction} />
           </div>
+        </Card>
+        <Card title="Affiliate Product Bank" className="min-w-0">
+          <p className="mb-3 text-sm text-muted">
+            Affiliate Debate slots sell one product from here: the slot&apos;s own pick, else the least recently used active product. With no active product the slot runs as a regular Comedy Debate.
+          </p>
+          <Suspense
+            fallback={
+              <p role="status" aria-busy="true" className="text-sm text-muted" data-loading>
+                Loading products...
+              </p>
+            }
+          >
+            <ProductBankBody />
+          </Suspense>
         </Card>
         <Card title="Prop Bank" className="min-w-0">
           <p className="mb-3 text-sm text-muted">
@@ -99,4 +120,32 @@ async function ScheduleBody() {
       </div>
     </div>
   );
+}
+
+/** The Product Bank's list (Loading: the Suspense fallback; Error: a readable message, the rest of the page unaffected). */
+async function ProductBankBody() {
+  let products;
+  try {
+    products = await listProducts();
+  } catch (e) {
+    console.error("[affiliate] product bank failed:", e);
+    return (
+      <p role="alert" className="text-sm" style={{ color: "var(--bad)" }} data-error>
+        The product bank couldn&apos;t load: {e instanceof Error ? e.message : String(e)}. Reload the page to try again.
+      </p>
+    );
+  }
+  const view: ProductView[] = products.map((p) => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    problemAngle: p.problem_angle,
+    priceIdr: p.price_idr,
+    commissionPct: p.commission_pct,
+    tiktokShopUrl: p.tiktok_shop_url,
+    shopeeUrl: p.shopee_url,
+    status: p.status,
+    timesUsed: p.times_used,
+  }));
+  return <ProductBank products={view} save={saveProductAction} setStatus={setProductStatusAction} remove={deleteProductAction} />;
 }

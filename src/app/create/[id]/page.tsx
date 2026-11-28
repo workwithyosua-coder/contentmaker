@@ -476,6 +476,11 @@ async function Episode({
         </Card>
       )}
 
+      {/* rendered only for an episode that sells an Affiliate Product Bank product */}
+      <Suspense fallback={null}>
+        <AffiliateHandOff projectId={project.id} />
+      </Suspense>
+
       {latestScript && (
         <Card title={video ? "Replace the video" : "Episode video"}>
           <VideoUpload start={startVideoUploadAction.bind(null, project.id)} finish={finishVideoUploadAction.bind(null, project.id)} />
@@ -699,5 +704,78 @@ async function ReviewCard({ projectId }: { projectId: string }) {
       last={last ? { rating: last.rating, issue_tags: last.issue_tags, created_at: last.created_at.toISOString() } : null}
       save={saveReviewAction.bind(null, projectId)}
     />
+  );
+}
+
+/** The Affiliate Hand-Off card: the product, its shop links, the posting checklist and the pinned comment to copy. */
+async function AffiliateHandOff({ projectId }: { projectId: string }) {
+  const { episodeAffiliate } = await import("@/lib/affiliate/server");
+  const { formatRp, cleanUrl } = await import("@/lib/affiliate/affiliate");
+  const { CopyPinnedComment } = await import("@/components/affiliate/handoff-card");
+  let a;
+  try {
+    a = await episodeAffiliate(projectId);
+  } catch (e) {
+    console.error("[affiliate] hand-off failed:", e);
+    return (
+      <Card title="Affiliate Hand-Off">
+        <p role="alert" className="text-sm" style={{ color: "var(--bad)" }}>
+          The affiliate hand-off couldn&apos;t load: {e instanceof Error ? e.message : String(e)}. Reload the page to try again.
+        </p>
+      </Card>
+    );
+  }
+  if (!a) return null;
+  const tiktok = cleanUrl(a.product.tiktok_shop_url);
+  const shopee = cleanUrl(a.product.shopee_url);
+  const steps = (a.handoffNote ?? "").split("\n").filter((l) => /^\d+\./.test(l));
+  return (
+    <Card title="Affiliate Hand-Off">
+      <div className="space-y-4" data-affiliate-handoff>
+        <p className="text-sm">
+          <span className="font-semibold">{a.product.name}</span> <span className="tabular-nums text-muted">{formatRp(a.product.price_idr)}</span>
+        </p>
+        {(tiktok || shopee) && (
+          <p className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            {tiktok && (
+              <a href={tiktok} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">
+                Open in TikTok Shop
+              </a>
+            )}
+            {shopee && (
+              <a href={shopee} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">
+                Open in Shopee
+              </a>
+            )}
+          </p>
+        )}
+        {!tiktok && !shopee && <p className="text-sm text-muted">No shop links saved for this product yet. Add them in the Affiliate Product Bank on Schedule.</p>}
+        {steps.length > 0 && (
+          <div>
+            <h3 className="mb-1 text-sm font-semibold">Before posting</h3>
+            <ol className="list-decimal space-y-1 pl-5 text-sm">
+              {steps.map((s) => {
+                const text = s.replace(/^\d+\.\s*/, "");
+                const key = /AI-generated content|Basket/.test(text);
+                return (
+                  <li key={s} className={key ? "font-semibold" : undefined}>
+                    {text}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
+        {a.pinnedComment && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Pinned comment (Instagram Reels, YouTube Shorts)</h3>
+            <pre className="whitespace-pre-wrap break-words rounded-control border border-border bg-surface-2 p-3 text-sm" data-pinned-comment>
+              {a.pinnedComment}
+            </pre>
+            <CopyPinnedComment text={a.pinnedComment} />
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
