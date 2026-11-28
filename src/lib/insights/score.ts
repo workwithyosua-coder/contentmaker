@@ -9,6 +9,22 @@ export const SCORE_WEIGHTS = { shares: 6, saves: 5, comments: 3, likes: 1, avgVi
 /** below this many views the per-view rates use this floor, so 1 share on 2 views isn't a 3,000-point outlier */
 export const VIEW_FLOOR = 50;
 
+/**
+ * The stored average view percentage: YouTube Shorts loop, so it routinely passes 100 (135.5 % = people watched it
+ * 1.355 times on average), and on a very short or barely viewed Short it can pass 1000. Kept as a number from 0 to
+ * 1000 (the column's CHECK constraint, migration 021); anything that isn't a finite, non-negative number is null.
+ */
+export const AVG_VIEW_PCT_MAX = 1000;
+export function cleanViewPct(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0) return null;
+  return Math.round(Math.min(v, AVG_VIEW_PCT_MAX) * 100) / 100;
+}
+
+/** Watch time's share of the score is capped here: 200 % (two full plays on average) earns the maximum 100 points. */
+export const WATCH_PCT_CAP = 200;
+
 const n = (v: unknown) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0);
 
 /**
@@ -22,7 +38,7 @@ export function engagementScore(m: PostNumbers): number {
   const views = n(m.views);
   const actions = W.shares * n(m.shares) + W.saves * n(m.saves) + W.comments * n(m.comments) + W.likes * n(m.likes);
   const perK = (actions / Math.max(views, VIEW_FLOOR)) * 1000;
-  const watched = m.avg_view_pct == null ? 0 : W.avgViewPct * Math.min(n(m.avg_view_pct), 200);
+  const watched = m.avg_view_pct == null ? 0 : W.avgViewPct * Math.min(n(m.avg_view_pct), WATCH_PCT_CAP);
   return Math.round((perK + watched + W.reach * Math.log10(1 + views)) * 100) / 100;
 }
 

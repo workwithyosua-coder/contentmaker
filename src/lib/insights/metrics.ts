@@ -7,7 +7,7 @@
 //   Facebook   Reel video_insights (plays, reach, social actions), with the video's likes / comments summaries as
 //              the fallback.
 // The HTTP layer is passed in (`get`), so every fallback is unit-tested without a network.
-import type { PostNumbers } from "./score";
+import { AVG_VIEW_PCT_MAX, cleanViewPct, type PostNumbers } from "./score";
 
 export class HttpError extends Error {
   constructor(message: string, public status: number, public code?: number) {
@@ -45,7 +45,11 @@ export async function fetchYouTube(get: Getter, videoId: string, publishedAt: Da
     const row = r.rows?.[0];
     if (row) {
       const pct = row[cols.indexOf("averageViewPercentage")];
-      if (pct != null && cols.includes("averageViewPercentage")) numbers.avg_view_pct = Math.round(num(pct) * 100) / 100;
+      if (pct != null && cols.includes("averageViewPercentage")) {
+        numbers.avg_view_pct = cleanViewPct(pct);
+        // a value past the column's range is stored at its limit, and said so (with YouTube's own number)
+        if (Number(pct) > AVG_VIEW_PCT_MAX) notices.push(`YouTube reported ${Number(pct)}% average view for ${videoId}; stored as ${AVG_VIEW_PCT_MAX}%.`);
+      }
       if (cols.includes("shares")) numbers.shares = num(row[cols.indexOf("shares")]);
     }
   } catch (e) {

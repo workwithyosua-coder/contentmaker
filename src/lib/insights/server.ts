@@ -3,7 +3,7 @@ import { db } from "../db";
 import { geminiJson } from "../gemini-text";
 import { applyNudges, adjustmentText, asIssueTags, asRating, clampTunables, DEFAULT_TUNABLES, TUNABLE_KEYS, type Tunables } from "./tunables";
 import { asCategory, canActivate, cleanRule, LESSON_CAP, LESSON_CATEGORIES, planLesson, type Lesson, type LessonCategory, type LessonSource, type PlaybookInput } from "./playbook";
-import { engagementScore, quartiles, snapshotWindow } from "./score";
+import { cleanViewPct, engagementScore, quartiles, snapshotWindow } from "./score";
 import { fetchFacebook, fetchInstagram, fetchYouTube, HttpError, type Fetched, type Getter } from "./metrics";
 import type { PronunciationOverride } from "../voice/phonetic";
 
@@ -346,7 +346,8 @@ export async function syncMetrics(now = new Date()): Promise<SyncResult> {
       r.notices.forEach((n) => notices.add(n));
       const score = engagementScore(r.numbers);
       const win = snapshotWindow((now.getTime() - new Date(p.published_at).getTime()) / 3_600_000);
-      const m = r.numbers;
+      // the stored percentage always fits the column (0-1000), whatever a platform sends
+      const m = { ...r.numbers, avg_view_pct: cleanViewPct(r.numbers.avg_view_pct) };
       await sql`
         INSERT INTO episode_metrics (episode_id, platform, platform_post_id, snapshot_window, views, likes, comments, shares, saves, avg_view_pct, engagement_score, captured_at)
         VALUES (${p.episode_id}, ${p.platform}, ${p.external_post_id}, ${win}, ${m.views}, ${m.likes}, ${m.comments}, ${m.shares}, ${m.saves}, ${m.avg_view_pct}, ${score}, ${now})
