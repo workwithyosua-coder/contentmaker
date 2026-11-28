@@ -424,3 +424,29 @@ test("UI copy: no em dashes, the agreed labels and empty copy", () => {
   assert.match(page, /`Active Playbook Rules \$\{active\} \/ \$\{LESSON_CAP\} active`/);
   assert.equal((page.match(/<Section id=/g) ?? []).length >= 4, true);
 });
+
+test("looping YouTube Shorts: avg_view_pct 135.5 is kept, scored with the watch-time cap, and always fits the column", async () => {
+  const { cleanViewPct, AVG_VIEW_PCT_MAX, WATCH_PCT_CAP } = await import("../../src/lib/insights/score.ts");
+  assert.equal(cleanViewPct(135.5), 135.5);
+  assert.equal(cleanViewPct("135.456"), 135.46);
+  assert.equal(cleanViewPct(4210.7), AVG_VIEW_PCT_MAX, "a short barely-viewed Short past 1000 % is stored at the limit");
+  for (const bad of [-3, Number.NaN, Infinity, "abc", null, undefined, ""]) assert.equal(cleanViewPct(bad), null, String(bad));
+  // the score: 135.5 % adds 0.5 × 135.5 = 67.75 points of watch time; 200 % and above earn the same 100 points
+  const base = { views: 1000, likes: 20, comments: 2, shares: 3, saves: 1, avg_view_pct: null as number | null };
+  const none = engagementScore(base);
+  assert.equal(Math.round((engagementScore({ ...base, avg_view_pct: 135.5 }) - none) * 100) / 100, 67.75);
+  assert.ok(engagementScore({ ...base, avg_view_pct: 135.5 }) > engagementScore({ ...base, avg_view_pct: 80 }), "looping retention is rewarded");
+  assert.equal(engagementScore({ ...base, avg_view_pct: 1000 }), engagementScore({ ...base, avg_view_pct: WATCH_PCT_CAP }), "capped: a 1000 % outlier can't dominate");
+  // the YouTube fetcher: 135.5 passes through; 4210.7 is stored at 1000 with a notice naming YouTube's number
+  const stats = { items: [{ statistics: { viewCount: "300", likeCount: "9", commentCount: "1" } }] };
+  const at = (pct: number) => routes({ "/videos": () => stats, "/reports": () => ({ columnHeaders: [{ name: "averageViewPercentage" }, { name: "shares" }], rows: [[pct, 2]] }) });
+  const loop = await fetchYouTube(at(135.5), "8DVqratkkq8", new Date("2026-11-18"), new Date("2026-11-27"));
+  assert.equal(loop.numbers.avg_view_pct, 135.5);
+  assert.deepEqual(loop.notices, []);
+  const wild = await fetchYouTube(at(4210.7), "8DVqratkkq8", new Date("2026-11-18"), new Date("2026-11-27"));
+  assert.equal(wild.numbers.avg_view_pct, 1000);
+  assert.deepEqual(wild.notices, ["YouTube reported 4210.7% average view for 8DVqratkkq8; stored as 1000%."]);
+  // the column's CHECK (migration 021) is 0-1000, the same range cleanViewPct keeps to
+  assert.match(read("db/migrations/021_showrunner_playbook.sql"), /CHECK \(avg_view_pct IS NULL OR \(avg_view_pct >= 0 AND avg_view_pct <= 1000\)\)/);
+  assert.match(read("src/lib/insights/server.ts"), /const m = \{ \.\.\.r\.numbers, avg_view_pct: cleanViewPct\(r\.numbers\.avg_view_pct\) \};/);
+});
