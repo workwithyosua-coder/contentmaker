@@ -122,7 +122,7 @@ test("the Edge TTS path never reaches the Anthropic API, Gemini TTS, or a new se
   assert.doesNotMatch(py, /anthropic|api_key|API_KEY/i);
   assert.match(fs.readFileSync(path.join(ROOT, "worker/edge/requirements.txt"), "utf8"), /^edge-tts>=7\.3\.1$/m);
   const wf = fs.readFileSync(path.join(ROOT, ".github/workflows/autonomous-scheduler.yml"), "utf8");
-  assert.deepEqual([...new Set([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]))], ["RENDER_TOKEN"], "no new secret");
+  assert.deepEqual([...new Set([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]))], ["RENDER_TOKEN", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"], "no new secret beyond the R2 media storage keys");
   // ffmpeg, Python and edge-tts are ready before voicing runs
   const at = (s: string) => wf.indexOf(s);
   assert.ok(at("name: Install ffmpeg") < at("name: Script and voices"));

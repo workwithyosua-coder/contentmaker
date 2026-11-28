@@ -4,6 +4,7 @@ import { db } from "../db";
 import { GRAPH_VERSION, graph, graphPost, isMetaRateLimit } from "../platforms/meta";
 import { youtubeUpload, type UploadStep } from "./youtubeUpload";
 import { getObject, signedUrl } from "../storage";
+import { PRESIGN } from "../r2";
 import { accessTokenFor as tiktokToken } from "../sync/tiktok";
 import { accessTokenFor as youtubeToken } from "../sync/youtube";
 import type { PublishPlatform } from "./captions";
@@ -175,7 +176,7 @@ async function instagram(p: PublicationRow): Promise<Advance> {
   const a = await account(p.social_account_id);
   const token = decrypt(a.access_token_enc);
   if (!p.step.container) {
-    const url = await signedUrl(p.video.storage_path, 2 * 3600); // Instagram downloads the file from this URL
+    const url = await signedUrl(p.video.storage_path, PRESIGN.publish); // Instagram downloads the file from this URL
     const c = await graphPost<{ id: string }>(`/${a.external_account_id}/media`, token, {
       media_type: "REELS",
       video_url: url,
@@ -204,7 +205,8 @@ async function facebook(p: PublicationRow): Promise<Advance> {
   const page = a.external_account_id;
   if (!p.step.videoId) {
     const start = await graphPost<{ video_id: string; upload_url?: string }>(`/${page}/video_reels`, token, { upload_phase: "start" });
-    const url = await signedUrl(p.video.storage_path, 2 * 3600);
+    // Facebook fetches the hosted file itself, possibly much later: a long-lived link (R2 presigned or Supabase signed)
+    const url = await signedUrl(p.video.storage_path, PRESIGN.publish);
     const up = await fetch(start.upload_url ?? `https://rupload.facebook.com/video-upload/${GRAPH_VERSION}/${start.video_id}`, {
       method: "POST",
       headers: { Authorization: `OAuth ${token}`, file_url: url },

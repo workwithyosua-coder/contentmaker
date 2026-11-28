@@ -31,7 +31,7 @@ import { getEpisode, type ScriptRow } from "@/lib/episodes";
 import { estimateSeconds, formatDuration } from "@/lib/script-import";
 import { getBooth, recordingProgress } from "@/lib/recordings";
 import { latestRenderJob, renderButtonConfigured } from "@/lib/render-jobs";
-import { latestVideo } from "@/lib/render";
+import { latestVideo, videoDownloadUrl } from "@/lib/render";
 import { getDriveConnection } from "@/lib/drive";
 import { db } from "@/lib/db";
 import { publishAccounts } from "@/lib/publish/accounts";
@@ -433,7 +433,7 @@ async function Episode({
             {video.duration_ms ? `, ${Math.round(video.duration_ms / 1000)} s long` : ""}.
           </p>
           <div className="mt-3 flex flex-wrap items-start gap-2">
-            <a href={`${video.url}&download=${encodeURIComponent((project.title ?? "episode") + ".mp4")}`} className="btn btn-secondary">
+            <a href={await videoDownloadUrl(video.storage_path, `${project.title ?? "episode"}.mp4`)} className="btn btn-secondary">
               Download MP4
             </a>
             {video.drive_url ? (

@@ -13,6 +13,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!login|privacy|terms|data-deletion|api/health|api/cron|api/render|api/scheduler|api/insights/sync-metrics|api/media|props/|cast/|tiktok[^/]*\\.txt|_next/static|_next/image|manifest.webmanifest|icon-192.png|icon-512.png|icon-maskable-512.png|icon-1024.png|apple-touch-icon.png|favicon.ico).*)",
+    "/((?!login|privacy|terms|data-deletion|api/health|api/cron|api/render|api/scheduler|api/insights/sync-metrics|api/media|api/storage/|props/|cast/|tiktok[^/]*\\.txt|_next/static|_next/image|manifest.webmanifest|icon-192.png|icon-512.png|icon-maskable-512.png|icon-1024.png|apple-touch-icon.png|favicon.ico).*)",
   ],
 };

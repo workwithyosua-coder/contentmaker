@@ -40,3 +40,9 @@ export async function latestVideo(projectId: string) {
   const { signedUrl } = await import("./storage");
   return { ...v, url: await signedUrl(v.storage_path, 6 * 3600) };
 }
+
+/** A download link for an episode video, saved as `fileName` (signed for that purpose; never built by appending to the playback URL). */
+export async function videoDownloadUrl(storagePath: string, fileName: string) {
+  const { signedUrl } = await import("./storage");
+  return signedUrl(storagePath, 6 * 3600, { download: fileName });
+}

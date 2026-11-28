@@ -259,7 +259,7 @@ test("the scheduler, its routes, page and worker step never reach the Anthropic 
   const wf = fs.readFileSync(path.join(ROOT, ".github/workflows/autonomous-scheduler.yml"), "utf8");
   assert.doesNotMatch(wf, /ANTHROPIC_API_KEY|api\.anthropic\.com/);
   assert.match(wf, /cron: "47 2,10 \* \* \*"/, "09:47 and 17:47 WIB");
-  assert.deepEqual([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]), ["RENDER_TOKEN"], "no new GitHub secrets");
+  assert.deepEqual([...wf.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]), ["RENDER_TOKEN", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"], "no new GitHub secrets beyond the R2 media storage keys");
   // the worker's calls carry RENDER_TOKEN, not the login cookie: the login proxy must let /api/scheduler through
   assert.match(fs.readFileSync(path.join(ROOT, "src/proxy.ts"), "utf8"), /\|api\/scheduler\|/);
 });
