@@ -65,12 +65,14 @@ test("slot keys and object paths outside the allowlist are rejected", () => {
   assert.equal(originalType("originals/uco-angry-open.keep.exe"), null);
 });
 
-test("sprites: an uploaded studio file wins, then the repo's public/cast, then shocked / defensive / the default pose", () => {
+test("sprites: an uploaded studio file wins, then the repo's public/cast, then the character's default pose", () => {
   resetRemoteAssets();
-  // nothing uploaded, no angry sprite in the repo: Uco stands in as shocked, Ocu (no shocked / defensive) as deadpan
-  assert.equal(castSprites("uco", "angry")?.emotion, "shocked");
-  assert.equal(castSprites("uco", "angry")?.closed, "cast/uco/shocked-closed.png");
-  assert.equal(castSprites("ocu", "angry")?.emotion, "deadpan");
+  // nothing uploaded: the repo's own angry sprites (no stand-in pose any more)
+  assert.deepEqual(castSprites("uco", "angry"), { emotion: "angry", closed: "cast/uco/angry-closed.png", open: "cast/uco/angry-open.png", remote: false });
+  assert.deepEqual(castSprites("ocu", "angry"), { emotion: "angry", closed: "cast/ocu/angry-closed.png", open: "cast/ocu/angry-open.png", remote: false });
+  // a pose nobody has drawn: the character's default (Uco triumphant, Ocu deadpan), never another character's look
+  assert.equal(castSprites("uco", "sleepy")?.emotion, "triumphant");
+  assert.equal(castSprites("ocu", "sleepy")?.emotion, "deadpan");
   // uploaded: the Supabase URLs, for both mouth frames
   registerRemoteAssets({ cast: { "uco/angry-closed.png": URL_UCO_C, "uco/angry-open.png": URL_UCO_O } });
   const s = castSprites("uco", "angry")!;
@@ -81,9 +83,9 @@ test("sprites: an uploaded studio file wins, then the repo's public/cast, then s
   assert.equal(castSprites("uco", "shocked")?.open, URL_UCO_C, "one uploaded frame serves as both until its pair arrives");
   // anything but a cast sprite key, or a non-URL, is ignored
   registerRemoteAssets({ cast: { "../../etc/passwd": "https://x/y", "ocu/angry-closed.png": "javascript:alert(1)" } });
-  assert.equal(castSprites("ocu", "angry")?.emotion, "deadpan");
+  assert.equal(castSprites("ocu", "angry")?.closed, "cast/ocu/angry-closed.png", "an unsafe URL is ignored: the repo sprite");
   resetRemoteAssets();
-  assert.equal(castSprites("uco", "angry")?.emotion, "shocked", "removing the upload falls back again");
+  assert.equal(castSprites("uco", "angry")?.closed, "cast/uco/angry-closed.png", "removing the upload falls back to the repo sprite");
 });
 
 test("urgent BGM: the uploaded bgm-urgent, else the repo's, else the regular bgm (never a crash)", () => {

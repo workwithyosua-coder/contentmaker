@@ -53,10 +53,34 @@ const MEASURED: Record<string, HeadBox> = {
   "ocu/cta": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 371, y0: 608, x1: 532, y1: 698 }, fingertip: { x: 816, y: 721 } },
   "uco/phone": { hairTop: 150, chin: 720, faceX: 410, ...UCO, mouth: { x0: 324, y0: 555, x1: 502, y1: 695 } },
   "ocu/explaining": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 376, y0: 618, x1: 530, y1: 698 } },
-  // angry (Studio Assets uploads): assumed exported in the same 900×1700 framing as the set above; no eye or mouth
-  // boxes are measured for an upload, so it blinks not and swaps its two mouth frames
-  "uco/angry": { hairTop: 150, chin: 720, faceX: 410, sweat: UCO_SWEAT },
-  "ocu/angry": { hairTop: 150, chin: 720, faceX: 493, sweat: OCU_SWEAT },
+  // angry (repo sprites, rebuilt to match the set): each pair was scaled uniformly (Uco 0.600, Ocu 0.585; no stretch)
+  // and shifted so its eye line sits on the starters' eye line, so the head box is the shared one and a cut never
+  // jumps in size. The angry eyes are narrower (furrowed brows), so their eye whites, lid skin and mouth are measured
+  // on these sprites; a Studio Assets upload of the angry pose uses the same entries.
+  "uco/angry": {
+    hairTop: 150,
+    chin: 720,
+    faceX: 410,
+    sweat: UCO_SWEAT,
+    eyes: [
+      { cx: 326, cy: 470, rx: 30, ry: 27 },
+      { cx: 457, cy: 469, rx: 39, ry: 29 },
+    ],
+    skin: "#FCA768",
+    mouth: { x0: 333, y0: 575, x1: 486, y1: 697 },
+  },
+  "ocu/angry": {
+    hairTop: 150,
+    chin: 720,
+    faceX: 493,
+    sweat: OCU_SWEAT,
+    eyes: [
+      { cx: 402, cy: 507, rx: 49, ry: 22 },
+      { cx: 547, cy: 505, rx: 34, ry: 22 },
+    ],
+    skin: "#9ABBBE",
+    mouth: { x0: 395, y0: 609, x1: 547, y1: 719 },
+  },
   "ocu/inspecting": { hairTop: 150, chin: 720, faceX: 493, ...OCU, mouth: { x0: 372, y0: 608, x1: 535, y1: 696 }, lens: { x: 725, y: 720, r: 110 } },
 };
 

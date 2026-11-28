@@ -6,7 +6,6 @@ import path from "node:path";
 import { test } from "node:test";
 import { headFracFor, INSPECT_FACE_X, INSPECT_PAIR_X, lensOnCanvas, fitFrameH, SOLO_H, PAIR_H, STAGE_TOP } from "../../video/src/shared/castLayout.ts";
 import { buildBeats, listenerPoseFor, type EpisodeLine } from "../../video/src/beats.ts";
-import { koranPoses } from "../../video/src/koran/poses.ts";
 import { bgmDropOut, bgmLevel, DROP_OUT_FRAMES } from "../../video/src/shared/bgm.ts";
 import { COUNT_FRAMES, LOCK_POP_FRAMES, TAKEOVER_STEPS, countUp, ctaTapFrame, lensHover, lensPropBox, statNumber, takeoverTimeline } from "../../video/src/shared/motion.ts";
 import { ACCENT_BUDGET, sfxCuesFor } from "../../video/src/shared/sfxCues.ts";
@@ -35,10 +34,7 @@ test("two-shot listener: Uco is never a smiling triumphant while Ocu explains, i
   assert.equal(listenerPoseFor({ speaker: "uco", text: "Gue bilang investasi!", subtitle: "", thought_bubble: false }, { emotion: "triumphant", cameraShot: "two-shot" }), "deadpan");
   assert.equal(listenerPoseFor({ speaker: "ocu", text: "x", subtitle: "", thought_bubble: false }, { emotion: "deadpan", cameraShot: "solo-ocu" }), null);
   // end to end: the live b11 / b15 two-shots ("Batu kali dicat ungu…", "Nama lo salah ketik…", Ocu inspecting)
-  const beats = koranPoses(
-    buildBeats([line({ speaker: "uco", text: "Batu kristal ungu gue udah dijemur." }, 0), line({ speaker: "ocu", emotion: "inspecting", camera_shot: "two-shot", text: "Nama lo salah ketik dan webinar-nya seminar cara jualan." }, 1)], EXACT),
-    [],
-  );
+  const beats = buildBeats([line({ speaker: "uco", text: "Batu kristal ungu gue udah dijemur." }, 0), line({ speaker: "ocu", emotion: "inspecting", camera_shot: "two-shot", text: "Nama lo salah ketik dan webinar-nya seminar cara jualan." }, 1)], EXACT);
   assert.equal(beats[1].cameraShot, "two-shot");
   assert.equal(beats[1].listenerPose, "defensive");
   // the Director draws the listener with that pose, dimmed (brightness 0.82) and stepped back; the speaker forward

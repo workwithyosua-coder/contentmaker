@@ -9,11 +9,10 @@ import { TRIM } from "../../video/src/audioChain.ts";
 import { bgmFile, registerRemoteAssets, resetRemoteAssets } from "../../video/src/assets/index.ts";
 import { buildBeats, type EpisodeLine } from "../../video/src/beats.ts";
 import { parseDirection } from "../../video/src/direction.ts";
-import { koranPoses } from "../../video/src/koran/poses.ts";
 import { BGM_UNDER_DIALOGUE, bgmLevel } from "../../video/src/shared/bgm.ts";
 import { STAGE_BOTTOM, STAGE_TOP } from "../../video/src/shared/castLayout.ts";
 import { STAMP_CARD_GAP, cardCeiling, stackColumn, stampFloor } from "../../video/src/shared/motion.ts";
-import { SFX_VOLUME, sfxCuesFor } from "../../video/src/shared/sfxCues.ts";
+import { SCRATCH_FRAMES, SCRATCH_MIN_ROOM, SFX_VOLUME, sfxCuesFor } from "../../video/src/shared/sfxCues.ts";
 import { writeAssetManifest } from "../../scripts/asset-manifest.mts";
 import { fillDeadAir } from "../../src/lib/scheduler.ts";
 import { CTA_LINE, showBiblePrompt, showDirection, withCta } from "../../src/lib/showBible.ts";
@@ -53,20 +52,46 @@ test("the per-beat stamp stays gone: that episode makes new-prop pops, one impac
   resetRemoteAssets();
   registerRemoteAssets({ props: PROPS });
   const beats = buildBeats(episode(), KK);
-  const cues = sfxCuesFor(beats, { ding: true });
+  const cues = sfxCuesFor(beats, { ding: true, scratch: true });
   resetRemoteAssets();
   const beatOf = (f: number) => beats.findIndex((b) => f >= b.startFrame && f < b.startFrame + b.durationInFrames);
   // was (before #58): a stamp on every beat with a callout (8 here) + pops + dings + whooshes + every script effect.
   // Now: the book appears (b1), comes back after a line without it (b3), the crystal appears (b10); the angry b5 callout
-  // is the one impact accent; the outro button flips with a ding
+  // is the one impact accent; the outro button flips with a ding. (No record scratch: here the punchline's voice starts
+  // right on the thought's last word, with no silent gap for it; see the next test.)
   assert.deepEqual(cues.map((c) => [c.name, beatOf(c.frame) + 1]), [["pop", 1], ["pop", 3], ["stamp", 5], ["pop", 10], ["ding", 15]]);
   for (const b of beats.filter((x) => x.thought)) assert.ok(!cues.some((c) => beatOf(c.frame) === beats.indexOf(b)), `nothing on ${b.id}`);
   assert.ok(cues.length <= 6, "a handful per episode, not one per cut");
   assert.ok(cues.every((c) => c.volume! <= 0.28));
 });
 
+test("the punchline's record scratch sits in the silent pre-punchline gap and ends exactly as the voice lands", () => {
+  // three spoken lines and the outro, voices from frame 6 to 6 before the end, natural pacing (0.38 s drop before the
+  // punchline)
+  const lines = [
+    line({ speaker: "uco", envelope: speaking(90), frames: 90 }, 0),
+    line({ speaker: "ocu", envelope: speaking(90), frames: 90 }, 1),
+    line({ speaker: "uco", camera_shot: "closeup-punch", kinetic_text: "TRAKTIR GUE", envelope: speaking(90), frames: 90 }, 2),
+    line({ speaker: "ocu", emotion: "cta", text: "Follow @uco.ocu biar nggak ketipu lagi!", envelope: speaking(90), frames: 90 }, 3),
+  ];
+  const beats = buildBeats(lines, KK);
+  const cues = sfxCuesFor(beats, { ding: true, scratch: true });
+  const scratch = cues.find((c) => c.name === "record-scratch");
+  assert.ok(scratch, "a scratch when there's room");
+  const punch = beats[2];
+  const prev = beats[1];
+  assert.equal(scratch!.frame + SCRATCH_FRAMES >= punch.startFrame + punch.speechStart, true);
+  assert.ok(scratch!.frame >= prev.startFrame + prev.speechEnd + 1, "never on top of the previous voice");
+  assert.ok(punch.startFrame + punch.speechStart - scratch!.frame >= SCRATCH_MIN_ROOM);
+  assert.equal(scratch!.volume, SFX_VOLUME.scratch);
+  // the punchline itself takes no other accent; the ding still flips the outro; nothing else is added
+  assert.deepEqual(cues.map((c) => c.name), ["record-scratch", "ding"]);
+  // without the file: no scratch (and nothing in its place)
+  assert.deepEqual(sfxCuesFor(beats, { ding: true, scratch: false }).map((c) => c.name), ["ding"]);
+});
+
 test("a takeover stat card: whoosh (0.16) then stamp (0.26) as it slams, once per run; a new prop pops (0.22); thoughts stay silent", () => {
-  assert.deepEqual(SFX_VOLUME, { whoosh: 0.16, stamp: 0.26, pop: 0.22, accentStamp: 0.22, accentPop: 0.18, ding: 0.28 });
+  assert.deepEqual(SFX_VOLUME, { whoosh: 0.16, stamp: 0.26, pop: 0.22, accentStamp: 0.22, accentPop: 0.18, ding: 0.28, scratch: 0.24 });
   const lines = [
     line({ speaker: "uco", sfx: ["whoosh", "stamp", "ding"] }, 0),
     line({ speaker: "ocu", layout: "takeover", stat: "35 RIBU | SEGELAS" }, 1),
@@ -196,12 +221,13 @@ test("a thought bubble shows only its own prop: never the previous line's (Ocu's
   assert.match(read("video/src/shared/Director.tsx"), /\{beat\.propImage \|\| beat\.sceneImageUrl \|\| beat\.propTag !== "none" \? <div/);
 });
 
-test("Koran Kinetik draws angry with the master art's poses: shocked when shouted, else defensive", () => {
+test("Koran Kinetik draws angry with the style-matched angry sprites (no shocked / defensive alias any more)", () => {
   const lines = [line({ speaker: "uco", expression: "angry", text: "Ini frekuensi gelombang kuantum!" }, 0), line({ speaker: "ocu", expression: "angry", text: "Itu bukan investasi", subtitle: "That's not an investment" }, 1)];
   const beats = buildBeats(lines, { exact: true } as never);
   assert.deepEqual(beats.map((b) => b.emotion), ["angry", "angry"]);
-  koranPoses(beats, lines);
-  assert.deepEqual(beats.map((b) => b.emotion), ["shocked", "defensive"]);
   assert.ok(beats.every((b) => b.angry), "the angry shake and vignette stay");
-  assert.match(read("video/src/koran/KoranKinetik.tsx"), /const beats = koranPoses\(buildBeats\(lines, direction\), lines\);/);
+  const koran = read("video/src/koran/KoranKinetik.tsx");
+  assert.match(koran, /const beats = buildBeats\(lines, direction\);/);
+  assert.doesNotMatch(koran, /koranPoses/);
+  assert.ok(!fs.existsSync(path.join(ROOT, "video/src/koran/poses.ts")));
 });
