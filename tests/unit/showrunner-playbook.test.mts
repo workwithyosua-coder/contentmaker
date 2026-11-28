@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { applyNudges, clampTunable, clampTunables, DEFAULT_TUNABLES, expressivenessCue, TUNABLE_BOUNDS, TUNABLE_KEYS } from "../../src/lib/insights/tunables.ts";
 import { canActivate, cleanRule, LESSON_CAP, planLesson, playbookBlock, sameRule, type Lesson } from "../../src/lib/insights/playbook.ts";
 import { engagementScore, quartiles, snapshotWindow } from "../../src/lib/insights/score.ts";
-import { fetchFacebook, fetchInstagram, fetchYouTube, HttpError, type Getter } from "../../src/lib/insights/metrics.ts";
+import { fetchFacebook, fetchInstagram, fetchYouTube, HttpError, NoNumbersError, type Getter } from "../../src/lib/insights/metrics.ts";
 import { qaProblems, runQaGate, type QaLine } from "../../src/lib/insights/qa-gate.ts";
 import { applyOverrides, ttsText } from "../../src/lib/voice/phonetic.ts";
 import { geminiSpeech } from "../../src/lib/voice/acting.ts";
@@ -449,4 +449,28 @@ test("looping YouTube Shorts: avg_view_pct 135.5 is kept, scored with the watch-
   // the column's CHECK (migration 021) is 0-1000, the same range cleanViewPct keeps to
   assert.match(read("db/migrations/021_showrunner_playbook.sql"), /CHECK \(avg_view_pct IS NULL OR \(avg_view_pct >= 0 AND avg_view_pct <= 1000\)\)/);
   assert.match(read("src/lib/insights/server.ts"), /const m = \{ \.\.\.r\.numbers, avg_view_pct: cleanViewPct\(r\.numbers\.avg_view_pct\) \};/);
+});
+
+test("a post that returns no numbers at all is a failed sync, never an all-zero row", async () => {
+  const gone = (id: string) => () => {
+    throw new HttpError(`Unsupported get request. Object with ID '${id}' does not exist, cannot be loaded due to missing permissions, or does not support this operation`, 400, 100);
+  };
+  // Instagram: every insight refused (batch, one by one, "plays") and the like / comment fallback fails
+  const ig = routes({ "/insights": gone("18117987266130871"), "/18117987266130871": gone("18117987266130871") });
+  await assert.rejects(fetchInstagram(ig, "18117987266130871", "https://g"), (e: unknown) => e instanceof NoNumbersError && /Instagram returned no numbers for media 18117987266130871 \(Unsupported get request/.test((e as Error).message));
+  // Facebook: the same for a Reel (the "kopi susu" reel's case)
+  const fb = routes({ "/video_insights": gone("1619138552749598"), "/1619138552749598": gone("1619138552749598") });
+  await assert.rejects(fetchFacebook(fb, "1619138552749598", "https://g"), (e: unknown) => e instanceof NoNumbersError && /Facebook returned no numbers for video 1619138552749598/.test((e as Error).message));
+  // real zeros are still real numbers: a brand-new Reel with 0 plays that Facebook does report is saved
+  const zero = routes({ "/video_insights": () => ({ data: [{ name: "blue_reels_play_count", values: [{ value: 0 }] }] }), "/v0": () => ({ likes: { summary: { total_count: 0 } }, comments: { summary: { total_count: 0 } } }) });
+  assert.deepEqual((await fetchFacebook(zero, "v0", "https://g")).numbers, { views: 0, likes: 0, comments: 0, shares: 0, saves: 0, avg_view_pct: null });
+  // only the counts fallback answered (insights refused): still numbers, still saved
+  const counts = routes({ "/insights": gone("m9"), "/m9": () => ({ like_count: 0, comments_count: 2 }) });
+  assert.equal((await fetchInstagram(counts, "m9", "https://g")).numbers.comments, 2);
+  // the sync counts a NoNumbersError as that post's failure (it never reaches the INSERT), and the analyst and the
+  // winning hooks skip any all-zero row left from before
+  const server = read("src/lib/insights/server.ts");
+  assert.match(server, /\} catch \(e\) \{\s*failed\+\+;/);
+  assert.equal((server.match(/WHERE \(views \+ likes \+ comments \+ shares \+ saves\) > 0 GROUP BY episode_id/g) ?? []).length, 2, "analyst quartiles + top hooks");
+  assert.match(server, /WHERE captured_at > \$\{since\} AND \(views \+ likes \+ comments \+ shares \+ saves\) > 0`/);
 });
