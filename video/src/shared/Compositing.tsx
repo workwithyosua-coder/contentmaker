@@ -31,7 +31,7 @@ export type SfxCue = { name: string; frame: number; volume?: number };
 
 /** How long each built-in effect stays mounted (its real length plus a little); uploaded effects get 2 s. Short slots
  *  keep few audio tags alive at once (the in-app Player shares a limited pool of them). */
-const SFX_FRAMES: Record<string, number> = { whoosh: 24, pop: 18, stamp: 24, ding: 30, "record-scratch": 36 };
+const SFX_FRAMES: Record<string, number> = { whoosh: 24, pop: 18, stamp: 24, ding: 16, "record-scratch": 14 };
 
 /** Sound-effect cues. Each plays only if public/sfx/{name}.mp3 (or .wav) has been added; otherwise nothing. */
 export function SfxCues({ cues }: { cues: SfxCue[] }) {

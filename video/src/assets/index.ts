@@ -12,9 +12,6 @@ const DEFAULT_EMOTION: Record<"uco" | "ocu", string[]> = {
   ocu: ["deadpan", "explaining", "defensive", "triumphant"],
 };
 
-/** Poses drawn later than the starter set, and what stands in for them until their sprites exist. */
-const FALLBACK_EMOTION: Record<string, string[]> = { angry: ["shocked", "defensive"] };
-
 /**
  * One emotion's two mouth frames, in priority order: 1. uploaded in the app (Studio Assets, a public Supabase URL;
  * one uploaded frame serves as both when its pair isn't uploaded yet), 2. the repo's public/cast, else null.
@@ -30,11 +27,11 @@ const pair = (who: string, emotion: string) => {
 
 /**
  * Sprite pair for a character and emotion: that emotion's two mouth frames if they exist (uploaded first, then the
- * repo), else its stand-in poses (angry → shocked → defensive), else the character's default emotion (so one person
+ * repo), else the character's default emotion (so one person
  * never switches between illustrated and coded looks), else null (the coded CastSvg figure stands in).
  */
 export function castSprites(who: "uco" | "ocu", emotion: string): { emotion: string; closed: string; open: string; remote: boolean } | null {
-  return pair(who, emotion) ?? [...(FALLBACK_EMOTION[emotion] ?? []), ...DEFAULT_EMOTION[who]].map((e) => pair(who, e)).find(Boolean) ?? null;
+  return pair(who, emotion) ?? DEFAULT_EMOTION[who].map((e) => pair(who, e)).find(Boolean) ?? null;
 }
 
 /**

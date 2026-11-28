@@ -2,7 +2,6 @@ import React from "react";
 import { AbsoluteFill, Sequence, useCurrentFrame } from "remotion";
 import { registerLineAssets, registerRemoteAssets } from "../assets";
 import { buildBeats, type Beat } from "../beats";
-import { koranPoses } from "./poses";
 import { VoiceTrack } from "../cast/CueShared";
 import { useSpriteFrames } from "../cast/useSpriteFrames";
 import { BackgroundMusic, GrainVignette, SfxCues } from "../shared/Compositing";
@@ -48,7 +47,8 @@ export function KoranKinetik({ lines, direction, assetUrls, reducedMotion = fals
   setMotionEnergy(direction?.motionEnergy);
   // uploaded sprites are measured once so they're framed like the calibrated ones (spriteFrame.ts)
   useSpriteFrames(Object.values(assetUrls?.cast ?? {}));
-  const beats = koranPoses(buildBeats(lines, direction), lines);
+  // angry beats draw the repo's style-matched angry sprites directly (the shocked / defensive alias is gone)
+  const beats = buildBeats(lines, direction);
   return (
     <AbsoluteFill style={BACKGROUND}>
       {/* each beat is a full-canvas opaque layer; it stays mounted (held on its last frame) while the next beat

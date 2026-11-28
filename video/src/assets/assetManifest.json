@@ -1,5 +1,7 @@
 {
   "cast": [
+    "ocu/angry-closed.png",
+    "ocu/angry-open.png",
     "ocu/cta-closed.png",
     "ocu/cta-open.png",
     "ocu/deadpan-closed.png",
@@ -8,6 +10,8 @@
     "ocu/explaining-open.png",
     "ocu/inspecting-closed.png",
     "ocu/inspecting-open.png",
+    "uco/angry-closed.png",
+    "uco/angry-open.png",
     "uco/defensive-closed.png",
     "uco/defensive-open.png",
     "uco/phone-closed.png",
