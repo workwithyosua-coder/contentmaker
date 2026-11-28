@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { clampExpiry, fromR2Key, PRESIGN, presignGet, presignPut, r2Config, r2Key, STORAGE_AREAS } from "../../src/lib/r2.ts";
+import { clampExpiry, fromR2Key, PRESIGN, presignGet, presignPut, r2Config, r2ErrorInfo, r2Key, STORAGE_AREAS } from "../../src/lib/r2.ts";
 import { ROOT } from "./importGraph.mts";
 
 const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
@@ -60,7 +60,7 @@ test("presigned URLs: GET for playback / downloads / publishing, PUT for uploads
   assert.match(read("src/lib/publish/adapters.ts"), /signedUrl\(p\.video\.storage_path, PRESIGN\.publish\)/);
 });
 
-const harness = (mode: "supabase" | "r2") =>
+const harness = (mode: "supabase" | "r2" | "r2broken") =>
   JSON.parse(
     execFileSync("npx", ["tsx", "--conditions=react-server", "--tsconfig", "tsconfig.json", "tests/unit/storage-fallback.harness.mts"], {
       cwd: ROOT,
@@ -150,4 +150,37 @@ test('episode videos keep <video preload="metadata"> (opening a page never pre-d
     const s = read(`src/${f}`);
     for (const v of s.match(/<video\b[^>]*>/g) ?? []) assert.match(v, /preload="(metadata|none)"/, `${f}: ${v}`);
   }
+});
+
+test("hotfix: when R2 fails (e.g. a refused key pair) every read and write falls back to Supabase instead of failing", () => {
+  const r = harness("r2broken");
+  // the live check names the real error, sanitized
+  assert.equal(r.health.configured, true);
+  assert.equal(r.health.ok, false);
+  assert.deepEqual([r.health.error.name, r.health.error.code, r.health.error.status], ["InvalidAccessKeyId", "InvalidAccessKeyId", 403]);
+  assert.match(r.health.error.message, /^The AWS Access Key Id you provided does not exist in our records: <access-key-id>/);
+  assert.doesNotMatch(JSON.stringify(r.health), /AKIDTEST|s3cr3t|0123456789abcdef/, "no key material in the health output");
+  // after the failure, storage runs on Supabase (circuit breaker), and nothing failed for the caller
+  assert.equal(r.driverAfter, "supabase");
+  assert.equal(r.putLandedInSupabase, "saved anyway", "an upload during an R2 failure is kept in Supabase");
+  assert.match(r.signedOld, /\/storage\/v1\/object\/sign\/recordings\/old-episode\/line-01\.webm/);
+  assert.equal(r.bytesOld, "old take");
+  assert.match(r.uploadUrl, /\/storage\/v1\/object\/upload\/sign\/studio-assets\//, "no upload URL R2 would refuse");
+  assert.match(r.redirect, /\/storage\/v1\/object\/public\/studio-assets\/sprites\/uco-angry-closed\.png$/);
+  assert.deepEqual(r.list, ["uco-angry-closed.png"]);
+  // one refused R2 request trips the breaker; the rest go straight to Supabase
+  assert.ok(r.calls.filter((c: string) => c.startsWith("r2 ")).length <= 2, r.calls.join(" | "));
+});
+
+test("hotfix: R2 errors are reported as name / code / status / message with credentials and long tokens scrubbed", () => {
+  const cfg = r2Config(ENV)!;
+  const e = Object.assign(new Error(`SignatureDoesNotMatch for AKIDTEST with s3cr3t at https://acct123.r2.cloudflarestorage.com sig=${"a1".repeat(32)}`), { name: "SignatureDoesNotMatch", Code: "SignatureDoesNotMatch", $metadata: { httpStatusCode: 403 } });
+  const info = r2ErrorInfo(e, cfg);
+  assert.deepEqual([info.name, info.code, info.status], ["SignatureDoesNotMatch", "SignatureDoesNotMatch", 403]);
+  assert.doesNotMatch(info.message, /AKIDTEST|s3cr3t|acct123|a1a1a1/);
+  assert.match(info.message, /<access-key-id> with <secret> at https:\/\/<account-id>\.r2\.cloudflarestorage\.com <redacted>$/);
+  // the health route returns only that shape (and never the raw error)
+  const health = read("src/app/api/health/route.ts");
+  assert.match(health, /const r2 = await r2Health\(\)\.catch\(\(\) => \(\{ configured: true, ok: false, error: \{ name: "Error", code: null, status: null, message: "The R2 check itself failed; see the function log\." \} \}\)\);/);
+  assert.match(read("src/lib/storage.ts"), /endpointHost: new URL\(cfg\.endpoint\)\.host\.replace\(cfg\.accountId, "<account-id>"\)/);
 });

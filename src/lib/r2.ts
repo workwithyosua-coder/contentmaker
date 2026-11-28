@@ -148,3 +148,41 @@ export async function r2Delete(cfg: R2Config, keys: string[]): Promise<void> {
     await r2Client(cfg).send(new DeleteObjectsCommand({ Bucket: cfg.bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
   }
 }
+
+/** An R2 error as name / code / HTTP status / message, with every credential and the account id scrubbed out. */
+export type R2ErrorInfo = { name: string; code: string | null; status: number | null; message: string };
+export function r2ErrorInfo(e: unknown, cfg?: R2Config | null): R2ErrorInfo {
+  const x = (e ?? {}) as { name?: string; Code?: string; code?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+  let message = String(x.message ?? e ?? "unknown error");
+  for (const [secret, label] of [
+    [cfg?.secretAccessKey, "<secret>"],
+    [cfg?.accessKeyId, "<access-key-id>"],
+    [cfg?.accountId, "<account-id>"],
+  ] as const) {
+    if (secret) message = message.split(secret).join(label);
+  }
+  // anything else that looks like a key or a signature (long base64 / hex runs)
+  message = message.replace(/[A-Za-z0-9+/=_-]{32,}/g, "<redacted>").replace(/\s+/g, " ").trim().slice(0, 300);
+  return { name: String(x.name ?? "Error").slice(0, 60), code: (x.Code ?? x.code ?? null) ? String(x.Code ?? x.code).slice(0, 60) : null, status: x.$metadata?.httpStatusCode ?? null, message };
+}
+
+/** "Not found" (a missing object): an answer, not a failure. Anything else means R2 itself isn't usable. */
+export const isR2NotFound = (e: unknown) => {
+  const x = e as { name?: string; $metadata?: { httpStatusCode?: number } } | null;
+  return x?.name === "NotFound" || x?.name === "NoSuchKey" || x?.$metadata?.httpStatusCode === 404;
+};
+
+/**
+ * A live R2 check for /api/health: list one key of the bucket (an answer with an XML error code, unlike HEAD), so a
+ * bad key pair, a wrong bucket name or a wrong endpoint (e.g. an EU-jurisdiction bucket) shows its real error. The
+ * endpoint's host and the bucket name are not secret; the keys never appear.
+ */
+export async function r2Probe(cfg: R2Config): Promise<{ ok: true; ms: number } | { ok: false; ms: number; error: R2ErrorInfo }> {
+  const t = Date.now();
+  try {
+    await r2Client(cfg).send(new ListObjectsV2Command({ Bucket: cfg.bucket, MaxKeys: 1, Prefix: "recordings/_healthcheck/" }));
+    return { ok: true, ms: Date.now() - t };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - t, error: r2ErrorInfo(e, cfg) };
+  }
+}
