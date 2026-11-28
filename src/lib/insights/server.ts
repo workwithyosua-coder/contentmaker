@@ -3,7 +3,7 @@ import { db } from "../db";
 import { geminiJson } from "../gemini-text";
 import { applyNudges, adjustmentText, asIssueTags, asRating, clampTunables, DEFAULT_TUNABLES, TUNABLE_KEYS, type Tunables } from "./tunables";
 import { asCategory, canActivate, cleanRule, LESSON_CAP, LESSON_CATEGORIES, planLesson, type Lesson, type LessonCategory, type LessonSource, type PlaybookInput } from "./playbook";
-import { cleanViewPct, engagementScore, quartiles, snapshotWindow } from "./score";
+import { cleanViewPct, engagementScore, MIN_SAMPLE_VIEWS, quartiles, RETENTION_SETTLE_HOURS, snapshotWindow } from "./score";
 import { fetchFacebook, fetchInstagram, fetchYouTube, HttpError, type Fetched, type Getter } from "./metrics";
 import type { PronunciationOverride } from "../voice/phonetic";
 
@@ -220,7 +220,7 @@ export async function getPlaybook(): Promise<PlaybookInput & { tunables: Tunable
       SELECT category, rule_text FROM studio_lessons WHERE status = 'active' ORDER BY evidence_count DESC, updated_at DESC LIMIT ${LESSON_CAP}`;
     const hooks = await sql<{ hook: string | null }[]>`
       SELECT (SELECT s.lines->0->>'text' FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS hook
-      FROM (SELECT episode_id, max(engagement_score) AS score FROM episode_metrics WHERE (views + likes + comments + shares + saves) > 0 GROUP BY episode_id) m
+      FROM (SELECT episode_id, max(engagement_score) AS score FROM episode_metrics WHERE views >= ${MIN_SAMPLE_VIEWS} GROUP BY episode_id) m
       ORDER BY m.score DESC LIMIT 2`;
     const avoid = await sql<{ tag: string }[]>`
       SELECT DISTINCT unnest(issue_tags) AS tag FROM (
@@ -411,13 +411,17 @@ export async function analyzePatterns(now = new Date()): Promise<string | null> 
   const sql = db();
   const [last] = await sql<{ value: string }[]>`SELECT value FROM app_settings WHERE key = ${ANALYSIS_KEY}`;
   const since = last ? new Date(last.value) : new Date(0);
-  const [{ n }] = await sql<{ n: number }[]>`SELECT count(DISTINCT episode_id)::int AS n FROM episode_metrics WHERE captured_at > ${since} AND (views + likes + comments + shares + saves) > 0`;
+  // settled, meaningful samples only (score.ts analystEligible): ≥ 100 views and, on YouTube, retention in or ≥ 72 h old
+  const eligible = sql`em.views >= ${MIN_SAMPLE_VIEWS} AND (em.platform <> 'youtube' OR em.avg_view_pct IS NOT NULL OR EXISTS (
+      SELECT 1 FROM episode_publications ep WHERE ep.project_id = em.episode_id AND ep.platform::text = 'youtube' AND ep.status = 'published'
+        AND ep.external_post_id = em.platform_post_id AND ep.published_at <= ${now}::timestamptz - make_interval(hours => ${RETENTION_SETTLE_HOURS})))`;
+  const [{ n }] = await sql<{ n: number }[]>`SELECT count(DISTINCT em.episode_id)::int AS n FROM episode_metrics em WHERE em.captured_at > ${since} AND ${eligible}`;
   if (n < ANALYSIS_MIN_NEW) return null;
   const scored = await sql<Scored[]>`
     SELECT m.episode_id, p.title, m.score::float8 AS engagement_score, m.pct::float8 AS avg_view_pct,
            (SELECT s.lines->0->>'text' FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS hook,
            (SELECT jsonb_array_length(s.lines) FROM scripts s WHERE s.project_id = m.episode_id ORDER BY s.version DESC LIMIT 1) AS lines
-    FROM (SELECT episode_id, max(engagement_score) AS score, max(avg_view_pct) AS pct FROM episode_metrics WHERE (views + likes + comments + shares + saves) > 0 GROUP BY episode_id) m
+    FROM (SELECT em.episode_id, max(em.engagement_score) AS score, max(em.avg_view_pct) AS pct FROM episode_metrics em WHERE ${eligible} GROUP BY em.episode_id) m
     JOIN content_projects p ON p.id = m.episode_id`;
   if (scored.length < ANALYSIS_MIN_NEW) return null;
   const { top, bottom } = quartiles(scored);

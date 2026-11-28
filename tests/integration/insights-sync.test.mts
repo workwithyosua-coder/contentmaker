@@ -73,10 +73,19 @@ assert.equal(r.analysis, null, "2 newly scored episodes: not enough for the anal
 await S.syncMetrics();
 assert.equal((await sql`SELECT count(*)::int AS n FROM episode_metrics`)[0].n, 2);
 
-// a third scored episode (TikTok, logged by hand) → the analyst runs on the next sync
+// a third scored episode (TikTok, logged by hand): but the YouTube Short is 30 h old with no retention yet
+// (Analytics 403 → avg_view_pct null), so it's held out and only 2 settled episodes remain: the analyst waits
 await S.logTikTokMetrics({ episodeId: episodes[2], views: "1.200", likes: 50, comments: 9, shares: 31, saves: 12 });
 const r2 = await S.syncMetrics();
-assert.match(r2.analysis!, /updated 2 metrics rule\(s\)/);
+assert.equal(r2.analysis, null, "a fresh YouTube Short without retention isn't compared yet");
+// a 7-view outlier never counts toward the analyst (or the winning hooks), however it scores
+await S.logTikTokMetrics({ episodeId: episodes[3], views: 7, likes: 3, comments: 1, shares: 1, saves: 0 });
+assert.equal(await S.analyzePatterns(), null);
+assert.ok(!(await S.getPlaybook()).topHooks.includes("Langganan lima aplikasi streaming"), "a 7-view post is no winning hook");
+// 72 h after posting the YouTube Short is settled (even without retention): 3 eligible episodes, the analyst runs
+const r3 = await S.analyzePatterns(new Date(Date.now() + 45 * 3_600_000));
+assert.match(r3!, /updated 2 metrics rule\(s\)/);
+assert.doesNotMatch(analystPrompt, /Insights ep 3/, "the 7-view outlier isn't in the comparison");
 assert.match(analystPrompt, /TOP QUARTILE[\s\S]*BOTTOM QUARTILE/);
 const lessons = await S.listLessons();
 assert.deepEqual(lessons.map((l) => `${l.source}:${l.rule_text}`).sort(), ["metrics_insight:Land the stat card before second 20.", "metrics_insight:Name a price in the first line."]);

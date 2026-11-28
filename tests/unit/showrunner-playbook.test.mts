@@ -471,6 +471,54 @@ test("a post that returns no numbers at all is a failed sync, never an all-zero 
   // winning hooks skip any all-zero row left from before
   const server = read("src/lib/insights/server.ts");
   assert.match(server, /\} catch \(e\) \{\s*failed\+\+;/);
-  assert.equal((server.match(/WHERE \(views \+ likes \+ comments \+ shares \+ saves\) > 0 GROUP BY episode_id/g) ?? []).length, 2, "analyst quartiles + top hooks");
-  assert.match(server, /WHERE captured_at > \$\{since\} AND \(views \+ likes \+ comments \+ shares \+ saves\) > 0`/);
+  // (since #70 the stricter "≥ 100 views" sample rule keeps any all-zero row out of the analyst and the hooks)
+  assert.equal((server.match(/views >= \$\{MIN_SAMPLE_VIEWS\}/g) ?? []).length, 2, "analyst eligibility + top hooks");
+});
+
+test("sample-size confidence: a 7-view / 1000 %-watched Short scores well below a 2,000-view / 11-share post and teaches nothing", async () => {
+  const S = await import("../../src/lib/insights/score.ts");
+  const outlier = { views: 7, likes: 1, comments: 0, shares: 0, saves: 0, avg_view_pct: 1000 };
+  const solid = { views: 2029, likes: 86, comments: 3, shares: 11, saves: 4, avg_view_pct: null };
+  const lo = engagementScore(outlier);
+  const hi = engagementScore(solid);
+  assert.equal(hi, 95.82, "a 100+-view post scores exactly as before");
+  assert.ok(lo < 15 && hi > lo * 5, `${lo} well below ${hi}`);
+  // the confidence factor is smooth: min(1, views / 100) on the rate and watch-time points, reach untouched
+  assert.equal(S.sampleConfidence(7), 0.07);
+  assert.equal(S.sampleConfidence(50), 0.5);
+  assert.equal(S.sampleConfidence(100), 1);
+  assert.equal(S.sampleConfidence(5000), 1);
+  const at = (views: number) => engagementScore({ views, likes: 0, comments: 0, shares: 0, saves: 0, avg_view_pct: 120 });
+  assert.ok(at(20) < at(50) && at(50) < at(99) && at(99) < at(100) + 0.5, "no cliff at 100 views");
+  // excluded from the analyst and from the winning-hooks anchor (< 100 views), whatever its score
+  const now = new Date("2026-11-28T12:00:00Z");
+  assert.equal(S.hookEligible(outlier), false);
+  assert.equal(S.analystEligible({ platform: "youtube", ...outlier, published_at: "2026-11-18T15:45:00Z" }, now), false);
+  assert.equal(S.hookEligible(solid), true);
+  assert.equal(S.analystEligible({ platform: "instagram", ...solid, published_at: "2026-11-20T00:00:00Z" }, now), true);
+  // the SQL applies the same rules
+  const server = read("src/lib/insights/server.ts");
+  assert.match(server, /FROM episode_metrics WHERE views >= \$\{MIN_SAMPLE_VIEWS\} GROUP BY episode_id\) m\s*ORDER BY m\.score DESC LIMIT 2/, "winning hooks: ≥ 100 views");
+  assert.match(server, /const eligible = sql`em\.views >= \$\{MIN_SAMPLE_VIEWS\} AND \(em\.platform <> 'youtube' OR em\.avg_view_pct IS NOT NULL OR EXISTS \(/);
+  assert.match(server, /FROM episode_metrics em WHERE em\.captured_at > \$\{since\} AND \$\{eligible\}`/, "the new-episode count");
+  assert.match(server, /FROM episode_metrics em WHERE \$\{eligible\} GROUP BY em\.episode_id\) m/, "the quartiles");
+  assert.equal(S.MIN_SAMPLE_VIEWS, 100);
+});
+
+test("a fresh 24h YouTube Short without retention is held out of the analyst until retention arrives or 72 h pass", async () => {
+  const S = await import("../../src/lib/insights/score.ts");
+  const published = new Date("2026-11-27T12:00:00Z");
+  const fresh = { platform: "youtube", views: 541, avg_view_pct: null, published_at: published };
+  const h = (hours: number) => new Date(published.getTime() + hours * 3_600_000);
+  assert.equal(S.analystEligible(fresh, h(24)), false, "24 h, no retention yet: held out");
+  assert.equal(S.analystEligible(fresh, h(71.9)), false);
+  assert.equal(S.analystEligible(fresh, h(72)), true, "72 h: in, even without retention");
+  assert.equal(S.analystEligible({ ...fresh, avg_view_pct: 48.2 }, h(24)), true, "retention arrived: in right away");
+  assert.equal(S.analystEligible({ ...fresh, published_at: null }, h(500)), false, "no known publish time: wait for retention");
+  // the winning-hooks anchor only needs the views
+  assert.equal(S.hookEligible(fresh), true);
+  // Instagram / Facebook / TikTok rows don't wait on retention
+  for (const platform of ["instagram", "facebook", "tiktok"]) assert.equal(S.analystEligible({ ...fresh, platform }, h(1)), true, platform);
+  assert.equal(S.RETENTION_SETTLE_HOURS, 72);
+  assert.match(read("src/lib/insights/server.ts"), /AND ep\.external_post_id = em\.platform_post_id AND ep\.published_at <= \$\{now\}::timestamptz - make_interval\(hours => \$\{RETENTION_SETTLE_HOURS\}\)/);
 });
